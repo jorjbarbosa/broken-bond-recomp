@@ -85,10 +85,12 @@ int main(int argc, char** argv) {
     auto at = summary.find(token);
     return at == std::string::npos ? UINT64_MAX : std::strtoull(summary.c_str() + at + token.size(), nullptr, 10);
   };
-  check("cached-bindings", number("vulkan_draws") == 100 && number("draw_descriptor_groups") == 3 &&
-      number("draw_samplers") == 2 && number("draw_framebuffers") == 1 && number("draw_image_views") == 4 &&
-      number("draw_constant_bytes") == 100 * 512 + 3 * 4096 && number("draw_render_passes") == 3,
-      "{" + summary + "}");
+  // Three heap views (identity, swizzle, the recreated image), each written
+  // once; the point sampler and the texture's; the heap bound once per pass.
+  check("cached-bindings", number("vulkan_draws") == 100 && number("draw_heap_views") == 3 &&
+      number("draw_heap_samplers") == 2 && number("draw_framebuffers") == 1 && number("draw_image_views") == 1 &&
+      number("draw_constant_bytes") == 100 * 512 + 3 * 4096 && number("draw_render_passes") == 3 &&
+      number("draw_descriptor_binds") == 3, "{" + summary + "}");
   // GPU completion permits slot reuse. Recreate the released texture key and
   // reuse constant versions: no descriptor or BDA from the old batch may
   // survive as a valid binding in this one.
@@ -107,8 +109,9 @@ int main(int argc, char** argv) {
   }
   check("second-batch-every-texel", colors, e);
   summary = engine.PipelineSummary();
-  check("recycled-descriptors", number("draw_descriptor_pools") == 1 && number("draw_set_allocations") == 12 &&
-      number("draw_samplers") == 2 && number("vulkan_draws") == 121, "{" + summary + "}");
+  // The new image's view takes a slot the completed batch gave back: still three slots.
+  check("recycled-slots", number("draw_heap_views") == 4 && number("draw_heap_slots") == 3 &&
+      number("draw_heap_samplers") == 2 && number("vulkan_draws") == 121, "{" + summary + "}");
   check("release", engine.ReleaseRemaining(e), e);
   check("shutdown", engine.Shutdown(e), e);
   output << "{\"kind\":\"verdict\",\"passed\":" << (passed ? "true" : "false") << "}\n";

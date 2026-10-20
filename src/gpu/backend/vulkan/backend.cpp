@@ -33,6 +33,7 @@
 #include <deque>
 #include <functional>
 #include <unordered_map>
+#include <utility>
 #include <fmt/format.h>
 #include <fmt/ranges.h>
 
@@ -223,6 +224,44 @@ VkResult CreateImage(VmaAllocator allocator, VkFormat format, uint32_t width, ui
   return VK_SUCCESS;
 }
 
+// The draw heap (draw.inc): image slots shared by the 2D and cube sets, and
+// sampler slots. Slot 0 of each set is the null texture and the point sampler.
+constexpr uint32_t kHeapViewSlots = 8192, kHeapSamplerSlots = 2048;
+
+// The views of an image in the draw heap: one per component mapping and
+// dimension, each written once into its slot. They go with the image, which
+// is destroyed only once no submitted or recorded work reads it: the views are
+// destroyed then and their slots go back to the free list.
+struct HeapViews {
+  struct View {
+    uint32_t key = 0;  // The component mapping (3 bits a component) and the cube bit.
+    VkImageView view = VK_NULL_HANDLE;
+    uint32_t slot = 0;
+  };
+  VkDevice device = VK_NULL_HANDLE;
+  std::vector<uint32_t>* free_slots = nullptr;
+  std::vector<View> views;
+  HeapViews() = default;
+  HeapViews(HeapViews&& other) noexcept { *this = std::move(other); }
+  HeapViews& operator=(HeapViews&& other) noexcept {
+    if (this != &other) {
+      Release();
+      device = other.device;
+      free_slots = other.free_slots;
+      views = std::exchange(other.views, {});
+    }
+    return *this;
+  }
+  ~HeapViews() { Release(); }
+  void Release() {
+    for (const View& v : views) {
+      vkDestroyImageView(device, v.view, nullptr);
+      free_slots->push_back(v.slot);
+    }
+    views.clear();
+  }
+};
+
 const char* LayoutName(VkImageLayout layout) {
   switch (layout) {
     case VK_IMAGE_LAYOUT_UNDEFINED: return "undefined";
@@ -306,8 +345,6 @@ class Backend final : public gpu::Backend {
 #endif
 
  private:
-  // The view slot of a sampled texture from the free ones, or a new one.
-  uint32_t AllocateView();
   // WaitIdle (close: the open batch is submitted first) and WaitSubmitted.
   bool Wait(bool close, std::string& evidence);
   struct State;
@@ -356,16 +393,14 @@ struct Backend::State {
     std::unique_ptr<plume::RenderCommandList> list;
     std::vector<UploadPage> pages;
     std::vector<std::shared_ptr<void>> retained;
-    std::vector<uint32_t> views;  // View slots back to free_views once it completed.
     uint64_t operations = 0;
     std::unique_ptr<DrawCache> graphics;
     uint64_t vs_version = 0, ps_version = 0;
     VkDeviceAddress vs_constants = 0, ps_constants = 0;
     bool draw_pass_active = false;
     VkImage draw_color{}, draw_depth{};
-    bool draw_bindings_valid = false;
+    bool draw_bindings_valid = false;  // The pass's bindings, the heap sets included.
     VkPipeline draw_pipeline{};
-    std::array<VkDescriptorSet, 4> draw_sets{};
     VkViewport draw_viewport{};
     VkRect2D draw_scissor{};
     std::array<float, 4> draw_blend{};
@@ -462,7 +497,7 @@ struct Backend::State {
     bool render_target = false;  // Created for the resolve passes (depth, one color sample).
     SyncState state;
     uint64_t last_use = 0;
-    uint32_t view = 0;  // Descriptor slot once sampled; 0 = none.
+    HeapViews views;  // Once sampled; destroyed before the texture.
     VkImage Image() const { return static_cast<plume::VulkanTexture*>(texture.get())->vk; }
   };
   std::unordered_map<uint32_t, Texture> textures;
@@ -472,11 +507,12 @@ struct Backend::State {
   struct Sampled {
     std::shared_ptr<VmaImage> image;
     TextureFormat format = TextureFormat::kUnknown;
-    uint32_t width = 0, height = 0, levels = 0, view = 0;
+    uint32_t width = 0, height = 0, levels = 0;
     uint64_t layout = 0, version = 0;
     bool cube = false;  // Six array layers.
     SyncState state;
     uint64_t last_use = 0;
+    HeapViews views;  // Once sampled; destroyed before the image.
   };
   std::unordered_map<uint32_t, Sampled> sampled;
   std::vector<Sampled> retired_sampled;
@@ -492,8 +528,8 @@ struct Backend::State {
   std::unordered_map<uint64_t, Buffer> buffers;
   std::vector<Buffer> retired_buffers;
   uint64_t buffers_created = 0, buffers_released = 0, buffers_retired = 0, buffer_uploads = 0;
-  // Resource view identities used by the lifetime counters and host tests: a slot is
-  // reused only once no submitted work can still read it.
+  // The image slots of the draw heap (HeapViews): a slot is reused only once no
+  // submitted or recorded work can still read it.
   uint32_t next_view = 1;
   std::vector<uint32_t> free_views;
   uint64_t operations = 0;
@@ -503,6 +539,29 @@ struct Backend::State {
   VkDescriptorSetLayout resolve_set = VK_NULL_HANDLE;
   std::map<std::string, uint32_t> vertex_locations;
   bool custom_border = false;
+  // The draw heap (draw.inc): the 2D, 3D and cube images of sets 0 to 2 and the
+  // samplers of set 3, partially bound and updated after bind, bound once per
+  // draw pass. Slot 0 holds null descriptors, or the fallback images on a
+  // device without them, and the point sampler. Sampler slots live for the session.
+  VkDescriptorPool heap_pool = VK_NULL_HANDLE;
+  std::array<VkDescriptorSet, 4> heap_sets{};
+  bool null_descriptors = false;
+  std::unordered_map<std::array<uint64_t, 21>, std::pair<VkSampler, uint32_t>, DrawKeyHash<21>> heap_samplers;
+  bool CreateHeap(std::string& evidence);
+  // A free image slot, or 0 once every slot is taken.
+  uint32_t AllocateSlot() {
+    if (free_views.empty()) return next_view < kHeapViewSlots ? next_view++ : 0;
+    const uint32_t slot = free_views.back();
+    free_views.pop_back();
+    return slot;
+  }
+  void WriteHeap(uint32_t set, uint32_t slot, VkImageView view, VkSampler sampler);
+  // The slot of the image's view with the mapping; a new view is written into a
+  // new slot (VK_ERROR_TOO_MANY_OBJECTS: none left).
+  VkResult HeapView(HeapViews& views, VkImage image, VkFormat format, uint32_t levels, bool cube,
+                    const ComponentMapping& mapping, uint32_t& slot);
+  // The slot of the sampler of info, created and written at its first use.
+  VkResult HeapSampler(const VkSamplerCreateInfo& info, uint32_t& slot);
   std::array<std::shared_ptr<VmaImage>, 3> fallback_images;
   std::array<VkImageView, 3> fallback_views{};
   bool fallback_initialized = false;
@@ -563,6 +622,10 @@ struct Backend::State {
   void ReleaseGraphics() {
     for (auto view : fallback_views) if (view) vkDestroyImageView(vulkan->vk, view, nullptr);
     fallback_views = {}; fallback_images = {}; fallback_initialized = false;
+    for (const auto& [key, sampler] : heap_samplers) vkDestroySampler(vulkan->vk, sampler.first, nullptr);
+    heap_samplers.clear();
+    if (heap_pool) vkDestroyDescriptorPool(vulkan->vk, heap_pool, nullptr);  // Frees its sets.
+    heap_pool = VK_NULL_HANDLE; heap_sets = {};
     pipelines.clear(); resolve_pipelines.clear(); pipeline_descs.clear();
     pipeline_origins.clear(); pipeline_worlds.clear(); pipeline_create_us.clear();
     if (draw_layout) vkDestroyPipelineLayout(vulkan->vk, draw_layout, nullptr);
@@ -739,8 +802,7 @@ void Backend::State::Reclaim(uint64_t completed) {
         page.used = 0;
         free_pages.push_back(std::move(page));
       }
-    for (uint32_t view : done.views) free_views.push_back(view);
-    batches_in_flight.pop_front();
+    batches_in_flight.pop_front();  // Its retained heap views give their slots back.
   }
   std::erase_if(readbacks, [&](Readback& r) {
     if (r.sequence > completed) return false;
@@ -750,13 +812,11 @@ void Backend::State::Reclaim(uint64_t completed) {
   std::erase_if(retired_surfaces, [&](const Surface& s) { return s.last_use <= completed; });
   std::erase_if(retired_textures, [&](const Texture& t) {
     if (t.last_use > completed) return false;
-    if (t.view) free_views.push_back(t.view);
     ++textures_released;
     return true;
   });
   std::erase_if(retired_sampled, [&](const Sampled& s) {
     if (s.last_use > completed) return false;
-    if (s.view) free_views.push_back(s.view);
     ++sampled_released;
     return true;
   });
@@ -1399,12 +1459,11 @@ std::string Backend::ResourceCounts() {
 std::string Backend::PipelineSummary() {
   const auto& c = state_->draw_counters;
   return state_->pipeline_set.Summary() + fmt::format(
-      ",\"vulkan_draws\":{},\"draw_descriptor_pools\":{},\"draw_descriptor_groups\":{},\"draw_image_views\":{},"
-      "\"draw_samplers\":{},\"draw_framebuffers\":{},\"draw_constant_bytes\":{},\"draw_render_passes\":{},"
-      "\"draw_pipeline_binds\":{},\"draw_descriptor_binds\":{},\"draw_set_allocations\":{}",
-      c.draws.load(), c.pools.load(), c.groups.load(), c.views.load(), c.samplers.load(),
-      c.framebuffers.load(), c.constant_bytes.load(), c.passes.load(), c.pipeline_binds.load(), c.descriptor_binds.load(),
-      c.set_allocations.load());
+      ",\"vulkan_draws\":{},\"draw_heap_views\":{},\"draw_heap_samplers\":{},\"draw_heap_slots\":{},"
+      "\"draw_image_views\":{},\"draw_framebuffers\":{},\"draw_constant_bytes\":{},\"draw_render_passes\":{},"
+      "\"draw_pipeline_binds\":{},\"draw_descriptor_binds\":{}",
+      c.draws.load(), c.heap_views.load(), state_->heap_samplers.size(), state_->next_view - 1, c.views.load(),
+      c.framebuffers.load(), c.constant_bytes.load(), c.passes.load(), c.pipeline_binds.load(), c.descriptor_binds.load());
 }
 
 bool Backend::LiveResources(ResourceKeys& keys, std::string& evidence) {
@@ -1437,19 +1496,18 @@ bool Backend::ReleaseTexture(uint32_t key, std::string& evidence) {
   const uint64_t completed = state_->completion->Completed();
   const uint64_t last_use = it->second.last_use;
   const bool in_flight = state_->InFlight(last_use);
-  const uint32_t view = it->second.view;
+  const size_t views = it->second.views.views.size();
   const bool had_texture = it->second.texture != nullptr;
   if (in_flight) {
     state_->retired_textures.push_back(std::move(it->second));
     ++state_->textures_retired;
-  } else {
-    if (view) state_->free_views.push_back(view);
-    if (had_texture) ++state_->textures_released;
+  } else if (had_texture) {
+    ++state_->textures_released;
   }
-  state_->textures.erase(it);
+  state_->textures.erase(it);  // Idle: its heap views and their slots go now.
   evidence = fmt::format("{{\"released\":true,\"key\":{},\"own_texture\":{},\"deferred\":{},\"last_use_fence\":{},"
-                         "\"observed_completed\":{},\"view\":{},\"counts\":{}}}", key, had_texture, in_flight, last_use,
-                         completed, view, ResourceCounts());
+                         "\"observed_completed\":{},\"views\":{},\"counts\":{}}}", key, had_texture, in_flight, last_use,
+                         completed, views, ResourceCounts());
   return true;
 }
 
@@ -1466,18 +1524,17 @@ bool Backend::ReleaseSampled(uint32_t address, std::string& evidence) {
   const uint64_t completed = state_->completion->Completed();
   const uint64_t last_use = it->second.last_use;
   const bool in_flight = state_->InFlight(last_use);
-  const uint32_t view = it->second.view;
+  const size_t views = it->second.views.views.size();
   if (in_flight) {
     state_->retired_sampled.push_back(std::move(it->second));
     ++state_->sampled_retired;
   } else {
-    if (view) state_->free_views.push_back(view);
     ++state_->sampled_released;
   }
-  state_->sampled.erase(it);
+  state_->sampled.erase(it);  // Idle: its heap views and their slots go now.
   evidence = fmt::format("{{\"released\":true,\"address\":{},\"sampled\":true,\"deferred\":{},\"last_use_fence\":{},"
-                         "\"observed_completed\":{},\"view\":{},\"counts\":{}}}", address, in_flight, last_use,
-                         completed, view, ResourceCounts());
+                         "\"observed_completed\":{},\"views\":{},\"counts\":{}}}", address, in_flight, last_use,
+                         completed, views, ResourceCounts());
   return true;
 }
 
@@ -1504,11 +1561,10 @@ bool Backend::ResolveSurface(const ResolveRequest& request, uint64_t& fence, std
   auto& dest = state_->textures[request.dest_key];
   if (!dest.texture || dest.width != host.dest_width || dest.height != host.dest_height || dest.depth != depth ||
       (sampled && !dest.render_target)) {
-    // Recreated once no submitted or recorded work can still use it.
+    // Recreated once no submitted or recorded work can still use it: its heap
+    // views go with it, and the draw makes the new image's.
     if (dest.texture && state_->InFlight(dest.last_use)) return fail("native-resolve-destination-in-flight");
-    const uint32_t view = dest.view;  // The draw rewrites the descriptor for the new image.
     dest = {};
-    dest.view = view;
     // A depth destination, or the one of a color sample, is the render target of its pass.
     dest.texture = state_->device->createTexture(plume::RenderTextureDesc::Texture2D(
         host.dest_width, host.dest_height, 1,
@@ -1618,12 +1674,12 @@ bool Backend::UploadSampled(const DrawTexture& t, std::string& evidence) {
   }
   if (recreate) {
     // An image the submitted or recorded work may still read stays with the
-    // open batch, and so does its view slot.
+    // open batch, and so do its heap views and their slots; an idle one goes now.
     if (s.image && state_->InFlight(s.last_use)) {
+      state_->batch.retained.push_back(std::make_shared<HeapViews>(std::move(s.views)));
       state_->batch.retained.push_back(s.image);
-      if (s.view) state_->batch.views.push_back(s.view);
-      s.view = 0;
     }
+    s.views.Release();
     s.image.reset();
     {
       profile::Timer create_time(profile::kEngineTextureCreate);
@@ -1907,31 +1963,27 @@ bool Backend::ReadSurface(uint32_t key, uint64_t after_fence, std::vector<uint8_
   return true;
 }
 
-uint32_t Backend::AllocateView() {
-  if (state_->free_views.empty()) return state_->next_view++;
-  const uint32_t view = state_->free_views.back();
-  state_->free_views.pop_back();
-  return view;
-}
-
 #if defined(NATIVE_RENDERER_ENGINE_FAULT_TEST)
 bool Backend::SeedSampledForTest(uint32_t address, bool in_flight, std::string& evidence) {
-  if (!state_->ready || state_->owner_thread != GetCurrentThreadId() || state_->sampled.count(address)) return false;
+  if (!state_->ready || state_->owner_thread != GetCurrentThreadId() || state_->sampled.count(address) ||
+      !state_->EnsureGraphics(evidence)) return false;
   VkResult result = VK_SUCCESS;
   const char* reason = nullptr;
   if (in_flight && !state_->OpenBatch(reason, result)) return false;
   auto& s = state_->sampled[address];
-  if (CreateImage(state_->vulkan->allocator, VK_FORMAT_R8G8B8A8_UNORM, 4, 4, 1, false, s.image) != VK_SUCCESS) {
+  uint32_t slot = 0;
+  if (CreateImage(state_->vulkan->allocator, VK_FORMAT_R8G8B8A8_UNORM, 4, 4, 1, false, s.image) != VK_SUCCESS ||
+      state_->HeapView(s.views, s.image->image, VK_FORMAT_R8G8B8A8_UNORM, 1, false, kIdentityMapping, slot) !=
+          VK_SUCCESS) {
     state_->sampled.erase(address);
     return false;
   }
   s.format = TextureFormat::kR8G8B8A8Unorm;
   s.width = s.height = 4;
   s.levels = 1;
-  s.view = AllocateView();
   s.last_use = in_flight ? state_->batch.sequence : 0;
   evidence = fmt::format("{{\"seeded\":true,\"address\":{},\"view\":{},\"last_use_fence\":{},\"counts\":{}}}",
-                         address, s.view, s.last_use, ResourceCounts());
+                         address, slot, s.last_use, ResourceCounts());
   return true;
 }
 
