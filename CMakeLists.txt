@@ -23,6 +23,7 @@ set(BROKENBOND_SOURCES
     src/input_replay.cpp
     src/graphics_device.cpp
     src/intro_skip.cpp
+    src/crash_report.cpp
 )
 
 # The shipping native build uses the Rise renderer adapted to Broken Bond,

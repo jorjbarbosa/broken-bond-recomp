@@ -1,6 +1,7 @@
 // Write watch of the title's freed heap chunks (heap_watch.h).
 #include "gpu/diagnostics/heap_watch.h"
 #include "gpu/common/guest_memory.h"
+#include "crash_report.h"
 #include <windows.h>
 #include <rex/hook.h>
 #include <rex/ppc/context.h>
@@ -234,10 +235,12 @@ void WriteReport(const char* path) {
 }
 }  // namespace gpu::heap_watch
 
-// 822007C8: mspace_free(ms, mem) of the title's dlmalloc.
+// 822007C8: mspace_free(ms, mem) of the title's dlmalloc. Both hooks also give
+// the crash report the heaps in use (crash_report.h).
 extern "C" void __imp__sub_822007C8(PPCContext& __restrict, uint8_t*);
 REX_HOOK_RAW(sub_822007C8) {
   using namespace gpu::heap_watch;
+  broken_bond::crash_report::NoteHeap(ctx.r3.u32);
   if (!Enabled()) { __imp__sub_822007C8(ctx, base); return; }
   membase.store(base, std::memory_order_relaxed);
   const uint32_t mem = ctx.r4.u32, lr = ctx.lr;
@@ -254,6 +257,7 @@ REX_HOOK_RAW(sub_822007C8) {
 extern "C" void __imp__sub_82200470(PPCContext& __restrict, uint8_t*);
 REX_HOOK_RAW(sub_82200470) {
   using namespace gpu::heap_watch;
+  broken_bond::crash_report::NoteHeap(ctx.r3.u32);
   const uint32_t lr = ctx.lr;
   __imp__sub_82200470(ctx, base);
   if (Enabled() && ctx.r3.u32 && watched_count.load(std::memory_order_relaxed)) {

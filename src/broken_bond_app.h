@@ -12,6 +12,7 @@
 #include <rex/ui/window.h>
 #include <rex/ui/window_listener.h>
 
+#include "crash_report.h"
 #include "fps_overlay.h"
 #include "graphics_device.h"
 #include "input_replay.h"
@@ -62,6 +63,7 @@ class BrokenBondApp : public rex::ReXApp {
   }
 
   void OnPostSetup() override {
+    broken_bond::crash_report::Install();  // After the SDK's exception handler.
     if (window()) {
       // Window shortcuts take priority over overlays and keyboard emulation.
       window()->AddInputListener(&fullscreen_shortcuts_,
