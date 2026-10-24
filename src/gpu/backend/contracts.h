@@ -306,6 +306,10 @@ struct DrawRequest {
   float depth_bias_slope = 0;
   std::array<float, 6> viewport{};  // x, y, width, height, min z, max z
   std::array<int32_t, 4> scissor{};  // left, top, right, bottom
+  // The screen layer at another aspect (d3d/screen_layer.h): the viewport and
+  // the scissor take one scale for both axes, the smaller, and the title's
+  // 1280 x 720 space is centered on the surface instead of filling it.
+  bool screen_area = false;
 };
 
 // One pipeline of the precompiled set, by the stable identities of

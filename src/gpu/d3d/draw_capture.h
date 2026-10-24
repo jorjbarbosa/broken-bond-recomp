@@ -24,6 +24,10 @@ struct DrawCapture {
   uint8_t* base = nullptr;  // Guest memory base: vertices, indices and textures are read at GPU time.
   bool indexed = false, quad = false;
   uint32_t primitive = 0, lr = 0, thread = 0;
+  // The screen layer the draw belongs to (screen_layer.h, Kind) and, for a
+  // Flash draw at another aspect, its g_mWorldViewProj (VS c0..c3, rows).
+  uint8_t screen_layer = 0;
+  std::array<float, 16> screen_matrix{};
   int32_t base_vertex = 0;
   uint32_t start_index = 0, index_count = 0, start_vertex = 0;
   uint32_t quad_vertices = 0;  // The own vertex area of the quad (guest virtual).

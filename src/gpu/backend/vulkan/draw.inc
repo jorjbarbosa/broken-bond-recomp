@@ -490,12 +490,14 @@ bool Backend::DrawIndexed(const DrawRequest& r, uint64_t& fence, std::string& ev
   }
   if (color) color->last_use = s.batch.sequence;
   if (depth) depth->last_use = s.batch.sequence;
-  VkViewport viewport{r.viewport[0] * scale.x, r.viewport[1] * scale.y, r.viewport[2] * scale.x,
-                       r.viewport[3] * scale.y, r.viewport[4], r.viewport[5]};
-  const int32_t left = std::clamp(scale.X(r.scissor[0]), 0, int32_t(target.desc.width));
-  const int32_t top = std::clamp(scale.Y(r.scissor[1]), 0, int32_t(target.desc.height));
-  VkRect2D scissor{{left, top}, {uint32_t(std::max(0, std::min(scale.X(r.scissor[2]), int32_t(target.desc.width)) - left)),
-                                uint32_t(std::max(0, std::min(scale.Y(r.scissor[3]), int32_t(target.desc.height)) - top))}};
+  // The screen layer's into the centered 16:9 area (regions.h, ScreenArea).
+  const ScreenArea area(scale, r.screen_area);
+  VkViewport viewport{area.X(r.viewport[0]), area.Y(r.viewport[1]), r.viewport[2] * area.sx,
+                       r.viewport[3] * area.sy, r.viewport[4], r.viewport[5]};
+  const int32_t left = std::clamp(area.EdgeX(r.scissor[0]), 0, int32_t(target.desc.width));
+  const int32_t top = std::clamp(area.EdgeY(r.scissor[1]), 0, int32_t(target.desc.height));
+  VkRect2D scissor{{left, top}, {uint32_t(std::max(0, std::min(area.EdgeX(r.scissor[2]), int32_t(target.desc.width)) - left)),
+                                uint32_t(std::max(0, std::min(area.EdgeY(r.scissor[3]), int32_t(target.desc.height)) - top))}};
   auto& bound = s.batch;
   const bool valid = bound.draw_bindings_valid;
   if (!valid || bound.draw_pipeline != p->pipeline) {

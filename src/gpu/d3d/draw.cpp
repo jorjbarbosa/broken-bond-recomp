@@ -31,6 +31,8 @@
 #include "gpu/d3d/pass.h"
 #include "gpu/d3d/state.h"
 #include "gpu/d3d/frame.h"
+#include "gpu/d3d/screen_layer.h"
+#include "gpu/settings.h"
 #include "gpu/diagnostics/measure.h"
 #include "gpu/shaders/shaders.h"
 #include "gpu/shaders/pipelines.h"
@@ -757,6 +759,7 @@ void CaptureDraw(PPCContext& ctx, uint8_t* base, bool indexed, InlineBuild* quad
   c.quad = quad != nullptr;
   c.primitive = quad ? 5 : ctx.r4.u32;
   c.lr = ctx.lr;
+  c.screen_layer = uint8_t(screen_layer::Current());
   c.thread = GuestThread();
   c.base_vertex = indexed ? int32_t(ctx.r5.u32) : 0;
   // The quad is drawn as a list: (0, 1, 2) and (0, 2, 3).
@@ -960,6 +963,10 @@ void CaptureDraw(PPCContext& ctx, uint8_t* base, bool indexed, InlineBuild* quad
   // groups for the batched draws. A draw the translation skips gives them back
   // (ReturnConstants).
   const bool whole = quad != nullptr || c.evidence_draw || candidate || StartVariationMode() == 1;
+  // The matrix of a Flash draw at another aspect, for its extent (TranslateDraw).
+  if (c.screen_layer == uint8_t(screen_layer::Kind::kFlash) && CurrentSettings().aspect_ratio > 0 &&
+      vs_shadow.bytes.size() >= sizeof(c.screen_matrix))
+    std::memcpy(c.screen_matrix.data(), vs_shadow.bytes.data(), sizeof(c.screen_matrix));
   c.vs_constants_version = vs_shadow.version;
   c.ps_constants_version = ps_shadow.version;
   c.vs_pending_before = vs_shadow.pending;
@@ -976,6 +983,57 @@ void CaptureDraw(PPCContext& ctx, uint8_t* base, bool indexed, InlineBuild* quad
   }
   c.bind_swap = swaps.load() + 1;
 }
+namespace {
+// One component of a vertex fetch, as vfetchComponent of the XenosRecomp fork.
+float FetchComponent(uint32_t raw, uint32_t shift, uint32_t bits, uint32_t descriptor) {
+  const uint32_t value = (raw >> shift) & ((1u << bits) - 1u);
+  const bool is_signed = (descriptor & 0x40u) != 0;
+  const int32_t signed_value = is_signed ? int32_t(value << (32u - bits)) >> (32u - bits) : int32_t(value);
+  if (descriptor & 0x80u) return float(signed_value);
+  if (is_signed) return std::max(float(signed_value) / float((1u << (bits - 1u)) - 1u), -1.0f);
+  return float(value) / float((1u << bits) - 1u);
+}
+float HalfToFloat(uint32_t half) {
+  const uint32_t sign = (half >> 15) & 1, exponent = (half >> 10) & 0x1F, mantissa = half & 0x3FF;
+  const float magnitude = exponent == 0 ? std::ldexp(float(mantissa), -24)
+                          : exponent == 31 ? (mantissa ? NAN : INFINITY)
+                                           : std::ldexp(float(mantissa | 0x400), int(exponent) - 25);
+  return sign ? -magnitude : magnitude;
+}
+// An element as vfetchNaruto reads it, for the formats of the screen layer,
+// with the descriptor's swizzle; false for another format.
+bool FetchElement(const uint32_t* raw, uint32_t descriptor, std::array<float, 4>& out) {
+  std::array<float, 4> v{};
+  switch (descriptor & 0x3Fu) {
+    case 6:  // 8_8_8_8
+      for (uint32_t k = 0; k < 4; ++k) v[k] = FetchComponent(raw[0], 8 * k, 8, descriptor);
+      break;
+    case 25:  // 16_16
+      v = {FetchComponent(raw[0], 0, 16, descriptor), FetchComponent(raw[0], 16, 16, descriptor), 0.0f, 0.0f};
+      break;
+    case 26:  // 16_16_16_16
+      v = {FetchComponent(raw[0], 0, 16, descriptor), FetchComponent(raw[0], 16, 16, descriptor),
+           FetchComponent(raw[1], 0, 16, descriptor), FetchComponent(raw[1], 16, 16, descriptor)};
+      break;
+    case 31:  // 16_16_FLOAT
+      v = {HalfToFloat(raw[0] & 0xFFFF), HalfToFloat(raw[0] >> 16), 0.0f, 0.0f};
+      break;
+    case 57:  // 32_32_32_FLOAT
+      std::memcpy(v.data(), raw, 12);
+      break;
+    case 38:  // 32_32_32_32_FLOAT
+      std::memcpy(v.data(), raw, 16);
+      break;
+    default:
+      return false;
+  }
+  const float source[8] = {v[0], v[1], v[2], v[3], 0.0f, 1.0f, 0.0f, 0.0f};
+  out = {source[(descriptor >> 9) & 7], source[(descriptor >> 12) & 7], source[(descriptor >> 15) & 7],
+         source[(descriptor >> 18) & 7]};
+  return true;
+}
+}  // namespace
+
 DrawTranslation TranslateDraw(DrawCapture& c, GuardSink& sink) {
   ApplyFetch(c.fetch);  // The copy of the fetch constants follows the commit.
   DrawTranslation t;
@@ -1419,6 +1477,68 @@ DrawTranslation TranslateDraw(DrawCapture& c, GuardSink& sink) {
   }
   const uint32_t depth_control = s.depth_control, color_control = s.color_control, mode = s.mode, vte = s.vte;
   const float alpha_ref = s.alpha_ref;
+  // The screen layer at another aspect (screen_layer.h): a draw of the
+  // title's Flash UI or video over its whole 1280 x 720 viewport goes into the
+  // centered 16:9 area (DrawRequest::screen_area). A Flash draw whose vertices,
+  // placed by its own g_mWorldViewProj (the POSITION0 element over c0..c3, as
+  // its vertex shaders do), span the whole width (at 16:10, the whole height)
+  // keeps covering the surface: the fades, the pause dim, the full-width frames
+  // of the map. A position this cannot read keeps the draw in the area.
+  if (c.screen_layer && CurrentSettings().aspect_ratio > 0 && request.viewport[0] == 0 &&
+      request.viewport[1] == 0 && request.viewport[2] == 1280 && request.viewport[3] == 720) {
+    auto read_word = [&](uint32_t physical, uint32_t bytes, uint32_t endian, uint32_t& word) {
+      std::vector<uint8_t> raw(bytes);
+      word = 0;
+      if (!ReadPhysical(base, physical, bytes, raw.data()) || !SwapEndian(raw, endian)) return false;
+      std::memcpy(&word, raw.data(), bytes);
+      return true;
+    };
+    auto spans_surface = [&] {
+      const std::vector<VertexElement>& elements = *request.elements;
+      size_t position = elements.size();
+      for (size_t i = 0; i < elements.size() && position == elements.size(); ++i)
+        if (!std::strcmp(elements[i].semantic, "POSITION") && elements[i].semantic_index == 0) position = i;
+      if (position == elements.size() || elements[position].slot >= request.streams.size()) return false;
+      const VertexElement& e = elements[position];
+      const VertexStream& stream = request.streams[e.slot];
+      uint32_t descriptor = 0;
+      std::memcpy(&descriptor, &request.shared_constants[320 + 4 * position], 4);
+      const uint32_t words = e.format == VertexFormat::kR32G32B32A32Uint ? 4
+                             : e.format == VertexFormat::kR32G32B32Uint ? 3
+                             : e.format == VertexFormat::kR32G32Uint ? 2 : 1;
+      const bool wide = CurrentSettings().aspect_ratio > 16.0f / 9.0f;
+      const auto& m = c.screen_matrix;
+      float low = 1.0f, high = -1.0f;
+      for (uint32_t k = 0; k < std::min<uint32_t>(request.index_count, 4096); ++k) {
+        uint32_t v = 0;
+        if (size_t(k + 1) * index_size <= request.indices.size())
+          std::memcpy(&v, &request.indices[size_t(k) * index_size], index_size);
+        else if (!indexed || !read_word(t.index_physical + k * index_size, index_size, t.index_endian, v))
+          return false;
+        const int64_t at = (int64_t(v) + request.base_vertex) * stream.stride + e.offset;
+        if (at < 0) return false;
+        uint32_t raw[4] = {};
+        for (uint32_t j = 0; j < words; ++j) {
+          if (size_t(at) + 4 * j + 4 <= stream.data.size()) std::memcpy(&raw[j], &stream.data[size_t(at) + 4 * j], 4);
+          else if (!stream.key || e.slot >= stream_address.size() ||
+                   !read_word(stream_address[e.slot] + uint32_t(at) + 4 * j, 4, stream_endian[e.slot], raw[j]))
+            return false;
+        }
+        std::array<float, 4> p{};
+        if (!FetchElement(raw, descriptor, p)) return false;
+        if (p[3] != 0.0f) for (unsigned i = 0; i < 3; ++i) p[i] /= p[3];
+        p[3] = 1.0f;
+        auto row = [&](unsigned r) { return m[4 * r] * p[0] + m[4 * r + 1] * p[1] + m[4 * r + 2] * p[2] + m[4 * r + 3]; };
+        const float w = row(3);
+        if (!(std::abs(w) > 1e-6f)) return false;
+        const float ndc = row(wide ? 0 : 1) / w;
+        low = std::min(low, ndc);
+        high = std::max(high, ndc);
+      }
+      return low <= -0.99f && high >= 0.99f;
+    };
+    request.screen_area = c.screen_layer != uint8_t(screen_layer::Kind::kFlash) || !spans_surface();
+  }
   // Transparency antialiasing in multisampled targets (TransparencySpec);
   // the threshold at +272 serves the alpha to coverage variant too. A test
   // below the threshold keeps the clip: with the title's alpha to mask (as in
@@ -1612,7 +1732,8 @@ DrawTranslation TranslateDraw(DrawCapture& c, GuardSink& sink) {
     TraceFrameOp("draw", fmt::format(
         "\"entry\":\"{}\",\"lr\":{},\"vs\":\"{}\",\"ps\":\"{}\",\"color_key\":{},\"depth_key\":{},\"depth_only\":{},"
         "\"depth\":[{},{},{}],\"stencil\":{},\"color_mask\":{},\"blend_control\":{},\"alpha_to_coverage\":{},"
-        "\"cull\":[{},{}],\"viewport\":[{},{},{},{},{},{}],\"scissor\":[{},{},{},{}],\"topology\":\"{}\","
+        "\"cull\":[{},{}],\"viewport\":[{},{},{},{},{},{}],\"scissor\":[{},{},{},{}],\"screen_layer\":{},"
+        "\"screen_area\":{},\"topology\":\"{}\","
         "\"index_count\":{},\"base_vertex\":{},\"textures\":[{}]{}", name, lr, request.vs.key, request.ps.key,
         request.color_key,
         request.depth_key, request.depth_only, request.depth_enable, request.depth_write, request.depth_func,
@@ -1620,7 +1741,8 @@ DrawTranslation TranslateDraw(DrawCapture& c, GuardSink& sink) {
         request.cull_front, request.cull_back, JsonFloat(request.viewport[0]), JsonFloat(request.viewport[1]),
         JsonFloat(request.viewport[2]), JsonFloat(request.viewport[3]), JsonFloat(request.viewport[4]),
         JsonFloat(request.viewport[5]), request.scissor[0], request.scissor[1], request.scissor[2], request.scissor[3],
-        TopologyName(request.topology), request.index_count, request.base_vertex, textures, diag));
+        c.screen_layer, request.screen_area, TopologyName(request.topology), request.index_count, request.base_vertex,
+        textures, diag));
   }
   // The constants the capture took (the whole blocks for the quad and
   // the evidence draws, the pending groups for the batched draws), moved.

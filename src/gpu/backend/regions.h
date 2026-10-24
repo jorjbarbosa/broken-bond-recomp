@@ -71,6 +71,26 @@ inline bool CopyBox(const HostResolve& resolve, bool has_rect, uint32_t source_w
   return box.right > box.left && box.bottom > box.top;
 }
 
+// The host position of a draw's viewport and scissor (guest pixels): the
+// resolution scale of each axis or, for the screen layer at another aspect
+// (DrawRequest::screen_area), one scale for both axes, the smaller, with the
+// title's 1280 x 720 space centered on the surface, whose host size is each
+// axis's scale times 1280 x 720. Without the area it maps as ResolutionScale.
+struct ScreenArea {
+  float sx, sy, ox = 0.0f, oy = 0.0f;
+  ScreenArea(const ResolutionScale& k, bool area) : sx(k.x), sy(k.y) {
+    if (!area) return;
+    const float s = std::min(k.x, k.y);
+    ox = (k.x - s) * 640.0f;
+    oy = (k.y - s) * 360.0f;
+    sx = sy = s;
+  }
+  float X(float x) const { return ox + x * sx; }
+  float Y(float y) const { return oy + y * sy; }
+  int32_t EdgeX(int32_t x) const { return sx == 1.0f && ox == 0.0f ? x : int32_t(std::lround(double(ox) + double(x) * sx)); }
+  int32_t EdgeY(int32_t y) const { return sy == 1.0f && oy == 0.0f ? y : int32_t(std::lround(double(oy) + double(y) * sy)); }
+};
+
 // The half-pixel offset gap of a scaled resolve. The title draws with the
 // D3D9 pixel center (PA_SU_VTX_CNTL.pix_center, guarded in draw.cpp), so
 // g_HalfPixelOffset moves its geometry by half a guest pixel: a quad that
