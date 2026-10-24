@@ -24,7 +24,7 @@ The interface matches the current Rise launcher, with its DLC tab removed. The l
 | Controls | SDL/XInput, connected controller, keyboard and mouse mode, mouse camera, sensitivity, key mapping |
 | Advanced | Frame latency and triple buffering |
 
-**Map keys** opens the Rise mapping screen: 24 controller actions with two editable key or mouse-button alternatives each. Click a slot and press a key within five seconds; right-click clears it. Assigning an existing key moves it from the other action. F1, F3, F4, F7, and Backtick remain reserved. Mouse movement emulates the right stick; Rise's direct exploration-camera script hook has not been validated for Broken Bond. See the [feature ledger](launcher-game-features.md).
+**Map keys** opens the Rise mapping screen: 24 controller actions with two editable key or mouse-button alternatives each. Click a slot and press a key within five seconds; right-click clears it. Assigning an existing key moves it from the other action. F1, F3, F4, F7, F11, and Backtick remain reserved. Mouse movement emulates the right stick; Rise's direct exploration-camera script hook has not been validated for Broken Bond. See the [feature ledger](launcher-game-features.md).
 
 The **Game Files** tab detects the repository's `game/` folder, or a `game/` folder next to the launcher, and lets you select another folder that contains `default.xex`. Your original files are never moved or deleted. A selected folder that no longer exists is reported; the launcher does not fall back to another location.
 
@@ -56,7 +56,7 @@ Defaults written by the launcher:
 | `anisotropic_override` | `5` | Texture filtering in the SDK's encoding: `-1` the game's, `0` off, `1` to `5` for 1× to 16×; `5` is 16× |
 | `swap_post_effect` | `"fxaa"` | `"none"`, `"fxaa"`, or `"fxaa_extreme"` for edge smoothing |
 | `present_effect` | `"cas"` | `"bilinear"`, `"cas"` (sharpen), or `"fsr"` (upscale) when presenting |
-| `fullscreen` | `true` | Fullscreen mode |
+| `fullscreen` | `true` | Fullscreen mode; Alt+Enter or F11 switches between borderless fullscreen and a window while playing |
 | `vsync` | `true` | Synchronize presentation with the display |
 | `input_backend` | `"sdl"` | `"sdl"` for Xbox and PlayStation controllers through SDL, `"xinput"` for XInput only |
 | `mnk_mode` | `false` | Keyboard controller emulation; enables the mapping screen's bindings |

@@ -82,7 +82,7 @@ std::string JoinKeyBind(std::string_view first, std::string_view second) {
 }
 
 bool IsReservedKey(std::string_view name) {
-  for (const char* reserved : {"F1", "F3", "F4", "F7", "Backtick"}) {
+  for (const char* reserved : {"F1", "F3", "F4", "F7", "F11", "Backtick"}) {
     if (name == reserved) return true;
   }
   return false;

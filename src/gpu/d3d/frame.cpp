@@ -405,7 +405,7 @@ REX_HOOK_RAW(sub_821B1DD0) {
     }
     if (FrameTraceTarget() == n) {
       FrameTraceReadback(front, n);
-      FrameTraceRearm();  // The key mode traces again at the next F11.
+      FrameTraceRearm();  // The key mode traces again at the next F10.
     }
   }
   Put32(base, dev + 23348, 0);

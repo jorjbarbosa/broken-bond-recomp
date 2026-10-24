@@ -26,7 +26,7 @@ struct FrameTrace {
   // its inputs; the textures it samples are read back at the Swap (key, levels).
   std::unordered_set<std::string> pairs;
   std::vector<std::pair<uint32_t, uint32_t>> sampled;
-  // REX_NATIVE_FRAME_TRACE=key: F11 arms the trace of the next frame
+  // REX_NATIVE_FRAME_TRACE=key: F10 arms the trace of the next frame
   // (a moment chosen while playing), re-armed after each
   // readback, at most kKeyTraces per boot.
   bool key_mode = false, key_down = false;
@@ -37,7 +37,7 @@ bool FrameTraceActive();
 uint64_t FrameTraceTarget();
 // Called at each Swap n with the own draws of the frame it closes.
 void FrameTraceNoteSwap(uint64_t n, uint64_t frame_draws);
-// After a readback in the key mode, the trace is free for the next F11.
+// After a readback in the key mode, the trace is free for the next F10.
 void FrameTraceRearm();
 void TraceFrameOp(const char* op, const std::string& fields);
 void TraceFrameResolveDest(uint32_t dest);

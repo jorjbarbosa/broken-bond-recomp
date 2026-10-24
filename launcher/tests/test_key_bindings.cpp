@@ -93,7 +93,7 @@ int main() {
       Require(JoinKeyBind(keys[0], keys[1]) == value, "Default does not round-trip: " + value);
     }
 
-    for (const char* key : {"F1", "F3", "F4", "F7", "Backtick"}) Require(IsReservedKey(key), key);
+    for (const char* key : {"F1", "F3", "F4", "F7", "F11", "Backtick"}) Require(IsReservedKey(key), key);
     for (const char* key : {"F2", "F9", "Escape", "Alt"}) Require(!IsReservedKey(key), key);
 
     std::cout << named << " recordable keys, all SDK names; default layout valid; values split by position\n";
