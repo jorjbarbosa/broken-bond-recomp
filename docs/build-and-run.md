@@ -76,6 +76,7 @@ The script applies the patches in `patches/` to the `sdk` submodule, builds the 
 | `rexglue-discovery.patch` | Discovers functions reached only through pointer tables without RTTI or through addresses built in code, and adds the guest return address to missing-function errors. See [Automatic function discovery](automatic-function-discovery.md) |
 | `rexglue-xma-decoder.patch` | XMA decoder fixes ported from Xenia Canary, plus local fixes for frames that cross a buffer boundary. The patch header lists each change |
 | `rexglue-mnk-modifiers.patch` | Makes standalone Shift/Control/Alt bindings work alongside movement, as required by the Rise launcher's key mapping defaults |
+| `rexglue-d3d12-fence-check.patch` | Checks the queue signal and the fence event of the Xenos D3D12 command processor separately, so a successful signal no longer skips registering the event before the unbounded wait |
 
 Rebuild the SDK with this script after changing any patch.
 
