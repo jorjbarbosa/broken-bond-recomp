@@ -8,9 +8,10 @@ points at SPIR-V (a build with the Vulkan backend), a second file,
 shader_cache_spirv.bin, holds the modules and the manifest; the renderer unpacks the
 one of its API only.
 
-Container (little endian): "NRSC", u32 version 1, u32 algorithm 2 (MSZIP of the
-Windows Compression API, buffer mode), u32 0, u64 payload bytes, u64 compressed bytes,
-32-byte SHA-256 of the payload, then the compressed payload.
+Container (little endian): "NRSC", u32 version 2, u32 algorithm 1 (Zstandard, one
+frame, by shader-compress.cpp), u32 0, u64 payload bytes, u64 compressed bytes,
+32-byte SHA-256 of the payload, then the compressed payload. Version 1 was MSZIP of
+the Windows Compression API, which Wine does not implement.
 Payload: "NRSP", u32 version, u32 index bytes, u32 files, the index text (the
 lines of the binary directories say "embedded") padded to 4, one record per file (u32
 kind; u32 name bytes; u32 offset into the blob area; u32 size; the name padded to 4),
@@ -31,42 +32,37 @@ then the blob area.
   lines, version 3 no passes.
 
 Usage: python -I build-embedded-shader-cache.py <index.tsv> <output dir> [<manifest.json> <passes smolv dir>]
+       --compressor <shader-compress>
 Writes shader_cache.bin, shader_cache_spirv.bin with SPIR-V (the manifest and the
 encoded passes are required then) and shader_cache.json (identity: inputs, counts,
 sizes and SHA-256) into the output dir.
 """
-import ctypes
+import argparse
 import hashlib
 import json
 import struct
-import sys
+import subprocess
+import tempfile
 from pathlib import Path
 
-MSZIP = 2
+ZSTANDARD = 1
 KIND_DXIL, KIND_VARIANT, KIND_SPIRV, KIND_MANIFEST, KIND_PASS = 0, 2, 3, 4, 5
 
 
-def compress(data):
-    cabinet = ctypes.WinDLL('cabinet.dll')
-    handle = ctypes.c_void_p()
-    if not cabinet.CreateCompressor(MSZIP, None, ctypes.byref(handle)):
-        raise OSError('CreateCompressor')
-    try:
-        size = ctypes.c_size_t()
-        cabinet.Compress(handle, data, len(data), None, 0, ctypes.byref(size))
-        out = ctypes.create_string_buffer(size.value)
-        if not cabinet.Compress(handle, data, len(data), out, size.value, ctypes.byref(size)):
-            raise OSError('Compress')
-        return out.raw[:size.value]
-    finally:
-        cabinet.CloseCompressor(handle)
+def compress(data, compressor):
+    """One Zstandard frame by the host tool of the build (shader-compress.cpp)."""
+    with tempfile.TemporaryDirectory(prefix='brokenbond-shader-') as folder:
+        source, packed = Path(folder) / 'payload.bin', Path(folder) / 'payload.zst'
+        source.write_bytes(data)
+        subprocess.run([str(compressor), str(source), str(packed)], check=True, stdout=subprocess.DEVNULL)
+        return packed.read_bytes()
 
 
 def pad4(data):
     return data + b'\0' * (-len(data) % 4)
 
 
-def package(version, lines, entries, binary):
+def package(version, lines, entries, binary, compressor):
     """Writes the container of one payload; returns its identity."""
     files, blobs, offset = [], [], 0
     for kind, name, data in entries:
@@ -78,9 +74,9 @@ def package(version, lines, entries, binary):
     for kind, name, at, size in files:
         payload += struct.pack('<IIII', kind, len(name), at, size) + pad4(name)
     payload += b''.join(blobs)
-    packed = compress(payload)
+    packed = compress(payload, compressor)
     digest = hashlib.sha256(payload).digest()
-    container = b'NRSC' + struct.pack('<IIIQQ', 1, MSZIP, 0, len(payload), len(packed)) + digest + packed
+    container = b'NRSC' + struct.pack('<IIIQQ', 2, ZSTANDARD, 0, len(payload), len(packed)) + digest + packed
     binary.write_bytes(container)
     return dict(payload_bytes=len(payload), payload_sha256=digest.hex(), compressed_bytes=len(packed),
                 container=dict(path=str(binary.resolve()), sha256=hashlib.sha256(container).hexdigest()))
@@ -101,9 +97,15 @@ def contract_lines(spirv):
 
 
 def main():
-    index, out_dir = Path(sys.argv[1]), Path(sys.argv[2])
-    manifest = Path(sys.argv[3]) if len(sys.argv) > 3 else None
-    passes_dir = Path(sys.argv[4]) if len(sys.argv) > 4 else None
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('index', type=Path)
+    parser.add_argument('out_dir', type=Path)
+    parser.add_argument('manifest', type=Path, nargs='?')
+    parser.add_argument('passes_dir', type=Path, nargs='?')
+    parser.add_argument('--compressor', type=Path, required=True)
+    args = parser.parse_args()
+    index, out_dir, manifest, passes_dir = args.index, args.out_dir, args.manifest, args.passes_dir
+    compressor = args.compressor.resolve(strict=True)
     assert bool(manifest) == bool(passes_dir), 'the SPIR-V package needs the manifest and the passes'
     text = index.read_text(encoding='utf-8')
     lines, dirs, names = [], {}, []
@@ -127,14 +129,14 @@ def main():
     out_dir.mkdir(parents=True, exist_ok=True)
     binary = out_dir / 'shader_cache.bin'
     dxil = package(2, [l for l in lines if not l.startswith('spirv\t')],
-                   [(kind, name, path.read_bytes()) for kind, name, path in entries], binary)
+                   [(kind, name, path.read_bytes()) for kind, name, path in entries], binary, compressor)
     sha = lambda p: hashlib.sha256(p.read_bytes()).hexdigest()
     identity = dict(
-        schema='native-embedded-shader-cache-v1', index=dict(path=str(index.resolve()), sha256=sha(index)),
+        schema='native-embedded-shader-cache-v2', index=dict(path=str(index.resolve()), sha256=sha(index)),
         dxil_dir=str(dirs['dxil']), variants_dir=str(dirs['variants']), entries=len(names),
         dxil_files=sum(1 for e in entries if e[0] == KIND_DXIL),
         variant_files=sum(1 for e in entries if e[0] == KIND_VARIANT), **dxil,
-        algorithm='MSZIP (Windows Compression API, buffer mode)',
+        algorithm='Zstandard', compressor=dict(path=str(compressor), sha256=sha(compressor)),
         tool=dict(path=str(Path(__file__).resolve()), sha256=sha(Path(__file__))))
     if manifest:
         full = json.loads(manifest.read_text(encoding='utf-8'))
@@ -161,7 +163,7 @@ def main():
         identity['spirv'] = dict(
             dir=str(dirs['spirv']), modules=len(names), passes=len(full['passes']), passes_dir=str(passes_dir),
             manifest=dict(path=str(manifest.resolve()), sha256=sha(manifest), contract_sha256=full['contract_sha256']),
-            **package(5, spirv_lines, modules, out_dir / 'shader_cache_spirv.bin'))
+            **package(5, spirv_lines, modules, out_dir / 'shader_cache_spirv.bin', compressor))
     (out_dir / 'shader_cache.json').write_text(json.dumps(identity, indent=1) + '\n', encoding='utf-8')
     print(json.dumps({k: identity[k] for k in ('entries', 'dxil_files', 'variant_files', 'payload_bytes',
                                                'compressed_bytes', 'payload_sha256')}))

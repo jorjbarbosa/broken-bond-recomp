@@ -93,6 +93,9 @@
         @{ Name = 'XenosRecomp (shader translation, shader_common.h in the embedded shaders)'; License = 'MIT'
            Url = 'https://github.com/hedge-dev/XenosRecomp'; File = 'tools/xenosrecomp/LICENSE.md'; Target = 'xenosrecomp.txt'
            Usage = 'broken_bond.exe' }
+        @{ Name = 'Zstandard'; License = 'BSD-3-Clause'
+           Url = 'https://github.com/facebook/zstd'; File = 'packaging/licenses/zstd.txt'; Target = 'zstd.txt'
+           Usage = 'broken_bond.exe (embedded shader package decoder)' }
         @{ Name = 'volk'; License = 'MIT'; Condition = 'NativeVulkan'
            Url = 'https://github.com/zeux/volk'; File = 'packaging/licenses/volk.txt'; Target = 'volk.txt'
            Usage = 'broken_bond.exe (Vulkan loader)' }

@@ -9,7 +9,7 @@ add_library(native_engine_test_units STATIC src/gpu/backend/engine.cpp
             src/gpu/shaders/package.cpp src/gpu/shaders/shader_cache_data.cpp)
 target_include_directories(native_engine_test_units PUBLIC src)
 target_link_libraries(native_engine_test_units PUBLIC native_renderer_plume_vulkan
-                      broken_bond_smolv fmt::fmt)
+                      broken_bond_smolv libzstd_static fmt::fmt)
 if(BROKENBOND_NATIVE_D3D12)
     target_sources(native_engine_test_units PRIVATE src/gpu/backend/d3d12/backend.cpp)
     target_link_libraries(native_engine_test_units PUBLIC native_renderer_plume)
@@ -84,7 +84,7 @@ target_compile_definitions(native_vulkan_transfer_test PRIVATE _CRT_SECURE_NO_WA
 add_executable(native_shader_package_test src/gpu/shaders/tests/package_test.cpp
                src/gpu/shaders/package.cpp src/gpu/shaders/shader_cache_data.cpp)
 target_include_directories(native_shader_package_test PRIVATE src)
-target_link_libraries(native_shader_package_test PRIVATE broken_bond_smolv fmt::fmt)
+target_link_libraries(native_shader_package_test PRIVATE broken_bond_smolv libzstd_static fmt::fmt)
 target_compile_definitions(native_shader_package_test PRIVATE BROKENBOND_SHADER_CACHE_SPIRV=1 NOMINMAX
                            WIN32_LEAN_AND_MEAN)
 add_dependencies(native_shader_package_test broken_bond_native_shader_cache)

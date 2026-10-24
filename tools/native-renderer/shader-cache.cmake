@@ -17,6 +17,10 @@
 # the source embeds it too (BROKENBOND_SHADER_CACHE_SPIRV) and the target links the
 # smol-v decoder (<target>_smolv).
 #
+# The packages are compressed by Zstandard: <target>_shader_compress (a host tool)
+# writes them and the target links the decoder, both from the zstd of the XenosRecomp
+# dependencies, so neither the build nor the renderer needs a system codec.
+#
 # BROKENBOND_GAME_DIR: the local game files (xeshader.sdb).
 # BROKENBOND_XENOS_RECOMP_THIRDPARTY: the dependencies of XenosRecomp (fmt, xxHash, zstd,
 # smol-v, dxc-bin), the submodules of the upstream checkout (tools/xenosrecomp/thirdparty).
@@ -27,6 +31,7 @@
 # supplied through BROKENBOND_SPIRV_VAL).
 include_guard(GLOBAL)
 include(ExternalProject)
+enable_language(C)  # Zstandard.
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
 
 function(brokenbond_shader_cache target source)
@@ -45,6 +50,22 @@ function(brokenbond_shader_cache target source)
       message(FATAL_ERROR "The shader cache of the native renderer needs ${input}")
     endif()
   endforeach()
+  # Zstandard: the static library only, without the legacy formats (the packages
+  # are written by this same version).
+  if(NOT TARGET libzstd_static)
+    set(ZSTD_BUILD_SHARED OFF)
+    set(ZSTD_BUILD_STATIC ON)
+    set(ZSTD_BUILD_PROGRAMS OFF)
+    set(ZSTD_BUILD_TESTS OFF)
+    set(ZSTD_BUILD_CONTRIB OFF)
+    set(ZSTD_BUILD_DICTBUILDER OFF)
+    set(ZSTD_MULTITHREAD_SUPPORT OFF)
+    set(ZSTD_LEGACY_SUPPORT OFF)
+    add_subdirectory("${thirdparty}/zstd/build/cmake" "${CMAKE_BINARY_DIR}/shader-zstd" EXCLUDE_FROM_ALL)
+  endif()
+  add_executable(${target}_shader_compress "${tools}/shader-compress.cpp")
+  target_link_libraries(${target}_shader_compress PRIVATE libzstd_static)
+  target_link_libraries(${target} PRIVATE libzstd_static)
   set(out "${CMAKE_CURRENT_BINARY_DIR}/shader_cache")
   set(spirv)
   set(spirv_outputs)
@@ -105,9 +126,9 @@ function(brokenbond_shader_cache target source)
       OUTPUT "${out}/shader_cache.bin" "${out}/shader_cache.json" ${spirv_outputs}
       COMMAND "${Python3_EXECUTABLE}" -I "${tools}/build-shader-cache.py" "${game}/xeshader.sdb" "${recomp}"
               "${fork}/XenosRecomp/shader_common.h" "${thirdparty}/dxc-bin/bin/x64/dxc.exe" "${out}"
-              "${BROKENBOND_SHADER_STORE}" ${spirv}
+              "${BROKENBOND_SHADER_STORE}" --compressor "$<TARGET_FILE:${target}_shader_compress>" ${spirv}
       DEPENDS "${game}/xeshader.sdb" "${recomp}" ${target}_xenosrecomp "${fork}/XenosRecomp/shader_common.h"
-              ${scripts} ${spirv_encoder} ${pass_sources}
+              ${scripts} ${spirv_encoder} ${pass_sources} ${target}_shader_compress
       COMMENT "Shader cache of the native renderer from ${game}/xeshader.sdb (XenosRecomp fork, DXC)"
       USES_TERMINAL
       VERBATIM)

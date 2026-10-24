@@ -2,6 +2,7 @@
 directory, git-ignored with it).
 
 Usage: python -I build-shader-cache.py <xeshader.sdb> <XenosRecomp.exe> <shader_common.h> <dxc.exe> <out> [<store>]
+       --compressor <shader-compress.exe>
        [--spirv-val <spirv-val.exe> --smolv-encode <smolv-encode.exe> --passes <app/src/gpu/backend>]
 
 Runs the chain of the shader cache on the SDB of the game: the containers
@@ -10,7 +11,8 @@ the repository and DXC (build-sdb-shader-cache.py), the lib_6_3 libraries of the
 spec constants (build-sdb-shader-libraries.py), the variants those libraries give with
 the values the draw asks for, linked here (build-sdb-shader-variants.py), the index,
 format 4, identification only by hash (build-native-shader-index.py) and the package that
-app/src/gpu/shaders/shader_cache_data.cpp embeds (build-embedded-shader-cache.py).
+app/src/gpu/shaders/shader_cache_data.cpp embeds (build-embedded-shader-cache.py),
+compressed by --compressor (shader-compress.cpp).
 With --spirv-val, --smolv-encode and --passes (a build with the Vulkan backend), the
 SPIR-V of each shader too, validated and checked against the Vulkan layout
 (build-sdb-shader-spirv.py), and the SPIR-V of the renderer's own passes, FXAA and
@@ -38,6 +40,7 @@ parser = argparse.ArgumentParser(description=__doc__)
 for name in ('sdb', 'xenosrecomp', 'common', 'dxc', 'out'):
     parser.add_argument(name, type=Path)
 parser.add_argument('store', nargs='?', default='')
+parser.add_argument('--compressor', type=Path, required=True, help='the Zstandard host tool (shader-compress.cpp)')
 parser.add_argument('--spirv-val', type=Path)
 parser.add_argument('--smolv-encode', type=Path)
 parser.add_argument('--passes', type=Path, help='the backend folder of the passes (build-pass-spirv.py)')
@@ -46,7 +49,8 @@ if len({bool(args.spirv_val), bool(args.smolv_encode), bool(args.passes)}) != 1:
     sys.exit('build-shader-cache: SPIR-V needs --spirv-val, --smolv-encode and --passes')
 sdb, xenosrecomp, common, dxc, out = (p.resolve() for p in (args.sdb, args.xenosrecomp, args.common, args.dxc, args.out))
 store = ['--store', Path(args.store).resolve()] if args.store else []
-for path in (sdb, xenosrecomp, common, dxc, *([args.spirv_val, args.smolv_encode] if args.spirv_val else [])):
+for path in (sdb, xenosrecomp, common, dxc, args.compressor,
+             *([args.spirv_val, args.smolv_encode] if args.spirv_val else [])):
     if not path.is_file():
         sys.exit(f'build-shader-cache: missing {path}')
 work = out / 'work'
@@ -109,7 +113,8 @@ else:  # A build without the Vulkan backend embeds no SPIR-V: no package of an e
         stale.unlink(missing_ok=True)
 run('build-native-shader-index.py', containers / 'containers', work / 'per-shader', work / 'index', work / 'libraries',
     work / 'variants', *encoded[:1])
-run('build-embedded-shader-cache.py', work / 'index' / 'index.tsv', out, *([manifest, encoded[1]] if encoded else []))
+run('build-embedded-shader-cache.py', work / 'index' / 'index.tsv', out, *([manifest, encoded[1]] if encoded else []),
+    '--compressor', args.compressor.resolve())
 identity = json.loads((out / 'shader_cache.json').read_text(encoding='utf-8'))
 reused = {step: {kind: n for kind, n in json.loads((work / step / 'report.json').read_text(encoding='utf-8'))['store'].items()
                  if kind != 'root'} for step in steps}

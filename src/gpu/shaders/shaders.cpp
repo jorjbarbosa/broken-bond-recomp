@@ -36,6 +36,7 @@
 #include <fmt/ranges.h>
 #include <rex/cvar.h>
 #include <rex/hook.h>
+#include <rex/logging.h>
 #include <rex/system/kernel_state.h>
 #include <rex/system/thread_state.h>
 #include <rex/system/xthread.h>
@@ -134,7 +135,11 @@ void LoadShaderCache(ShaderFormat format) {
   const auto started = std::chrono::steady_clock::now();
   shader_cache.format = format;
   shader_cache.package = EmbeddedShaderPackage(format, shader_cache.error);
-  if (!shader_cache.package) return;
+  if (!shader_cache.package) {
+    // Every draw is skipped from here on; the census only says so on close.
+    REXLOG_ERROR("[broken_bond] Native shader package unavailable: {}", shader_cache.error);
+    return;
+  }
   const ShaderPackage& package = *shader_cache.package;
   const bool spirv = format == ShaderFormat::kSpirv;
   shader_cache.record = fmt::format("\"embedded\":true,\"container_bytes\":{},\"payload_bytes\":{},"
@@ -173,7 +178,10 @@ void LoadShaderCache(ShaderFormat format) {
       ++shader_cache.entries;
   }
   shader_cache.loaded = modules && shader_cache.entries;
-  if (!shader_cache.loaded) shader_cache.error = format4 ? "index-empty" : "index-format";
+  if (!shader_cache.loaded) {
+    shader_cache.error = format4 ? "index-empty" : "index-format";
+    REXLOG_ERROR("[broken_bond] Native shader package unavailable: {}", shader_cache.error);
+  }
   if (spirv) shader_cache.record += fmt::format(",\"contract\":\"{}\"", shader_cache.contract);
   for (auto& shaders : shader_cache.by_hash)
     for (auto& [hash, shader] : shaders) shader_cache.by_name.emplace(shader.name, &shader);
