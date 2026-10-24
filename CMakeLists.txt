@@ -45,7 +45,7 @@ if(BROKENBOND_NATIVE_RENDERER)
          src/gpu/host/host.cpp src/gpu/host/kernel_video.cpp src/gpu/host/kernel_threading.cpp
          src/gpu/host/kernel_modules.cpp src/gpu/host/journal.cpp src/gpu/host/stop.cpp src/gpu/host/engines.cpp
          src/gpu/host/graphics.cpp src/gpu/host/frame_completion.cpp src/gpu/host/guest_hooks.cpp src/gpu/host/exports.cpp
-         src/gpu/host/title_loading.cpp
+         src/gpu/host/title_loading.cpp src/gpu/host/aspect.cpp
          # The backend: the D3D12 engine, its pipeline set, its dispatcher and the title-thread witness.
          src/gpu/backend/engine.cpp src/gpu/backend/failure_channel.cpp
          src/gpu/backend/pipeline_keys.cpp src/gpu/backend/pipeline_set.cpp src/gpu/backend/dispatcher.cpp

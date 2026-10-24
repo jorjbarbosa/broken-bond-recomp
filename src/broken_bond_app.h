@@ -62,6 +62,13 @@ class BrokenBondApp : public rex::ReXApp {
     if (!config.graphics) SelectXenosAdapter();
   }
 
+#ifdef BROKENBOND_NATIVE_RENDERER_BOOTSTRAP
+  void OnPostLoadXexImage() override {
+    // The camera ratio of the aspect_ratio option, before the title runs.
+    if (gpu::host::Enabled() && runtime()) gpu::host::ApplyAspectRatio(runtime()->virtual_membase());
+  }
+#endif
+
   void OnPostSetup() override {
     broken_bond::crash_report::Install();  // After the SDK's exception handler.
     if (window()) {
