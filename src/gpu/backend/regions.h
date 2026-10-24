@@ -88,8 +88,14 @@ struct ScreenArea {
   }
   float X(float x) const { return ox + x * sx; }
   float Y(float y) const { return oy + y * sy; }
-  int32_t EdgeX(int32_t x) const { return sx == 1.0f && ox == 0.0f ? x : int32_t(std::lround(double(ox) + double(x) * sx)); }
-  int32_t EdgeY(int32_t y) const { return sy == 1.0f && oy == 0.0f ? y : int32_t(std::lround(double(oy) + double(y) * sy)); }
+  int32_t EdgeX(int32_t x) const { return Edge(x, ox, sx); }
+  int32_t EdgeY(int32_t y) const { return Edge(y, oy, sy); }
+
+ private:
+  // Each edge alone, exact at 1x, as ResolutionScale maps it.
+  static int32_t Edge(int32_t e, float o, float k) {
+    return k == 1.0f && o == 0.0f ? e : int32_t(std::lround(double(o) + double(e) * k));
+  }
 };
 
 // The half-pixel offset gap of a scaled resolve. The title draws with the

@@ -1574,9 +1574,8 @@ DrawTranslation TranslateDraw(DrawCapture& c, GuardSink& sink) {
     request.screen_area = true;
     if (c.screen_layer == screen_layer::Kind::kFlash) {
       const auto bounds = FlashBounds(c, request, t, base, indexed, stream_address, stream_endian);
-      const bool wide = CurrentSettings().aspect_ratio > 16.0f / 9.0f;
-      const float low = bounds ? (*bounds)[wide ? 0 : 2] : 0.0f, high = bounds ? (*bounds)[wide ? 1 : 3] : 0.0f;
-      if (low <= -0.99f && high >= 0.99f) request.screen_area = false;
+      const unsigned axis = CurrentSettings().aspect_ratio > 16.0f / 9.0f ? 0 : 2;  // x when wider, y when narrower
+      if (bounds && (*bounds)[axis] <= -0.99f && (*bounds)[axis + 1] >= 0.99f) request.screen_area = false;
     }
   }
   // Transparency antialiasing in multisampled targets (TransparencySpec);
@@ -1781,8 +1780,8 @@ DrawTranslation TranslateDraw(DrawCapture& c, GuardSink& sink) {
         request.cull_front, request.cull_back, JsonFloat(request.viewport[0]), JsonFloat(request.viewport[1]),
         JsonFloat(request.viewport[2]), JsonFloat(request.viewport[3]), JsonFloat(request.viewport[4]),
         JsonFloat(request.viewport[5]), request.scissor[0], request.scissor[1], request.scissor[2], request.scissor[3],
-        uint32_t(c.screen_layer), request.screen_area, TopologyName(request.topology), request.index_count, request.base_vertex,
-        textures, diag));
+        uint32_t(c.screen_layer), request.screen_area, TopologyName(request.topology), request.index_count,
+        request.base_vertex, textures, diag));
   }
   // The constants the capture took (the whole blocks for the quad and
   // the evidence draws, the pending groups for the batched draws), moved.

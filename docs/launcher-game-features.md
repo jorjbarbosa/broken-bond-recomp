@@ -8,7 +8,7 @@ Static evidence and a host harness do not establish a successful game boot.
 | Option | Implementation | Validation boundary |
 | --- | --- | --- |
 | `skip_intro_videos` | Optional hook for read-only opens of `Ubisoft.bik` | File-wrapper and Bink failure paths verified statically; host harness passed; paired Xenos boots reached the title with skip off/on |
-| `aspect_ratio` | The camera ratio at `0x82E26800`, an anamorphic internal resolution, and the Flash UI and videos kept at 16:9 in the center (native renderer) | Captures of the title, menus, open world, pause and map at 21:9 and 16:10; a full play session pending |
+| `aspect_ratio` | The camera ratio at `0x82E26800`, an anamorphic internal resolution, and the Flash UI and videos kept at 16:9 in the center (native renderer) | Captures of the title, menus, open world, pause and map at 21:9 and 16:10, and of a video, a cutscene and a fight at 21:9; a play session at 21:9 |
 | FPS overlay | Reuse the Rise host overlay with the SDK counter API | SDK source supplies guest swap timing when performance counters are enabled; otherwise label the fallback as Host |
 | Mouse camera | SDK mouse-to-right-stick emulation | Rise's separate direct exploration-camera hook has not been ported or validated for Broken Bond |
 
@@ -82,6 +82,14 @@ title's Flash UI material, `sub_821700D8`, and videos from `sub_8216EF18`
 into the centered 16:9 area of the surface, unless a Flash draw spans the whole
 width (fades, the pause dim, full-width frames), measured from its POSITION0
 element through its own `g_mWorldViewProj` (VS c0..c3).
+
+The HUD stays in that area with the menus. The game names each Scaleform GFx
+screen when it sets it up (`sub_82BF2A10`: `HUD_Player_Journey`,
+`HUD_Player_Fight`, `Menu_Pause`, `PLV_Text_System` and others), but it draws
+them later from its render list, through one call path for all of them, and no
+field of a draw's render element was found to lead back to its screen. Moving
+only the HUD to the screen edges would need a tag set while GFx displays each
+screen and carried to the draw.
 
 At 16:10 the camera shows the same height as at 16:9 and about 5% less on each
 side. Showing more height instead needs the camera's field of view, which is

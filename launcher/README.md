@@ -27,7 +27,7 @@ reuses the current Rise installation and update flow.
 | Skip intro videos | Broken Bond hook skips only `Ubisoft.bik`; see the [game evidence](../docs/launcher-game-features.md) |
 | Game files | Select, reset, and open an extracted folder; a missing custom path never silently falls back |
 | Version under the cover | Optional `broken_bond.version`, otherwise `BROKENBOND_VERSION` (`dev` by default) |
-| Ultrawide | Same row, disabled with a localized explanation; camera and presentation contracts remain unvalidated |
+| Aspect ratio | Automatic (default), 16:9, 16:10, 21:9, 32:9, written as `aspect_ratio`; native renderer only |
 | Direct exploration mouse camera | SDK stick emulation works; Rise's separate script-module camera hook is not ported |
 
 The launcher starts the native Direct3D 12 game. Settings of earlier builds
