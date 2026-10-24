@@ -258,6 +258,21 @@ void LoadSettings() {
                            std::abs(aspect / (16.0 / 9.0) - 1.0) > 0.005
                        ? float(aspect)
                        : 0.0f;
+  // At another aspect the title's surfaces are drawn at the image's aspect
+  // (anamorphic): the axis the image widens grows from the scale above, the
+  // other keeps it, so 2x at 21:9 is 3440 x 1440 and 2x at 16:10 2560 x 1600.
+  // Each axis stays within 4x; past it the kept axis gives way.
+  if (s.aspect_ratio > 0.0f) {
+    const float wide = s.aspect_ratio / (16.0f / 9.0f);
+    ResolutionScale& k = s.resolution_scale;
+    if (wide > 1.0f) {
+      k.x = std::min(k.y * wide, 4.0f);
+      k.y = k.x / wide;
+    } else {
+      k.y = std::min(k.x / wide, 4.0f);
+      k.x = k.y * wide;
+    }
+  }
   s.graphics_device = REXCVAR_GET(graphics_device);
   s.native_backend = REXCVAR_GET(native_backend);
   if (rex::cvar::GetFlagInfo("d3d12_allow_variable_refresh_rate_and_tearing"))
