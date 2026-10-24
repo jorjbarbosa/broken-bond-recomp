@@ -2,6 +2,7 @@
 
 - [Build and run](build-and-run.md)
 - [Configuration](configuration.md)
+- [Translation mods](translation-mods.md)
 - [Launcher features and parity](../launcher/README.md)
 - [Launcher validation](launcher-validation.md)
 - [Native launcher validation](native-launcher-validation.md)

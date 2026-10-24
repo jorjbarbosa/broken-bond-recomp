@@ -163,7 +163,10 @@ class InnoSetupTests(unittest.TestCase):
         self.assertEqual(config["launcher_language"], "en")
         self.assertEqual(config["renderer"], "native")
         self.assertEqual(config["native_backend"], "d3d12")
+        self.assertEqual(config["translation_mod"], "")
         self.assertNotIn("gpu_plugin", config)
+        # No translation package is bundled; mods/ belongs to the user.
+        self.assertFalse((self.dest / "mods").exists())
 
     def test_existing_data_not_overwritten(self):
         game = self.dest / "game"
@@ -222,6 +225,8 @@ class InnoSetupTests(unittest.TestCase):
             "logs/session.log": b"existing log",
             "personal.txt": b"personal file",
             "mods/community/notes.txt": b"personal mod notes",
+            "mods/pt-br-demo/mod.toml": b"[mod]\ntype='translation'\nbase_language='en'\n",
+            "mods/pt-br-demo/textos.json": '{"1992":"OPÇÕES"}'.encode(),
             "user/saves/save.bin": b"default save data",
             "user/cache/test.bin": b"default cache data",
             "test-user-data/saves/save.bin": b"save data",

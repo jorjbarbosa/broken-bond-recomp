@@ -42,6 +42,8 @@ Open **Settings → Game → Game language**. The selection is applied on the ne
 
 A code set by hand outside this list is kept and shown as **Custom (code)** until you select a listed language.
 
+Translation packages installed in `mods/` next to the executable also appear in this list, by their own name. Selecting one sets English as the base language and `translation_mod` to the package folder; selecting an official language clears it. See [Translation mods](translation-mods.md).
+
 The voices (English or Japanese) are chosen in the game's own options menu.
 
 ## Main settings
@@ -51,6 +53,7 @@ Defaults written by the launcher:
 | Key | Default | Effect |
 | --- | --- | --- |
 | `user_language` | `1` | Game language; see the codes above |
+| `translation_mod` | `""` | Translation package folder under `mods/`, applied over English; empty disables it. See [Translation mods](translation-mods.md) |
 | `resolution_scale` | `1` | Internal resolution: 1 (1280×720, the original) to 4 (5120×2880) |
 | `draw_resolution_scale_x`, `draw_resolution_scale_y` | `1`, `1` | Draw scales, kept equal to `resolution_scale` by the launcher |
 | `anisotropic_override` | `5` | Texture filtering in the SDK's encoding: `-1` the game's, `0` off, `1` to `5` for 1× to 16×; `5` is 16× |

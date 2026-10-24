@@ -116,6 +116,16 @@ if(MSVC)
     target_compile_options(broken_bond_translation_test PRIVATE /utf-8)
 endif()
 
+# The strict package check before distribution (tools/localization/validate-package.cpp).
+add_executable(broken_bond_validate_translation_package EXCLUDE_FROM_ALL
+    tools/localization/validate-package.cpp src/mods/translation_data.cpp)
+target_include_directories(broken_bond_validate_translation_package PRIVATE src)
+target_link_libraries(broken_bond_validate_translation_package PRIVATE
+    rex::tomlplusplus broken_bond::json)
+if(MSVC)
+    target_compile_options(broken_bond_validate_translation_package PRIVATE /utf-8)
+endif()
+
 if(BROKENBOND_NATIVE_RENDERER)
     if(NOT WIN32)
         message(FATAL_ERROR "The native renderer requires Windows")

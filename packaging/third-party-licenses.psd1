@@ -6,6 +6,9 @@
 #   FidelityFX     - amd_fidelityfx_dx12.dll is staged
 @{
     Components = @(
+        @{ Name = 'nlohmann/json 3.11.3'; License = 'MIT'
+           Url = 'https://github.com/nlohmann/json'; File = 'third_party/nlohmann_json/LICENSE.MIT'; Target = 'nlohmann-json.txt'
+           Usage = 'broken_bond.exe, broken_bond_launcher.exe' }
         @{ Name = 'ReXGlue SDK (includes code derived from Xenia)'; License = 'BSD-3-Clause'
            Url = 'https://github.com/rexglue/rexglue-sdk'; File = 'sdk/LICENSE'; Target = 'rexglue-sdk.txt'
            Usage = 'broken_bond.exe, rexruntime.dll' }
@@ -35,7 +38,7 @@
            Usage = 'rexruntime.dll' }
         @{ Name = 'toml++'; License = 'MIT'
            Url = 'https://github.com/marzer/tomlplusplus'; File = 'sdk/thirdparty/tomlplusplus/LICENSE'; Target = 'tomlplusplus.txt'
-           Usage = 'rexruntime.dll' }
+           Usage = 'rexruntime.dll, broken_bond.exe, broken_bond_launcher.exe' }
         @{ Name = 'CLI11'; License = 'BSD-3-Clause'
            Url = 'https://github.com/CLIUtils/CLI11'; File = 'sdk/thirdparty/cli11/LICENSE'; Target = 'cli11.txt'
            Usage = 'rexruntime.dll' }
@@ -50,7 +53,7 @@
            Usage = 'rexruntime.dll' }
         @{ Name = 'UTF8-CPP'; License = 'BSL-1.0'
            Url = 'https://github.com/nemtrif/utfcpp'; File = 'sdk/thirdparty/utfcpp/LICENSE'; Target = 'utfcpp.txt'
-           Usage = 'rexruntime.dll' }
+           Usage = 'rexruntime.dll, broken_bond.exe, broken_bond_launcher.exe' }
         @{ Name = 'aes_128'; License = 'MIT'
            Url = 'https://github.com/openluopworld/aes_128'; File = 'sdk/thirdparty/aes_128/LICENSE'; Target = 'aes_128.txt'
            Usage = 'rexruntime.dll' }

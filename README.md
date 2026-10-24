@@ -52,6 +52,7 @@ The Xbox Live features and most of the story have not been tested yet. Other gra
 **Launcher and recompilation**
 
 - **Launcher** reused from the current Rise of a Ninja port, with the same settings layout, graphics card selection, keyboard and mouse mapping, seven interface languages, and game-folder verification, without DLC. See [launcher features and remaining gaps](launcher/README.md).
+- **Translation mods:** packages in `mods/` replace the game's English texts by ID without changing the game files, and the launcher lists them as game languages. See [Translation mods](docs/translation-mods.md).
 - **Windows installer** based on Rise's Inno Setup flow, with optional ISO import, supported-revision verification, updates and preservation of user data. See [packaging and installer](packaging/README.md).
 - **Automatic function discovery:** a ReXGlue patch finds the functions the game reaches only through pointer tables or addresses built in code, so the port needs no hand-written function list. See [Automatic function discovery](docs/automatic-function-discovery.md).
 
@@ -102,6 +103,7 @@ The [build guide](docs/build-and-run.md) explains each step, the native renderer
 | --- | --- |
 | [Build and run](docs/build-and-run.md) | Toolchain, SDK, game files, code generation, the native renderer, and running |
 | [Configuration](docs/configuration.md) | Launcher settings, the configuration file, renderer options, and user files |
+| [Translation mods](docs/translation-mods.md) | Translation packages, their format, validation, and limits |
 | [Renderers](docs/renderers.md) | The native renderer, the frame rate, the pipeline list, and known issues |
 | [Architecture](docs/architecture.md) | Project structure, SDK patches, and areas to address |
 | [Troubleshooting](docs/troubleshooting.md) | Build failures, runtime issues, and diagnostics |
