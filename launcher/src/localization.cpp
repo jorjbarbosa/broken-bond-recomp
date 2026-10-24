@@ -96,7 +96,7 @@ const char* const kStringsEn[] = {
     "Spanish",  // GameLanguageSpanish
     "Italian",  // GameLanguageItalian
     "Custom (%u)",  // GameLanguageCustom
-    "Applied on the next launch. Available text and voices depend on your game files.",  // GameLanguageDescription
+    "Applied on the next launch. Translation packages installed in mods appear here and replace text only when selected. Available voices depend on your game files.",  // GameLanguageDescription
     "Launcher interface language",  // LauncherLanguageTooltip
     // --- Renderer ---
     "Xenos (emulated GPU)",  // RendererXenos
@@ -244,7 +244,7 @@ const char* const kStringsPtBr[] = {
     "Espanhol",  // GameLanguageSpanish
     "Italiano",  // GameLanguageItalian
     "Personalizado (%u)",  // GameLanguageCustom
-    "Aplicado ao iniciar o jogo. Os textos e as vozes disponíveis dependem dos arquivos do jogo.",  // GameLanguageDescription
+    "Aplicado ao iniciar o jogo. Pacotes de tradução instalados em mods aparecem aqui e só substituem os textos quando selecionados. As vozes disponíveis dependem dos arquivos do jogo.",  // GameLanguageDescription
     "Idioma da interface do launcher",  // LauncherLanguageTooltip
     // --- Renderer ---
     "Xenos (GPU emulada)",  // RendererXenos

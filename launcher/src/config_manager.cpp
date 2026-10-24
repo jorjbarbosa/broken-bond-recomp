@@ -25,6 +25,7 @@ bool ConfigManager::Load(const std::filesystem::path& toml_path, GameConfig& con
     if (auto v = tbl["custom_game_root"].value<std::string>()) config.custom_game_root = *v;
     if (auto v = tbl["launcher_language"].value<std::string>()) config.launcher_language = *v;
     if (auto v = tbl["user_language"].value<std::uint32_t>()) config.user_language = *v;
+    if (auto v = tbl["translation_mod"].value<std::string>()) config.translation_mod = *v;
     if (auto v = tbl["skip_intro_videos"].value<bool>()) config.skip_intro_videos = *v;
     if (auto v = tbl["mnk_mode"].value<bool>()) config.mnk_mode = *v;
     if (auto v = tbl["mnk_mouse"].value<bool>()) config.mnk_mouse = *v;
@@ -85,6 +86,7 @@ bool ConfigManager::Save(const std::filesystem::path& toml_path, const GameConfi
   tbl.insert_or_assign("present_effect", config.present_effect);
   tbl.insert_or_assign("launcher_language", config.launcher_language);
   tbl.insert_or_assign("user_language", config.user_language);
+  tbl.insert_or_assign("translation_mod", config.translation_mod);
   tbl.insert_or_assign("skip_intro_videos", config.skip_intro_videos);
   tbl.insert_or_assign("mnk_mode", config.mnk_mode);
   tbl.insert_or_assign("mnk_mouse", config.mnk_mouse);

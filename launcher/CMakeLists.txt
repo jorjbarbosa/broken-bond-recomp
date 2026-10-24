@@ -10,6 +10,11 @@ if(NOT WIN32)
     message(FATAL_ERROR "The reused launcher currently supports Windows only")
 endif()
 
+# The game's translation package reader needs the JSON parser of the game build.
+if(NOT TARGET broken_bond::json)
+    add_subdirectory(../third_party/nlohmann_json third_party/nlohmann_json)
+endif()
+
 enable_language(RC)
 configure_file(src/launcher.rc.in "${CMAKE_CURRENT_BINARY_DIR}/launcher.rc" @ONLY)
 set_source_files_properties("${CMAKE_CURRENT_BINARY_DIR}/launcher.rc" PROPERTIES
@@ -23,6 +28,8 @@ add_executable(broken_bond_launcher WIN32
     src/config_manager.cpp
     src/folders.cpp
     src/game_files.cpp
+    src/game_languages.cpp
+    ../src/mods/translation_data.cpp
     src/graphics_devices.cpp
     src/key_bindings.cpp
     src/key_names.cpp
@@ -46,9 +53,9 @@ target_compile_features(broken_bond_launcher PRIVATE cxx_std_23)
 set(BROKENBOND_VERSION "dev" CACHE STRING "Launcher build version")
 target_compile_definitions(broken_bond_launcher PRIVATE BROKENBOND_VERSION="${BROKENBOND_VERSION}")
 target_include_directories(broken_bond_launcher PRIVATE
-    src ${IMGUI_DIR} "${CMAKE_CURRENT_SOURCE_DIR}/../sdk/thirdparty/stb")
+    src ../src ${IMGUI_DIR} "${CMAKE_CURRENT_SOURCE_DIR}/../sdk/thirdparty/stb")
 target_link_libraries(broken_bond_launcher PRIVATE
-    SDL3::SDL3-static rex::tomlplusplus d3d11 d3d12 dxgi bcrypt)
+    SDL3::SDL3-static rex::tomlplusplus broken_bond::json d3d11 d3d12 dxgi bcrypt)
 rexglue_apply_target_settings(broken_bond_launcher)
 if(MSVC)
     target_compile_options(broken_bond_launcher PRIVATE /utf-8)
@@ -110,10 +117,23 @@ if(MSVC)
     target_compile_options(broken_bond_localization_test PRIVATE /utf-8)
 endif()
 
+# Discovery and language selection with the same package reader as the game.
+add_executable(broken_bond_game_languages_test EXCLUDE_FROM_ALL
+    tests/test_game_languages.cpp src/game_languages.cpp src/config_manager.cpp
+    src/key_bindings.cpp src/localization.cpp ../src/mods/translation_data.cpp)
+target_compile_features(broken_bond_game_languages_test PRIVATE cxx_std_23)
+target_include_directories(broken_bond_game_languages_test PRIVATE src ../src)
+target_link_libraries(broken_bond_game_languages_test PRIVATE rex::tomlplusplus broken_bond::json)
+if(MSVC)
+    target_compile_options(broken_bond_game_languages_test PRIVATE /utf-8)
+endif()
+
 enable_testing()
 add_test(NAME launcher_config COMMAND broken_bond_launcher_test "${CMAKE_CURRENT_BINARY_DIR}/test-data/config")
 add_test(NAME launcher_keys COMMAND broken_bond_key_bindings_test)
 add_test(NAME launcher_localization COMMAND broken_bond_localization_test)
+add_test(NAME launcher_game_languages COMMAND broken_bond_game_languages_test
+    "${CMAKE_CURRENT_BINARY_DIR}/test-data/game-languages")
 
 add_executable(broken_bond_runtime_input_test EXCLUDE_FROM_ALL
     tests/test_runtime_input.cpp src/key_bindings.cpp)

@@ -28,6 +28,8 @@ struct GameConfig {
 
   // Game language: 1 = English, 4 = French, 3 = German, 5 = Spanish, 6 = Italian.
   std::uint32_t user_language = 1;
+  // Selected translation package under mods/; empty selects an official language.
+  std::string translation_mod;
 
   std::string input_backend = "sdl";
   // Keyboard and mouse mode, next to the controller: the mouse moves the
