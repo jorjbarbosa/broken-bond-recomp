@@ -26,6 +26,8 @@ set(BROKENBOND_SOURCES
     src/crash_report.cpp
 )
 
+add_subdirectory(third_party/nlohmann_json)
+
 # The shipping native build uses the Rise renderer adapted to Broken Bond,
 # with Direct3D 12 and Vulkan APIs. The OFF configuration is the separate
 # Xenos investigation host and does not build a launcher.
@@ -99,6 +101,14 @@ else()
 endif()
 if(WIN32)
     target_link_libraries(broken_bond PRIVATE d3d12 dxgi)
+endif()
+# The translation codec and package reader without the game (tests/translation_test.cpp).
+add_executable(broken_bond_translation_test EXCLUDE_FROM_ALL
+    tests/translation_test.cpp src/mods/translation_data.cpp)
+target_include_directories(broken_bond_translation_test PRIVATE src)
+target_link_libraries(broken_bond_translation_test PRIVATE rex::tomlplusplus broken_bond::json)
+if(MSVC)
+    target_compile_options(broken_bond_translation_test PRIVATE /utf-8)
 endif()
 
 if(BROKENBOND_NATIVE_RENDERER)
