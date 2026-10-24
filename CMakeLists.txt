@@ -24,6 +24,8 @@ set(BROKENBOND_SOURCES
     src/graphics_device.cpp
     src/intro_skip.cpp
     src/crash_report.cpp
+    src/mods/translation_data.cpp
+    src/mods/translation_mod.cpp
 )
 
 add_subdirectory(third_party/nlohmann_json)
@@ -102,6 +104,9 @@ endif()
 if(WIN32)
     target_link_libraries(broken_bond PRIVATE d3d12 dxgi)
 endif()
+target_include_directories(broken_bond PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
+target_link_libraries(broken_bond PRIVATE broken_bond::json)
+
 # The translation codec and package reader without the game (tests/translation_test.cpp).
 add_executable(broken_bond_translation_test EXCLUDE_FROM_ALL
     tests/translation_test.cpp src/mods/translation_data.cpp)

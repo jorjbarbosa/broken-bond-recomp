@@ -3,6 +3,7 @@ renderer = "native"
 native_backend = "d3d12"
 launcher_language = "en"
 user_language = 1
+translation_mod = ""
 input_backend = "sdl"
 resolution_scale = 1
 draw_resolution_scale_x = 1

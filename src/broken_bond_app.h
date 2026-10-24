@@ -8,6 +8,7 @@
 
 #include <rex/rex_app.h>
 #include <rex/cvar.h>
+#include <rex/filesystem.h>
 #include <rex/ui/keybinds.h>
 #include <rex/ui/window.h>
 #include <rex/ui/window_listener.h>
@@ -16,6 +17,7 @@
 #include "fps_overlay.h"
 #include "graphics_device.h"
 #include "input_replay.h"
+#include "mods/translation_mod.h"
 #ifdef BROKENBOND_NATIVE_RENDERER_BOOTSTRAP
 #include "gpu/host/app.h"
 #endif
@@ -70,6 +72,7 @@ class BrokenBondApp : public rex::ReXApp {
 #endif
 
   void OnPostSetup() override {
+    broken_bond::translation::Initialize(rex::filesystem::GetExecutableFolder());
     broken_bond::crash_report::Install();  // After the SDK's exception handler.
     if (window()) {
       // Window shortcuts take priority over overlays and keyboard emulation.
