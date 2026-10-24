@@ -40,6 +40,7 @@ struct PushConstants
 #define g_InverseResolutionScale   vk::RawBufferLoad<float2>(g_PushConstants.SharedConstants + 280)
 #define g_VertexFetch(i)           vk::RawBufferLoad<uint>(g_PushConstants.SharedConstants + 320 + (i) * 4)
 #define g_ClipPlane(i)             vk::RawBufferLoad<float4>(g_PushConstants.SharedConstants + 384 + (i) * 16)
+#define g_GuestTexelFetches        vk::RawBufferLoad<uint>(g_PushConstants.SharedConstants + 480)
 #endif
 
 [[vk::constant_id(0)]] const uint g_SpecConstants = 0;
@@ -55,7 +56,9 @@ struct PushConstants
 // brings the pixel position of ps_param_gen back to guest pixels;
 // c18 and c19 the descriptor indices of the vertex textures (declared by the
 // cache builder); c20..c23 the vertex fetch descriptors (vfetchNaruto);
-// c24..c29 the user clip planes PA_CL_UCP_0..5 (zero when disabled).
+// c24..c29 the user clip planes PA_CL_UCP_0..5 (zero when disabled);
+// c30.x the fetch constants read in guest texels (tfetch2D with the pixel
+// position).
 #define DEFINE_SHARED_CONSTANTS() \
     uint g_Booleans : packoffset(c16.x); \
     uint g_SwappedTexcoords : packoffset(c16.y); \
@@ -64,7 +67,8 @@ struct PushConstants
     uint g_AlphaTestInvert : packoffset(c17.y); \
     float2 g_InverseResolutionScale : packoffset(c17.z); \
     uint4 g_VertexFetchArray[4] : packoffset(c20); \
-    float4 g_ClipPlaneArray[6] : packoffset(c24);
+    float4 g_ClipPlaneArray[6] : packoffset(c24); \
+    uint g_GuestTexelFetches : packoffset(c30.x);
 
 #define g_VertexFetch(i) (g_VertexFetchArray[(i) / 4][(i) % 4])
 #define g_ClipPlane(i) (g_ClipPlaneArray[i])
@@ -233,6 +237,54 @@ float4 tfetch2DDenorm(uint resourceDescriptorIndex, uint samplerDescriptorIndex,
 {
     Texture2D<float4> texture = g_Texture2DDescriptorHeap[resourceDescriptorIndex];
     return texture.Sample(g_SamplerDescriptorHeap[samplerDescriptorIndex], (texCoord + offset) / getTexture2DDimensions(texture));
+}
+
+// A bilinear fetch in guest texels: each guest texel read at its center (the
+// average of its 2 x 2 host texels at 2x), the four blended by the position.
+float4 tfetch2DGuestTexels(Texture2D<float4> texture, SamplerState samplerState, float2 texCoord, float2 guestSize)
+{
+    float2 position = texCoord * guestSize - 0.5;
+    float2 texel = floor(position);
+    float2 weight = position - texel;
+    float2 center = (texel + 0.5) / guestSize;
+    float2 step = 1.0 / guestSize;
+    float4 top = lerp(texture.SampleLevel(samplerState, center, 0),
+        texture.SampleLevel(samplerState, center + float2(step.x, 0.0), 0), weight.x);
+    float4 bottom = lerp(texture.SampleLevel(samplerState, center + float2(0.0, step.y), 0),
+        texture.SampleLevel(samplerState, center + step, 0), weight.x);
+    return lerp(top, bottom, weight.y);
+}
+
+// A 2D fetch of a pixel shader. A draw that reduces a resolve made at the
+// internal resolution scale (the depth of field's downsample of the scene to
+// 640 x 360) samples it one guest texel off its pixel and leaves the texels
+// between to the bilinear filter; at the scale that holds only at the guest
+// pixel centers, and elsewhere the fetches skip texels: a regular pattern of
+// stripes. For those fetch constants (guestTexels nonzero: the fetch
+// constant's bit of g_GuestTexelFetches, set by the host) the fetch is taken as
+// at 1x and scaled up: at the centers of the four guest pixels around this one,
+// blended by its place between them, each in guest texels (the instruction's
+// offset too). inverseScale is g_InverseResolutionScale.
+float4 tfetch2D(uint resourceDescriptorIndex, uint samplerDescriptorIndex, float2 texCoord, float2 offset,
+    uint guestTexels, float2 inverseScale, float2 pixelPosition)
+{
+    [branch] if (guestTexels == 0)
+        return tfetch2D(resourceDescriptorIndex, samplerDescriptorIndex, texCoord, offset);
+    Texture2D<float4> texture = g_Texture2DDescriptorHeap[resourceDescriptorIndex];
+    SamplerState samplerState = g_SamplerDescriptorHeap[samplerDescriptorIndex];
+    float2 guestSize = float2(getTexture2DDimensions(texture)) * inverseScale;
+    float2 coord = texCoord + offset / guestSize;
+    // The coordinate's change from one guest pixel to the next.
+    float2 stepX = ddx(coord) / inverseScale.x;
+    float2 stepY = ddy(coord) / inverseScale.y;
+    float2 guestPixel = pixelPosition * inverseScale - 0.5;
+    float2 weight = guestPixel - floor(guestPixel);
+    float2 first = coord - weight.x * stepX - weight.y * stepY;
+    float4 top = lerp(tfetch2DGuestTexels(texture, samplerState, first, guestSize),
+        tfetch2DGuestTexels(texture, samplerState, first + stepX, guestSize), weight.x);
+    float4 bottom = lerp(tfetch2DGuestTexels(texture, samplerState, first + stepY, guestSize),
+        tfetch2DGuestTexels(texture, samplerState, first + stepX + stepY, guestSize), weight.x);
+    return lerp(top, bottom, weight.y);
 }
 
 // getGradients: the screen-space derivatives of two source components,

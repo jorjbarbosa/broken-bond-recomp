@@ -417,6 +417,12 @@ void ShaderRecompiler::recompile(const TextureFetchInstruction& instr, bool bicu
 #endif
     case TextureDimension::Texture2D:
         print(", float2({}, {})", instr.offsetX * 0.5f, instr.offsetY * 0.5f);
+#ifdef NARUTO_RECOMP
+        // Whether the host reads this fetch constant in guest texels, the
+        // scale and the pixel position (tfetch2D of shader_common.h).
+        if (isPixelShader && instr.opcode == FetchOpcode::TextureFetch && !instr.texCoordDenorm)
+            print(", g_GuestTexelFetches & {}u, g_InverseResolutionScale, iPos.xy", 1u << instr.constIndex);
+#endif
         break;
     case TextureDimension::TextureCube:
         out += ", cubeMapData";

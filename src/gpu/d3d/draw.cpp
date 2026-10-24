@@ -1611,6 +1611,19 @@ DrawTranslation TranslateDraw(DrawCapture& c, GuardSink& sink) {
   std::memcpy(&request.shared_constants[264], s.half, 8);
   std::memcpy(&request.shared_constants[272], &alpha_ref, 4);
   std::memcpy(&request.shared_constants[276], &s.alpha_invert, 4);
+  // The resolves this draw reduces at the internal resolution scale, read in
+  // guest texels (shared +480, a bit per fetch constant; tfetch2D of the
+  // XenosRecomp fork): a filtered resolve larger than the viewport on both
+  // axes, as the depth of field's downsample of the scene to 640 x 360. Its
+  // taps one guest texel apart skip host texels at the scale and leave stripes.
+  uint32_t guest_texel_fetches = 0;
+  if (!CurrentSettings().resolution_scale.Unit())
+    for (const DrawTexture& texture : request.textures)
+      if (texture.resolved && !texture.cube && texture.reg < 16 &&
+          (texture.min_filter == Filter::kLinear || texture.mag_filter == Filter::kLinear) &&
+          float(texture.width) > request.viewport[2] && float(texture.height) > request.viewport[3])
+        guest_texel_fetches |= 1u << texture.reg;
+  std::memcpy(&request.shared_constants[480], &guest_texel_fetches, 4);
   // The user clip planes, only in the draws that enable one, as the
   // capture read them (PA_CL_UCP_n; a disabled plane stays (0, 0, 0, 0) at
   // shared +384 + 16n and clips nothing).
@@ -1772,7 +1785,7 @@ DrawTranslation TranslateDraw(DrawCapture& c, GuardSink& sink) {
         "\"entry\":\"{}\",\"lr\":{},\"vs\":\"{}\",\"ps\":\"{}\",\"color_key\":{},\"depth_key\":{},\"depth_only\":{},"
         "\"depth\":[{},{},{}],\"stencil\":{},\"color_mask\":{},\"blend_control\":{},\"alpha_to_coverage\":{},"
         "\"cull\":[{},{}],\"viewport\":[{},{},{},{},{},{}],\"scissor\":[{},{},{},{}],\"screen_layer\":{},"
-        "\"screen_area\":{},\"topology\":\"{}\","
+        "\"screen_area\":{},\"guest_texel_fetches\":{},\"topology\":\"{}\","
         "\"index_count\":{},\"base_vertex\":{},\"textures\":[{}]{}", name, lr, request.vs.key, request.ps.key,
         request.color_key,
         request.depth_key, request.depth_only, request.depth_enable, request.depth_write, request.depth_func,
@@ -1780,8 +1793,8 @@ DrawTranslation TranslateDraw(DrawCapture& c, GuardSink& sink) {
         request.cull_front, request.cull_back, JsonFloat(request.viewport[0]), JsonFloat(request.viewport[1]),
         JsonFloat(request.viewport[2]), JsonFloat(request.viewport[3]), JsonFloat(request.viewport[4]),
         JsonFloat(request.viewport[5]), request.scissor[0], request.scissor[1], request.scissor[2], request.scissor[3],
-        uint32_t(c.screen_layer), request.screen_area, TopologyName(request.topology), request.index_count,
-        request.base_vertex, textures, diag));
+        uint32_t(c.screen_layer), request.screen_area, guest_texel_fetches, TopologyName(request.topology),
+        request.index_count, request.base_vertex, textures, diag));
   }
   // The constants the capture took (the whole blocks for the quad and
   // the evidence draws, the pending groups for the batched draws), moved.
