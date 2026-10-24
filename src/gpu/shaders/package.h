@@ -2,7 +2,7 @@
 
 // The shader packages embedded in the build (shader_cache_data.cpp), one per
 // binary format, as tools/native-renderer/build-embedded-shader-cache.py
-// writes them: a container compressed by MSZIP (the Windows Compression API)
+// writes them: a container compressed by Zstandard (decoded in process)
 // whose payload, checked by SHA-256, holds the index text and one record per
 // file. The DXIL package has the DXIL of each shader and the spec constant
 // variants linked in the build. The SPIR-V package (builds with the Vulkan

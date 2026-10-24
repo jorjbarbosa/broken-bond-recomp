@@ -42,7 +42,7 @@ The launcher starts `broken_bond.exe` from its own folder. Build the game with `
 `run-game.ps1` reports the exit code and the log path. Look for these lines near the end of the log:
 
 - **A missing function** (an indirect call to an address with no recompiled function). The message has the guest target, return address, and stack pointer. Discovery is conservative, and such a miss is worth an issue with the log.
-- **`Unhandled guest access violation`**: a crash in the game code. Report it with the log and what you were doing.
+- **`Unhandled guest access violation`**: a crash in the game code. The `crash report` lines after it name the faulting address, the guest thread, its registers, and the chain of return addresses; for an address in the game's heap they also describe that heap and the memory around the fault. Report it with the log and what you were doing.
 - **A native renderer stop**: the renderer closes the game with a message and writes the reason in the log and the journal. Report it with both.
 
 ### No sound

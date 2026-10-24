@@ -2,7 +2,7 @@
 #include "gpu/shaders/package.h"
 #include <cstring>
 #include <mutex>
-#include <windows.h>
+#include <zstd.h>
 #include <fmt/format.h>
 #include "gpu/common/sha256.h"
 #if BROKENBOND_SHADER_CACHE_SPIRV
@@ -37,13 +37,23 @@ uint64_t U64(const uint8_t* p) {
   return v;
 }
 
-// The payload of a container: "NRSC", u32 version 1, u32 algorithm 2
-// (MSZIP), u32 0, u64 payload bytes, u64 compressed bytes, the SHA-256 of the
-// payload, then the compressed payload.
+// The payload of a container: "NRSC", u32 version 2, u32 algorithm 1
+// (Zstandard, one frame), u32 0, u64 payload bytes, u64 compressed bytes, the
+// SHA-256 of the payload, then the compressed payload. The decoder is linked
+// in, so the package does not depend on a system library (Wine's cabinet.dll
+// has no Compression API, which version 1 used).
 bool Decompress(const uint8_t* c, size_t size, ShaderPackage& package, std::string& error) {
   constexpr size_t kHeader = 64;  // Magic, 3 x u32, 2 x u64, SHA-256.
-  if (size < kHeader || std::memcmp(c, "NRSC", 4) || U32(c + 4) != 1 || U32(c + 8) != 2) {
+  if (size < kHeader || std::memcmp(c, "NRSC", 4)) {
     error = "embedded-container";
+    return false;
+  }
+  if (U32(c + 4) != 2) {
+    error = "embedded-container-version";
+    return false;
+  }
+  if (U32(c + 8) != 1 || U32(c + 12)) {
+    error = "embedded-container-algorithm";
     return false;
   }
   const uint64_t payload_bytes = U64(c + 16), packed_bytes = U64(c + 24);
@@ -51,24 +61,16 @@ bool Decompress(const uint8_t* c, size_t size, ShaderPackage& package, std::stri
     error = "embedded-sizes";
     return false;
   }
-  HMODULE cabinet = LoadLibraryW(L"cabinet.dll");
-  using Create = BOOL(WINAPI*)(DWORD, void*, HANDLE*);
-  using Run = BOOL(WINAPI*)(HANDLE, const void*, SIZE_T, void*, SIZE_T, SIZE_T*);
-  using Close = BOOL(WINAPI*)(HANDLE);
-  auto create = cabinet ? reinterpret_cast<Create>(GetProcAddress(cabinet, "CreateDecompressor")) : nullptr;
-  auto run = cabinet ? reinterpret_cast<Run>(GetProcAddress(cabinet, "Decompress")) : nullptr;
-  auto close = cabinet ? reinterpret_cast<Close>(GetProcAddress(cabinet, "CloseDecompressor")) : nullptr;
-  HANDLE decompressor = nullptr;
-  if (!create || !run || !close || !create(2 /* COMPRESS_ALGORITHM_MSZIP */, nullptr, &decompressor)) {
-    error = "embedded-decompressor";
+  const uint8_t* packed = c + kHeader;
+  const size_t frame_bytes = ZSTD_findFrameCompressedSize(packed, size_t(packed_bytes));
+  if (ZSTD_isError(frame_bytes) || frame_bytes != packed_bytes ||
+      ZSTD_getFrameContentSize(packed, size_t(packed_bytes)) != payload_bytes) {
+    error = "embedded-zstd-frame";
     return false;
   }
   package.payload.resize(size_t(payload_bytes));
-  SIZE_T written = 0;
-  const bool unpacked = run(decompressor, c + kHeader, SIZE_T(packed_bytes), package.payload.data(),
-                            SIZE_T(payload_bytes), &written);
-  close(decompressor);
-  if (!unpacked || written != payload_bytes) {
+  const size_t written = ZSTD_decompress(package.payload.data(), package.payload.size(), packed, size_t(packed_bytes));
+  if (ZSTD_isError(written) || written != payload_bytes) {
     error = "embedded-decompress";
     return false;
   }

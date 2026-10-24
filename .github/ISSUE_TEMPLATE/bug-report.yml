@@ -1,0 +1,76 @@
+name: Bug Report
+description: Report a problem with Broken Bond.
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: input
+    id: version
+    attributes:
+      label: Broken Bond version
+      description: Enter the release version or commit hash. Mention if you built it yourself.
+      placeholder: Release version or commit hash
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Bug description
+      description: Describe what happens and how it affects the game or launcher.
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Include the mission or location, relevant settings, and how often the issue occurs. If you cannot reproduce it consistently, say so.
+      placeholder: |
+        1. Launch the game
+        2. Go to...
+        3. Perform...
+        4. Observe...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected-behavior
+    attributes:
+      label: Expected behavior
+      description: Describe what should happen instead.
+    validations:
+      required: true
+
+  - type: input
+    id: operating-system
+    attributes:
+      label: Operating system
+      description: Include the OS version and, if applicable, your Wine or Proton version.
+      placeholder: Windows 11, or Linux distribution with Wine/Proton version
+    validations:
+      required: true
+
+  - type: textarea
+    id: hardware
+    attributes:
+      label: Hardware
+      description: Include your processor, graphics card, graphics driver version, and RAM.
+      placeholder: |
+        CPU:
+        GPU:
+        Graphics driver:
+        RAM:
+    validations:
+      required: true
+
+  - type: textarea
+    id: settings
+    attributes:
+      label: Settings and modifications
+      description: List the settings relevant to the issue, such as resolution, frame rate, and anti-aliasing, and any modifications. Mention whether it also happens without modifications, if tested.
+
+  - type: textarea
+    id: attachments
+    attributes:
+      label: Logs, screenshots, and additional context
+      description: Attach relevant logs, screenshots, videos, or broken_bond.toml by dragging files into this field. Include any other details that could help reproduce the issue.

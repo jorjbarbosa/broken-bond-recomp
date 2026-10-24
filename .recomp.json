@@ -1,0 +1,21 @@
+{
+  "game": "Naruto: The Broken Bond",
+  "wikidata": "Q2633663",
+  "system": "Xbox 360",
+  "type": "recomp",
+  "original": { "serial": "US-2085" },
+  "project": "Naruto: The Broken Bond — Recomp",
+  "status": "released",
+  "targets": ["Windows"],
+  "toolchain": "Rexglue",
+  "approach": "Static recompilation of the Xbox 360 PowerPC code into C++ with the ReXGlue SDK, whose runtime provides system services, graphics, audio and input.",
+  "notes": "Native Windows x64 recompilation with a native Direct3D 12 renderer. Features 1x-4x resolution scaling, frame rates above the original 30 fps with interpolated frames, MSAA, FXAA, FidelityFX CAS and FSR, an FPS/frametime overlay, and a launcher and installer in seven languages. Players supply their own Xbox 360 game files.",
+  "tags": [],
+  "maintainers": [
+    { "name": "jorjbarbosa", "link": "https://github.com/jorjbarbosa" }
+  ],
+  "links": [
+    { "label": "Releases", "url": "https://github.com/jorjbarbosa/broken-bond-recomp/releases" },
+    { "label": "Build guide", "url": "https://github.com/jorjbarbosa/broken-bond-recomp/blob/main/docs/build-and-run.md" }
+  ]
+}

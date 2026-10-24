@@ -4,16 +4,42 @@
 
 #pragma once
 
+#include <limits>
+
 #include <rex/rex_app.h>
 #include <rex/cvar.h>
 #include <rex/ui/keybinds.h>
+#include <rex/ui/window.h>
+#include <rex/ui/window_listener.h>
 
+#include "crash_report.h"
 #include "fps_overlay.h"
 #include "graphics_device.h"
 #include "input_replay.h"
 #ifdef BROKENBOND_NATIVE_RENDERER_BOOTSTRAP
 #include "gpu/host/app.h"
 #endif
+
+// Alt+Enter and F11 switch between borderless fullscreen and windowed mode.
+class FullscreenShortcuts : public rex::ui::WindowInputListener {
+ public:
+  void OnKeyDown(rex::ui::KeyEvent& e) override {
+    using rex::ui::VirtualKey;
+    if (e.virtual_key() != VirtualKey::kF11 &&
+        !(e.virtual_key() == VirtualKey::kReturn && e.is_alt_pressed())) {
+      return;
+    }
+
+    // Consume repeats too, so holding the shortcut neither toggles repeatedly
+    // nor sends Enter to the game's keyboard controller or an overlay.
+    e.set_handled(true);
+    if (!e.prev_state() && e.target()) {
+      // ReXApp's fullscreen callback applies the change on this UI thread.
+      rex::cvar::SetFlagByName("fullscreen",
+                               e.target()->IsFullscreen() ? "false" : "true");
+    }
+  }
+};
 
 class BrokenBondApp : public rex::ReXApp {
  public:
@@ -36,7 +62,15 @@ class BrokenBondApp : public rex::ReXApp {
     if (!config.graphics) SelectXenosAdapter();
   }
 
-  void OnPostSetup() override { RestoreXenosAdapter(); }
+  void OnPostSetup() override {
+    broken_bond::crash_report::Install();  // After the SDK's exception handler.
+    if (window()) {
+      // Window shortcuts take priority over overlays and keyboard emulation.
+      window()->AddInputListener(&fullscreen_shortcuts_,
+                                 std::numeric_limits<size_t>::max());
+    }
+    RestoreXenosAdapter();
+  }
 
   void OnCreateDialogs(rex::ui::ImGuiDrawer* drawer) override {
     SetGuestFrameStats(ReadGuestFrameStats);
@@ -54,6 +88,7 @@ class BrokenBondApp : public rex::ReXApp {
   }
 
   void OnShutdown() override {
+    if (window()) window()->RemoveInputListener(&fullscreen_shortcuts_);
     rex::ui::UnregisterBind("bind_fps_overlay");
     fps_overlay_.reset();
     RestoreXenosAdapter();
@@ -68,5 +103,6 @@ class BrokenBondApp : public rex::ReXApp {
 #endif
 
  private:
+  FullscreenShortcuts fullscreen_shortcuts_;
   std::unique_ptr<FpsOverlayDialog> fps_overlay_;
 };

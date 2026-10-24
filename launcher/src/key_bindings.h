@@ -35,6 +35,6 @@ std::array<std::string, 2> SplitKeyBind(std::string_view value);
 // so the second keeps its place; the game skips empty alternatives.
 std::string JoinKeyBind(std::string_view first, std::string_view second);
 
-// Keys the game keeps for itself: F1 (frame rate overlay), F3, F4, F7 and
-// Backtick (the SDK's overlays).
+// Keys the game keeps for itself: F1 (frame rate overlay), F3, F4, F7,
+// Backtick (the SDK's overlays) and F11 (fullscreen).
 bool IsReservedKey(std::string_view name);

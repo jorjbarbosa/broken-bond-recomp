@@ -1,14 +1,16 @@
-// Immutable draw bindings shared within one GPU batch. The batch owns this
-// cache until its submission completes, before any retired images are freed.
+// The per-batch objects of the draw passes: the attachment views and the
+// framebuffers, shared within one GPU batch. The batch owns this cache until
+// its submission completes, before any retired images are freed. The sampled
+// textures and the samplers are in the draw heap instead (backend.cpp).
 #pragma once
 #include "gpu/backend/vulkan/graphics.h"
 #include <unordered_map>
 
 namespace gpu::vulkan {
 struct DrawCacheCounters {
-  std::atomic<uint64_t> draws{0}, pools{0}, groups{0}, views{0}, samplers{0}, framebuffers{0}, constant_bytes{0}, passes{0};
+  std::atomic<uint64_t> draws{0}, views{0}, framebuffers{0}, constant_bytes{0}, passes{0};
   std::atomic<uint64_t> pipeline_binds{0}, descriptor_binds{0};
-  std::atomic<uint64_t> set_allocations{0};
+  std::atomic<uint64_t> heap_views{0};  // Views written into the draw heap.
 };
 template <size_t N> struct DrawKeyHash {
   size_t operator()(const std::array<uint64_t, N>& key) const {
@@ -21,24 +23,37 @@ template <size_t N> struct DrawKeyHash {
     return size_t(h ^ (h >> 31));
   }
 };
+// The key of a sampler: explicit fields, never structure padding or the
+// address of pNext. False for a pNext other than one custom border color.
+inline bool SamplerKey(const VkSamplerCreateInfo& info, std::array<uint64_t, 21>& key) {
+  key = {info.flags, uint64_t(info.magFilter), uint64_t(info.minFilter), uint64_t(info.mipmapMode),
+      uint64_t(info.addressModeU), uint64_t(info.addressModeV), uint64_t(info.addressModeW),
+      std::bit_cast<uint32_t>(info.mipLodBias), info.anisotropyEnable, std::bit_cast<uint32_t>(info.maxAnisotropy),
+      info.compareEnable, uint64_t(info.compareOp), std::bit_cast<uint32_t>(info.minLod),
+      std::bit_cast<uint32_t>(info.maxLod), uint64_t(info.borderColor), info.unnormalizedCoordinates};
+  if (info.pNext) {
+    const auto* border = static_cast<const VkSamplerCustomBorderColorCreateInfoEXT*>(info.pNext);
+    if (border->sType != VK_STRUCTURE_TYPE_SAMPLER_CUSTOM_BORDER_COLOR_CREATE_INFO_EXT || border->pNext) return false;
+    key[16] = uint64_t(border->format);
+    for (unsigned i = 0; i < 4; ++i) {
+      uint32_t bits;
+      std::memcpy(&bits, reinterpret_cast<const uint8_t*>(&border->customBorderColor) + i * 4, 4);
+      key[17 + i] = bits;
+    }
+  }
+  return true;
+}
 class DrawCache {
  public:
   DrawCache(VkDevice device, DrawCacheCounters& counters) : device_(device), counters_(counters) {}
   DrawCache(const DrawCache&) = delete;
   DrawCache& operator=(const DrawCache&) = delete;
-  ~DrawCache() {
-    Recycle();
-    for (auto pool : pools_) vkDestroyDescriptorPool(device_, pool, nullptr);
-    for (const auto& [key, sampler] : samplers_) vkDestroySampler(device_, sampler, nullptr);
-  }
-  // Called only after the batch's GPU fence completes. Slots are overwritten
-  // in full before the next batch can bind them. Samplers contain no image
-  // references, so they can remain with the reusable arena.
+  ~DrawCache() { Recycle(); }
+  // Called only after the batch's GPU fence completes.
   void Recycle() {
     for (const auto& [key, framebuffer] : framebuffers_) vkDestroyFramebuffer(device_, framebuffer, nullptr);
     for (const auto& [key, view] : views_) vkDestroyImageView(device_, view, nullptr);
-    framebuffers_.clear(); views_.clear(); groups_.clear();
-    used_slots_ = 0;
+    framebuffers_.clear(); views_.clear();
   }
   VkResult View(VkImage image, VkFormat format, VkImageAspectFlags aspect, uint32_t levels,
                 bool cube, const ComponentMapping& mapping, VkImageView& out) {
@@ -53,29 +68,6 @@ class DrawCache {
     info.subresourceRange = {aspect, 0, levels, 0, cube ? 6u : 1u};
     const auto result = vkCreateImageView(device_, &info, nullptr, &out);
     if (result == VK_SUCCESS) { views_.emplace(key, out); counters_.views.fetch_add(1, std::memory_order_relaxed); }
-    return result;
-  }
-  VkResult Sampler(const VkSamplerCreateInfo& info, VkSampler& out) {
-    // Explicit fields, never structure padding or the address of pNext.
-    SamplerKey key{info.flags, uint64_t(info.magFilter), uint64_t(info.minFilter), uint64_t(info.mipmapMode),
-        uint64_t(info.addressModeU), uint64_t(info.addressModeV), uint64_t(info.addressModeW),
-        std::bit_cast<uint32_t>(info.mipLodBias), info.anisotropyEnable, std::bit_cast<uint32_t>(info.maxAnisotropy),
-        info.compareEnable, uint64_t(info.compareOp), std::bit_cast<uint32_t>(info.minLod),
-        std::bit_cast<uint32_t>(info.maxLod), uint64_t(info.borderColor), info.unnormalizedCoordinates};
-    if (info.pNext) {
-      const auto* border = static_cast<const VkSamplerCustomBorderColorCreateInfoEXT*>(info.pNext);
-      if (border->sType != VK_STRUCTURE_TYPE_SAMPLER_CUSTOM_BORDER_COLOR_CREATE_INFO_EXT || border->pNext)
-        return VK_ERROR_FEATURE_NOT_PRESENT;
-      key[16] = uint64_t(border->format);
-      for (unsigned i = 0; i < 4; ++i) {
-        uint32_t bits;
-        std::memcpy(&bits, reinterpret_cast<const uint8_t*>(&border->customBorderColor) + i * 4, 4);
-        key[17 + i] = bits;
-      }
-    }
-    if (auto it = samplers_.find(key); it != samplers_.end()) { out = it->second; return VK_SUCCESS; }
-    const auto result = vkCreateSampler(device_, &info, nullptr, &out);
-    if (result == VK_SUCCESS) { samplers_.emplace(key, out); counters_.samplers.fetch_add(1, std::memory_order_relaxed); }
     return result;
   }
   VkResult Framebuffer(VkRenderPass pass, const std::vector<VkImageView>& attachments,
@@ -93,63 +85,12 @@ class DrawCache {
     if (result == VK_SUCCESS) { framebuffers_.emplace(key, out); counters_.framebuffers.fetch_add(1, std::memory_order_relaxed); }
     return result;
   }
-  VkResult Descriptors(const std::array<VkDescriptorSetLayout, 4>& layouts,
-      const std::array<std::array<VkDescriptorImageInfo, 32>, 4>& images, std::array<VkDescriptorSet, 4>& out) {
-    GroupKey key{};
-    for (unsigned set = 0; set < 4; ++set) for (unsigned i = 0; i < 32; ++i)
-      key[set * 32 + i] = set == 3 ? std::bit_cast<uint64_t>(images[set][i].sampler) :
-                                      std::bit_cast<uint64_t>(images[set][i].imageView);
-    if (auto it = groups_.find(key); it != groups_.end()) { out = it->second; return VK_SUCCESS; }
-    if (used_slots_ == slots_.size()) {
-      if (pools_.empty() || groups_in_pool_ == kGroupsPerPool) {
-        VkDescriptorPoolSize sizes[]{{VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 96 * kGroupsPerPool},
-                                     {VK_DESCRIPTOR_TYPE_SAMPLER, 32 * kGroupsPerPool}};
-        VkDescriptorPoolCreateInfo info{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
-        info.maxSets = 4 * kGroupsPerPool; info.poolSizeCount = 2; info.pPoolSizes = sizes;
-        VkDescriptorPool pool{};
-        const auto result = vkCreateDescriptorPool(device_, &info, nullptr, &pool);
-        if (result != VK_SUCCESS) return result;
-        pools_.push_back(pool); groups_in_pool_ = 0;
-        counters_.pools.fetch_add(1, std::memory_order_relaxed);
-      }
-      VkDescriptorSetAllocateInfo info{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
-      info.descriptorPool = pools_.back(); info.descriptorSetCount = 4; info.pSetLayouts = layouts.data();
-      const auto result = vkAllocateDescriptorSets(device_, &info, out.data());
-      if (result != VK_SUCCESS) return result;
-      ++groups_in_pool_;
-      slots_.push_back(out);
-      counters_.set_allocations.fetch_add(4, std::memory_order_relaxed);
-    } else {
-      out = slots_[used_slots_];
-    }
-    ++used_slots_;
-    std::array<VkWriteDescriptorSet, 4> writes{};
-    for (unsigned i = 0; i < 4; ++i) {
-      writes[i] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
-      writes[i].dstSet = out[i]; writes[i].descriptorCount = 32;
-      writes[i].descriptorType = i == 3 ? VK_DESCRIPTOR_TYPE_SAMPLER : VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
-      writes[i].pImageInfo = images[i].data();
-    }
-    vkUpdateDescriptorSets(device_, 4, writes.data(), 0, nullptr);
-    groups_.emplace(key, out);
-    counters_.groups.fetch_add(1, std::memory_order_relaxed);
-    return VK_SUCCESS;
-  }
  private:
-  static constexpr uint32_t kGroupsPerPool = 64;
   using ViewKey = std::array<uint64_t, 6>;
-  using SamplerKey = std::array<uint64_t, 21>;
   using FrameKey = std::array<uint64_t, 5>;
-  using GroupKey = std::array<uint64_t, 128>;
   const VkDevice device_;
   DrawCacheCounters& counters_;
-  std::vector<VkDescriptorPool> pools_;
-  std::vector<std::array<VkDescriptorSet, 4>> slots_;
-  size_t used_slots_ = 0;
-  uint32_t groups_in_pool_ = 0;
   std::unordered_map<ViewKey, VkImageView, DrawKeyHash<6>> views_;
-  std::unordered_map<SamplerKey, VkSampler, DrawKeyHash<21>> samplers_;
   std::unordered_map<FrameKey, VkFramebuffer, DrawKeyHash<5>> framebuffers_;
-  std::unordered_map<GroupKey, std::array<VkDescriptorSet, 4>, DrawKeyHash<128>> groups_;
 };
 }  // namespace gpu::vulkan

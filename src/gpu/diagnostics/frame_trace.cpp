@@ -63,13 +63,13 @@ uint64_t FrameTraceTarget() { FrameTraceInit(); return frame_trace.target.load()
 // Called at each Swap n with the own draws of the frame it closes.
 void FrameTraceNoteSwap(uint64_t n, uint64_t frame_draws) {
   FrameTraceInit();
-  if (frame_trace.key_mode) {  // F11 arms the next frame.
-    const bool down = (GetAsyncKeyState(VK_F11) & 0x8000) != 0;
+  if (frame_trace.key_mode) {  // F10 arms the next frame.
+    const bool down = (GetAsyncKeyState(VK_F10) & 0x8000) != 0;
     if (down && !frame_trace.key_down && !frame_trace.target.load() && frame_trace.key_traces < kKeyTraces) {
       ++frame_trace.key_traces;
       frame_trace.target.store(n + 1);
       host::Record("native-d3d-frame-trace-armed", fmt::format(
-          "\"key\":\"F11\",\"trace\":{},\"swap\":{},\"frame_draws\":{},\"target_swap\":{}", frame_trace.key_traces, n,
+          "\"key\":\"F10\",\"trace\":{},\"swap\":{},\"frame_draws\":{},\"target_swap\":{}", frame_trace.key_traces, n,
           frame_draws, n + 1));
     }
     frame_trace.key_down = down;
@@ -81,7 +81,7 @@ void FrameTraceNoteSwap(uint64_t n, uint64_t frame_draws) {
         "\"scene_first_swap\":{},\"frame_draws\":{},\"target_swap\":{}", n, frame_draws, frame_trace.target.load()));
   }
 }
-// After a readback in the key mode, the trace is free for the next F11.
+// After a readback in the key mode, the trace is free for the next F10.
 void FrameTraceRearm() {
   if (!frame_trace.key_mode) return;
   frame_trace.dests.clear();
