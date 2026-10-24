@@ -11,9 +11,11 @@ inline constexpr const char* kDe[] = {
     "Steuerung",  // GroupControls
     "Seitenverhältnis",  // AspectLabel
     "16:9 - Standard (Original)",  // Aspect16x9
+    "Automatisch (Monitor)",  // AspectAuto
+    "16:10",  // Aspect16x10
     "21:9 - UltraWide",  // Aspect21x9
     "32:9 - Super UltraWide",  // Aspect32x9
-    "Passt das horizontale Sichtfeld der 3D-Kamera an, ohne die Figuren zu strecken oder zu verzerren.",  // AspectDescription
+    "Füllt Monitore, die nicht 16:9 sind. Die 3D-Ansicht wird breiter (21:9, 32:9) oder etwas schmaler (16:10), ohne zu strecken; HUD, Menüs und Videos behalten ihr 16:9-Format in der Mitte. Automatisch richtet sich nach deinem Monitor.",  // AspectDescription
     "Auflösung",  // ResolutionLabel
     "Renderer",  // RendererLabel
     "Texturfilter",  // TextureFilteringLabel

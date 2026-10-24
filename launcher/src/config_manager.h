@@ -66,8 +66,9 @@ struct GameConfig {
   bool present_dither = false;
   bool show_fps_overlay = false;
 
-  // 0.0 = 16:9 native (default), 2.3889 = 21:9, 3.5556 = 32:9
-  double ultrawide_target_aspect = 0.0;
+  // The image's width over its height (aspect_ratio, native renderer): -1 follows the
+  // monitor (default), 0 keeps the game's 16:9, else 1.6 (16:10), 2.3889 (21:9), 3.5556 (32:9).
+  double aspect_ratio = -1.0;
 
   std::string custom_game_root = "";
   // Saves and caches; empty keeps the project's existing user directory. Read only: the

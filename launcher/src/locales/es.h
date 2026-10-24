@@ -11,9 +11,11 @@ inline constexpr const char* kEs[] = {
     "Controles",  // GroupControls
     "Relación de aspecto",  // AspectLabel
     "16:9 - Estándar (original)",  // Aspect16x9
+    "Automático (monitor)",  // AspectAuto
+    "16:10",  // Aspect16x10
     "21:9 - UltraWide",  // Aspect21x9
     "32:9 - Super UltraWide",  // Aspect32x9
-    "Ajusta el campo de visión horizontal de la cámara 3D sin estirar ni distorsionar los personajes.",  // AspectDescription
+    "Llena los monitores que no son 16:9. La vista 3D se ensancha (21:9, 32:9) o se estrecha un poco (16:10) sin estirarse; el HUD, los menús y los vídeos mantienen su formato 16:9 en el centro. Automático sigue a tu monitor.",  // AspectDescription
     "Resolución",  // ResolutionLabel
     "Renderizador",  // RendererLabel
     "Filtro de texturas",  // TextureFilteringLabel

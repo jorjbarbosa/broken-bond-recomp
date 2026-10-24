@@ -12,6 +12,8 @@ enum class TextId {
   GroupControls,
   AspectLabel,
   Aspect16x9,
+  AspectAuto,
+  Aspect16x10,
   Aspect21x9,
   Aspect32x9,
   AspectDescription,

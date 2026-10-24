@@ -11,9 +11,11 @@ inline constexpr const char* kIt[] = {
     "Controlli",  // GroupControls
     "Formato schermo",  // AspectLabel
     "16:9 - Standard (originale)",  // Aspect16x9
+    "Automatico (monitor)",  // AspectAuto
+    "16:10",  // Aspect16x10
     "21:9 - UltraWide",  // Aspect21x9
     "32:9 - Super UltraWide",  // Aspect32x9
-    "Regola il campo visivo orizzontale della telecamera 3D senza allungare o deformare i personaggi.",  // AspectDescription
+    "Riempie i monitor che non sono 16:9. La visuale 3D si allarga (21:9, 32:9) o si restringe un po' (16:10) senza stirare; HUD, menu e video mantengono il formato 16:9 al centro. Automatico segue il tuo monitor.",  // AspectDescription
     "Risoluzione",  // ResolutionLabel
     "Renderer",  // RendererLabel
     "Filtro texture",  // TextureFilteringLabel

@@ -106,7 +106,7 @@ int main(int argc, char** argv) {
                 restored.show_fps_overlay && restored.key_binds[1] == ",Q" && restored.key_binds[0] == "J,K,L" &&
                 restored.user_data_root == "my saves", "Extended settings did not persist");
     const auto extended = toml::parse_file(path.string());
-    Require(!extended.contains("ultrawide_target_aspect"), "Saving introduced an unsupported aspect option");
+    Require(!extended.contains("ultrawide_target_aspect"), "Saving kept the disabled aspect option");
     if (kNativeRendererBuilt) {
       Require(restored.msaa_samples == 8 && restored.frame_rate == 120 && restored.brightness == 0.6 &&
                   restored.native_backend == options.native_backend &&

@@ -11,6 +11,7 @@
 #include <functional>
 #include <string_view>
 #include <vector>
+#include <windows.h>
 #include <fmt/format.h>
 #include <rex/cvar.h>
 
@@ -52,11 +53,11 @@ REXCVAR_DEFINE_INT32(frame_rate, 30, "broken_bond/Graphics",
     .range(30, 240)
     .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
 // The aspect ratio of the image: the title's camera covers it (host/aspect.cpp).
-// 0 keeps the title's 16:9.
-REXCVAR_DEFINE_DOUBLE(aspect_ratio, 0.0, "broken_bond/Graphics",
-                      "Aspect ratio of the native renderer's image, width over height: 0 keeps the game's 16:9; "
-                      "for example 1.6 (16:10), 2.3889 (21:9) or 3.5556 (32:9)")
-    .range(0.0, 4.0)
+// -1 follows the monitor; 0 keeps the title's 16:9.
+REXCVAR_DEFINE_DOUBLE(aspect_ratio, -1.0, "broken_bond/Graphics",
+                      "Aspect ratio of the native renderer's image, width over height: -1 follows the monitor, "
+                      "0 keeps the game's 16:9; for example 1.6 (16:10), 2.3889 (21:9) or 3.5556 (32:9)")
+    .range(-1.0, 4.0)
     .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
 REXCVAR_DEFINE_DOUBLE(internal_resolution_scale, 0.0, "broken_bond/Graphics",
                       "Internal resolution scale of the native renderer, 1 to 4 with fractions "
@@ -253,7 +254,16 @@ void LoadSettings() {
   s.transparency_antialiasing = REXCVAR_GET(transparency_antialiasing);
   s.frame_rate = uint32_t(std::clamp(REXCVAR_GET(frame_rate), 30, 240));
   // Within half a percent of 16:9 is the title's own aspect; outside 1.25 to 4, too.
-  const double aspect = REXCVAR_GET(aspect_ratio);
+  // A negative value (the default) follows the primary monitor, where the window opens.
+  double aspect = REXCVAR_GET(aspect_ratio);
+  if (std::isfinite(aspect) && aspect < 0) {
+    MONITORINFO info{};
+    info.cbSize = sizeof(info);
+    const HMONITOR monitor = MonitorFromPoint(POINT{0, 0}, MONITOR_DEFAULTTOPRIMARY);
+    const bool known = monitor && GetMonitorInfoW(monitor, &info);
+    const LONG w = info.rcMonitor.right - info.rcMonitor.left, h = info.rcMonitor.bottom - info.rcMonitor.top;
+    aspect = known && w > 0 && h > 0 ? double(w) / double(h) : 0.0;
+  }
   s.aspect_ratio = std::isfinite(aspect) && aspect >= 1.25 && aspect <= 4.0 &&
                            std::abs(aspect / (16.0 / 9.0) - 1.0) > 0.005
                        ? float(aspect)

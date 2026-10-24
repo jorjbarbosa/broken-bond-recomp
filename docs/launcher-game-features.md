@@ -8,7 +8,7 @@ Static evidence and a host harness do not establish a successful game boot.
 | Option | Implementation | Validation boundary |
 | --- | --- | --- |
 | `skip_intro_videos` | Optional hook for read-only opens of `Ubisoft.bik` | File-wrapper and Bink failure paths verified statically; host harness passed; paired Xenos boots reached the title with skip off/on |
-| `ultrawide_target_aspect` | Unavailable; keep the launcher row disabled | Broken Bond projection constant and presentation contract remain unresolved |
+| `aspect_ratio` | The camera ratio at `0x82E26800`, an anamorphic internal resolution, and the Flash UI and videos kept at 16:9 in the center (native renderer) | Captures of the title, menus, open world, pause and map at 21:9 and 16:10; a full play session pending |
 | FPS overlay | Reuse the Rise host overlay with the SDK counter API | SDK source supplies guest swap timing when performance counters are enabled; otherwise label the fallback as Host |
 | Mouse camera | SDK mouse-to-right-stick emulation | Rise's separate direct exploration-camera hook has not been ported or validated for Broken Bond |
 
@@ -62,31 +62,30 @@ references, basic blocks, or complete indirect-call coverage. Static Bink
 failure handling establishes the immediate return path; it does not establish
 the boot sequence's reaction, timing, or visual result.
 
-## Ultrawide gap
+## Aspect ratio
 
-Rise patches the float at `0x826F5108` to the reciprocal target aspect and
-modifies its SDK command processors to pass that aspect to the presenter.
-That address has no established Broken Bond meaning. The pinned Broken Bond
-SDK has no `ultrawide_target_aspect` presenter override. Neither portion was
-copied into the working game.
+The title's cameras read the ratio of the image's height to its width from the
+float at `0x82E26800` (9/16). Writing 0.421875 there when the image loads
+narrowed every object of the title scene to 0.75 of its width with its height
+unchanged: the vertical field of view is fixed and the horizontal one follows
+the ratio. The other 9/16 float of the image, at `0x8209F4D0`, changed nothing.
+`src/gpu/host/aspect.cpp` writes `1/aspect_ratio` there after checking the
+original value.
 
-The bounded Broken Bond search covered provider-defined strings matching
-`projection`, their `ir_projection` reference, and the corresponding candidate
-address. Evidence
-`ev_702e8f3b88a078d19ea2fc73d2a08d2a283dbafc889328e670551ab8b92b2f2b`
-(`003-search_strings.json`) contains the string matches. The `ir_projection`
-reference is `0x825D398C`, evidence
-`ev_3b49d39b3f6c527158b7309418f620e42247d6918522cf1c80b29d081edf0545`
-(`011-xrefs.json`); IDA did not recognize a containing function for that address
-(`016-analyze_function.json`). This search did not identify a projection
-constant or establish its consumers. It is not evidence that Broken Bond
-cannot support ultrawide.
+The native renderer then draws the title's 1280 x 720 surfaces at the image's
+aspect (`src/gpu/settings.cpp`): wider than 16:9 the horizontal scale grows from
+the chosen resolution, narrower the vertical one does, each within 4x.
 
-Enable the launcher option only after identifying the projection calculation
-in this executable, proving the original constant and its uses, implementing
-the corresponding host presentation behavior, and comparing live 16:9 and
-wide gameplay, menus, HUD, and video. Stretching a 16:9 image alone does not
-validate this option. Xenos remains the working default.
+The HUD, menus, subtitles and loading screens come from the draw function of the
+title's Flash UI material, `sub_821700D8`, and videos from `sub_8216EF18`
+(`src/gpu/d3d/screen_layer.cpp`). Their draws over the 1280 x 720 viewport go
+into the centered 16:9 area of the surface, unless a Flash draw spans the whole
+width (fades, the pause dim, full-width frames), measured from its POSITION0
+element through its own `g_mWorldViewProj` (VS c0..c3).
+
+At 16:10 the camera shows the same height as at 16:9 and about 5% less on each
+side. Showing more height instead needs the camera's field of view, which is
+not changed yet.
 
 ## Validation
 

@@ -19,7 +19,7 @@ The interface matches the current Rise launcher, with its DLC tab removed. The l
 | Group | Options |
 | --- | --- |
 | Game | Game language and Ubisoft boot-logo skip |
-| Display | Graphics card, resolution, fullscreen, VSync, brightness and frame rate. Ultrawide remains visible but disabled pending validation |
+| Display | Graphics card, resolution, aspect ratio, fullscreen, VSync, brightness and frame rate |
 | Quality | Texture filtering, FXAA, post-processing, MSAA and transparency AA |
 | Controls | SDL/XInput, connected controller, keyboard and mouse mode, mouse camera, sensitivity, key mapping |
 | Advanced | Frame latency and triple buffering |
@@ -90,6 +90,7 @@ These keys exist only in native renderer builds. Each takes effect on the next l
 | `triple_buffering` | `false` | Three swapchain buffers instead of two |
 | `graphics_device` | `""` | The graphics card, by the selected API's name; empty is automatic. The native log names both the backend and card |
 | `frame_rate` | `30` | Frame rate from 30 to 240. `30` keeps the game's own; above 30 the renderer draws frames between the game's logic steps. See [Renderers](renderers.md#frame-rate) |
+| `aspect_ratio` | `-1` | The image's shape, width over height: `-1` follows the monitor, `0` keeps the game's 16:9, or a ratio such as `1.6` (16:10), `2.3889` (21:9, 3440×1440) or `3.5556` (32:9). The 3D view widens or narrows to fill the screen without stretching; the HUD, menus and videos keep 16:9 proportions in the center. See [Aspect ratio](#aspect-ratio) |
 
 For example, in `build/native/broken_bond.toml`:
 
@@ -100,6 +101,17 @@ transparency_antialiasing = true
 internal_resolution_scale = 1.5
 frame_rate = 60
 ```
+
+## Aspect ratio
+
+On a monitor that is not 16:9, **Settings → Display → Aspect ratio** fills the screen. **Automatic**, the default, uses the shape of the primary monitor, where the game opens; a 16:9 monitor keeps the original image.
+
+| Monitor | 3D view | HUD, menus and videos |
+| --- | --- | --- |
+| 21:9, 32:9 | Wider, filling the screen | 16:9 area in the center; the sides show the 3D |
+| 16:10 | About 5% less on each side, filling the screen | 16:9 area in the center, with thin bands above and below |
+
+Full-screen effects such as fades and the pause dim cover the whole screen. HUD elements that sit at the edges of a 16:9 screen stay at the edges of the central area. The internal resolution follows the monitor's shape: at 2× a 21:9 monitor renders 3440×1440. The option needs a restart.
 
 ## User files
 

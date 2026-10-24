@@ -36,7 +36,7 @@ bool ConfigManager::Load(const std::filesystem::path& toml_path, GameConfig& con
     if (auto v = tbl["show_fps_overlay"].value<bool>()) config.show_fps_overlay = *v;
     if (auto v = tbl["mnk_sensitivity"].value<double>()) if (std::isfinite(*v)) config.mnk_sensitivity = *v;
     if (auto v = tbl["video_mode_refresh_rate"].value<double>()) if (std::isfinite(*v)) config.video_mode_refresh_rate = *v;
-    if (auto v = tbl["ultrawide_target_aspect"].value<double>()) if (std::isfinite(*v)) config.ultrawide_target_aspect = *v;
+    if (auto v = tbl["aspect_ratio"].value<double>()) if (std::isfinite(*v)) config.aspect_ratio = *v;
     if (auto v = tbl["anisotropic_override"].value<int>()) config.anisotropic_override = *v;
     if (auto v = tbl["msaa_samples"].value<int>()) config.msaa_samples = *v;
     if (auto v = tbl["frame_rate"].value<int>()) config.frame_rate = *v;
@@ -107,7 +107,9 @@ bool ConfigManager::Save(const std::filesystem::path& toml_path, const GameConfi
     tbl.insert_or_assign("triple_buffering", config.triple_buffering);
     tbl.insert_or_assign("brightness", config.brightness);
     tbl.insert_or_assign("internal_resolution_scale", config.internal_resolution_scale);
+    tbl.insert_or_assign("aspect_ratio", config.aspect_ratio);
   }
+  tbl.erase("ultrawide_target_aspect");  // The disabled option of earlier launchers.
   tbl.insert_or_assign("resolution_scale", config.resolution_scale);
   tbl.insert_or_assign("draw_resolution_scale_x", config.resolution_scale);
   tbl.insert_or_assign("draw_resolution_scale_y", config.resolution_scale);

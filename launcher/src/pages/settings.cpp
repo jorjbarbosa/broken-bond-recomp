@@ -25,8 +25,7 @@ constexpr Option kSkipIntro{TextId::SkipIntroLabel, TextId::SkipIntroDescription
 constexpr Option kRenderer{TextId::RendererLabel, TextId::RendererDescription};
 constexpr Option kGraphicsDevice{TextId::GraphicsDeviceLabel, TextId::GraphicsDeviceDescription};
 constexpr Option kResolution{TextId::ResolutionLabel, TextId::ResolutionDescription};
-constexpr Option kAspect{TextId::AspectLabel, TextId::AspectDescription, Renderer::kBoth,
-                          TextId::Count, false};
+constexpr Option kAspect{TextId::AspectLabel, TextId::AspectDescription, Renderer::kNative};
 constexpr Option kBrightness{TextId::BrightnessLabel, TextId::BrightnessDescription, Renderer::kNative};
 constexpr Option kVsync{TextId::VsyncLabel, TextId::VsyncDescription, Renderer::kBoth,
                         TextId::VsyncNativeDescription};
@@ -153,11 +152,20 @@ void RenderDisplayGroup(OptionList& list, GameConfig& config) {
     }
   }
 
-  const char* aspects[] = {Tr(TextId::Aspect16x9), Tr(TextId::Aspect21x9), Tr(TextId::Aspect32x9)};
-  int aspect = config.ultrawide_target_aspect >= 3.5 ? 2 : config.ultrawide_target_aspect >= 2.3 ? 1 : 0;
-  if (list.Combo(kAspect, aspect, aspects)) {
-    config.ultrawide_target_aspect = aspect == 2 ? 3.5556 : aspect == 1 ? 2.3889 : 0;
+  // aspect_ratio: -1 the monitor's, 0 the game's 16:9, else width over height; a
+  // value set by hand shows as the nearest choice.
+  constexpr double kAspects[] = {-1.0, 0.0, 1.6, 2.3889, 3.5556};
+  const char* aspects[] = {Tr(TextId::AspectAuto), Tr(TextId::Aspect16x9), Tr(TextId::Aspect16x10),
+                           Tr(TextId::Aspect21x9), Tr(TextId::Aspect32x9)};
+  int aspect = 0;  // Automatic
+  if (config.aspect_ratio >= 0.0) {
+    constexpr double kRatios[] = {0.0, 16.0 / 9.0, 1.6, 2.3889, 3.5556};
+    const double ratio = config.aspect_ratio == 0.0 ? kRatios[1] : config.aspect_ratio;
+    aspect = 1;
+    for (int i = 2; i < 5; ++i)
+      if (std::abs(kRatios[i] - ratio) < std::abs(kRatios[aspect] - ratio)) aspect = i;
   }
+  if (list.Combo(kAspect, aspect, aspects)) config.aspect_ratio = kAspects[aspect];
 
   int brightness = static_cast<int>(std::lround(std::clamp(config.brightness, 0.0, 1.0) * 100));
   if (list.Slider(kBrightness, brightness, 0, 100)) config.brightness = brightness / 100.0;
@@ -265,7 +273,7 @@ void ApplyRecommended(GameConfig& config) {
   config.internal_resolution_scale = 0;
   config.max_frame_latency = 1;
   config.input_backend = "sdl";
-  config.ultrawide_target_aspect = 0;
+  config.aspect_ratio = -1.0;
 }
 
 // One entry of the group list: the active one is lit, with a bar in the accent color.

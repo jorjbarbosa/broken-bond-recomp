@@ -32,9 +32,11 @@ const char* const kStringsEn[] = {
     "Controls",  // GroupControls
     "Aspect Ratio",  // AspectLabel
     "16:9 - Standard (original)",  // Aspect16x9
+    "Automatic (monitor)",  // AspectAuto
+    "16:10",  // Aspect16x10
     "21:9 - UltraWide",  // Aspect21x9
     "32:9 - Super UltraWide",  // Aspect32x9
-    "Dynamically adjusts 3D camera FOV horizontally without character stretching or distortion.",  // AspectDescription
+    "Fills monitors that are not 16:9. The 3D view gets wider (21:9, 32:9) or slightly narrower (16:10) without stretching; the HUD, menus and videos keep their 16:9 shape in the center. Automatic follows your monitor.",  // AspectDescription
     "Resolution",  // ResolutionLabel
     "Renderer",  // RendererLabel
     "Texture Filtering",  // TextureFilteringLabel
@@ -180,9 +182,11 @@ const char* const kStringsPtBr[] = {
     "Controles",  // GroupControls
     "Proporção de tela",  // AspectLabel
     "16:9 - Padrão (original)",  // Aspect16x9
+    "Automático (monitor)",  // AspectAuto
+    "16:10",  // Aspect16x10
     "21:9 - UltraWide",  // Aspect21x9
     "32:9 - Super UltraWide",  // Aspect32x9
-    "Ajusta dinamicamente o FOV da camera 3D horizontalmente sem esticar os personagens.",  // AspectDescription
+    "Preenche monitores que não são 16:9. A visão 3D fica mais larga (21:9, 32:9) ou um pouco mais estreita (16:10) sem esticar; o HUD, os menus e os vídeos mantêm o formato 16:9 no centro. Automático segue o seu monitor.",  // AspectDescription
     "Resolução",  // ResolutionLabel
     "Renderizador",  // RendererLabel
     "Filtro de texturas",  // TextureFilteringLabel

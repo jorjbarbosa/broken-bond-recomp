@@ -11,9 +11,11 @@ inline constexpr const char* kFr[] = {
     "Commandes",  // GroupControls
     "Format d'image",  // AspectLabel
     "16:9 - Standard (original)",  // Aspect16x9
+    "Automatique (écran)",  // AspectAuto
+    "16:10",  // Aspect16x10
     "21:9 - UltraWide",  // Aspect21x9
     "32:9 - Super UltraWide",  // Aspect32x9
-    "Ajuste le champ de vision horizontal de la caméra 3D sans étirer ni déformer les personnages.",  // AspectDescription
+    "Remplit les écrans qui ne sont pas en 16:9. La vue 3D s'élargit (21:9, 32:9) ou se resserre un peu (16:10) sans étirement ; le HUD, les menus et les vidéos gardent leur format 16:9 au centre. Automatique suit votre écran.",  // AspectDescription
     "Résolution",  // ResolutionLabel
     "Moteur de rendu",  // RendererLabel
     "Filtrage des textures",  // TextureFilteringLabel
