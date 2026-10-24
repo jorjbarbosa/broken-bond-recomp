@@ -75,14 +75,15 @@ inline bool CopyBox(const HostResolve& resolve, bool has_rect, uint32_t source_w
 // resolution scale of each axis or, for the screen layer at another aspect
 // (DrawRequest::screen_area), one scale for both axes, the smaller, with the
 // title's 1280 x 720 space centered on the surface, whose host size is each
-// axis's scale times 1280 x 720. Without the area it maps as ResolutionScale.
+// axis's scale times 1280 x 720, at a whole host pixel so the 2D keeps one
+// texel per pixel. Without the area it maps as ResolutionScale.
 struct ScreenArea {
   float sx, sy, ox = 0.0f, oy = 0.0f;
   ScreenArea(const ResolutionScale& k, bool area) : sx(k.x), sy(k.y) {
     if (!area) return;
     const float s = std::min(k.x, k.y);
-    ox = (k.x - s) * 640.0f;
-    oy = (k.y - s) * 360.0f;
+    ox = std::round((k.x - s) * 640.0f);
+    oy = std::round((k.y - s) * 360.0f);
     sx = sy = s;
   }
   float X(float x) const { return ox + x * sx; }

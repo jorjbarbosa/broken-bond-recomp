@@ -2977,13 +2977,13 @@ bool Backend::DrawIndexed(const DrawRequest& r, uint64_t& fenceValue, std::strin
   list->OMSetRenderTargets(color ? 1 : 0, color ? &rtv : nullptr, FALSE, depth ? &dsv : nullptr);
   // The viewport and the scissor come in guest pixels; the screen layer's
   // into the centered 16:9 area (regions.h, ScreenArea).
-  const ScreenArea a(state_->render_mode.scale, r.screen_area);
-  const D3D12_VIEWPORT viewport{a.X(r.viewport[0]), a.Y(r.viewport[1]), r.viewport[2] * a.sx, r.viewport[3] * a.sy,
-                                r.viewport[4], r.viewport[5]};
+  const ScreenArea area(state_->render_mode.scale, r.screen_area);
+  const D3D12_VIEWPORT viewport{area.X(r.viewport[0]), area.Y(r.viewport[1]), r.viewport[2] * area.sx,
+                                r.viewport[3] * area.sy, r.viewport[4], r.viewport[5]};
   list->RSSetViewports(1, &viewport);
-  D3D12_RECT scissor{std::max<LONG>(a.EdgeX(r.scissor[0]), 0), std::max<LONG>(a.EdgeY(r.scissor[1]), 0),
-                     std::min<LONG>(a.EdgeX(r.scissor[2]), target.desc.width),
-                     std::min<LONG>(a.EdgeY(r.scissor[3]), target.desc.height)};
+  D3D12_RECT scissor{std::max<LONG>(area.EdgeX(r.scissor[0]), 0), std::max<LONG>(area.EdgeY(r.scissor[1]), 0),
+                     std::min<LONG>(area.EdgeX(r.scissor[2]), target.desc.width),
+                     std::min<LONG>(area.EdgeY(r.scissor[3]), target.desc.height)};
   if (scissor.right <= scissor.left || scissor.bottom <= scissor.top) scissor = {0, 0, 0, 0};
   list->RSSetScissorRects(1, &scissor);
   if (!state_->batch.draw_bindings) {  // Clears and copies in between leave them bound.

@@ -12,6 +12,7 @@
 #include <vector>
 #include "gpu/backend/engine.h"
 #include "gpu/buffers/vertex_layout.h"
+#include "gpu/d3d/screen_layer.h"
 #include "gpu/d3d/state.h"
 #include "gpu/diagnostics/start_evidence.h"
 #include "gpu/shaders/shaders.h"
@@ -24,9 +25,9 @@ struct DrawCapture {
   uint8_t* base = nullptr;  // Guest memory base: vertices, indices and textures are read at GPU time.
   bool indexed = false, quad = false;
   uint32_t primitive = 0, lr = 0, thread = 0;
-  // The screen layer the draw belongs to (screen_layer.h, Kind) and, for a
-  // Flash draw at another aspect, its g_mWorldViewProj (VS c0..c3, rows).
-  uint8_t screen_layer = 0;
+  // The screen layer the draw belongs to (screen_layer.h) and, for a Flash
+  // draw at another aspect, its g_mWorldViewProj (VS c0..c3, rows).
+  screen_layer::Kind screen_layer = screen_layer::Kind::kNone;
   std::array<float, 16> screen_matrix{};
   int32_t base_vertex = 0;
   uint32_t start_index = 0, index_count = 0, start_vertex = 0;
