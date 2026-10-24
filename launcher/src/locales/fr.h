@@ -145,8 +145,6 @@ inline constexpr const char* kFr[] = {
     "Clic droit",  // MouseRightName
     "Clic milieu",  // MouseMiddleName
     "Enregistrement impossible. Vérifiez le fichier de configuration et les droits d’écriture du dossier.",  // SaveFailed
-    "Indisponible",  // UnavailableTag
-    "L’ultrawide attend la validation de la projection de caméra de Broken Bond et de la présentation. Le jeu utilise le format 16:9.",  // AspectUnavailableReason
 };
 
 }  // namespace localization_strings

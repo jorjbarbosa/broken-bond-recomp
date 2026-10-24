@@ -145,8 +145,6 @@ inline constexpr const char* kEs[] = {
     "Clic der.",  // MouseRightName
     "Clic central",  // MouseMiddleName
     "No se pudo guardar. Revisa el archivo de configuración y los permisos de escritura de la carpeta.",  // SaveFailed
-    "No disponible",  // UnavailableTag
-    "Ultrawide requiere validar la proyección de cámara de Broken Bond y la presentación del juego. El juego utiliza 16:9.",  // AspectUnavailableReason
 };
 
 }  // namespace localization_strings

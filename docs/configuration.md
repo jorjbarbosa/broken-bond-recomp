@@ -104,7 +104,7 @@ frame_rate = 60
 
 ## Aspect ratio
 
-On a monitor that is not 16:9, **Settings → Display → Aspect ratio** fills the screen. **Automatic**, the default, uses the shape of the primary monitor, where the game opens; a 16:9 monitor keeps the original image.
+On a monitor that is not 16:9, **Settings → Display → Aspect ratio** fills the screen. **Automatic**, the default, uses the shape of the primary monitor, where the game opens, also when the game runs in a window; a 16:9 monitor keeps the original image.
 
 | Monitor | 3D view | HUD, menus and videos |
 | --- | --- | --- |

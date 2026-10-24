@@ -21,8 +21,6 @@ struct Option {
   Renderer renderer = Renderer::kBoth;
   // Shown instead of `description` while the native renderer is chosen.
   TextId native_description = TextId::Count;
-  // Keep a reference control visible while its game contract is unresolved.
-  bool available = true;
 };
 
 // Draws the rows of one group, one under the other: the label on the left and
@@ -67,7 +65,7 @@ class OptionList {
   bool Track(const Option& option, int& value, int min, int max, std::span<const int> stops,
              const char* format);
   void LabelColumn(const Option& option);
-  // The "only in one renderer" tag of an unavailable option, beside the last item.
+  // The "only in one renderer" tag of an option the chosen renderer ignores, beside the last item.
   void DrawTag(const Option& option, float x, bool right_aligned) const;
 
   bool native_;

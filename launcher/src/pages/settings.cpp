@@ -152,20 +152,26 @@ void RenderDisplayGroup(OptionList& list, GameConfig& config) {
     }
   }
 
-  // aspect_ratio: -1 the monitor's, 0 the game's 16:9, else width over height; a
-  // value set by hand shows as the nearest choice.
-  constexpr double kAspects[] = {-1.0, 0.0, 1.6, 2.3889, 3.5556};
-  const char* aspects[] = {Tr(TextId::AspectAuto), Tr(TextId::Aspect16x9), Tr(TextId::Aspect16x10),
-                           Tr(TextId::Aspect21x9), Tr(TextId::Aspect32x9)};
-  int aspect = 0;  // Automatic
-  if (config.aspect_ratio >= 0.0) {
-    constexpr double kRatios[] = {0.0, 16.0 / 9.0, 1.6, 2.3889, 3.5556};
-    const double ratio = config.aspect_ratio == 0.0 ? kRatios[1] : config.aspect_ratio;
-    aspect = 1;
-    for (int i = 2; i < 5; ++i)
-      if (std::abs(kRatios[i] - ratio) < std::abs(kRatios[aspect] - ratio)) aspect = i;
-  }
-  if (list.Combo(kAspect, aspect, aspects)) config.aspect_ratio = kAspects[aspect];
+  // aspect_ratio: -1 the monitor's, 0 the game's 16:9, else width over height. A
+  // value set by hand shows as the nearest choice, or as 16:9 where the game
+  // keeps 16:9 (below 1.25, above 4, within half a percent of 16:9).
+  struct AspectChoice {
+    TextId text;
+    double value, ratio;
+  };
+  constexpr AspectChoice kAspects[] = {{TextId::AspectAuto, -1.0, 0.0},
+                                       {TextId::Aspect16x9, 0.0, 16.0 / 9.0},
+                                       {TextId::Aspect16x10, 1.6, 1.6},
+                                       {TextId::Aspect21x9, 2.3889, 2.3889},
+                                       {TextId::Aspect32x9, 3.5556, 3.5556}};
+  const char* aspects[std::size(kAspects)];
+  for (size_t i = 0; i < std::size(kAspects); ++i) aspects[i] = Tr(kAspects[i].text);
+  const double ratio = config.aspect_ratio;
+  int aspect = ratio < 0.0 ? 0 : 1;
+  if (ratio >= 1.25 && ratio <= 4.0 && std::abs(ratio / (16.0 / 9.0) - 1.0) > 0.005)
+    for (int i = 2; i < int(std::size(kAspects)); ++i)
+      if (std::abs(kAspects[i].ratio - ratio) < std::abs(kAspects[aspect].ratio - ratio)) aspect = i;
+  if (list.Combo(kAspect, aspect, aspects)) config.aspect_ratio = kAspects[aspect].value;
 
   int brightness = static_cast<int>(std::lround(std::clamp(config.brightness, 0.0, 1.0) * 100));
   if (list.Slider(kBrightness, brightness, 0, 100)) config.brightness = brightness / 100.0;

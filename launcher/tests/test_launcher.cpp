@@ -78,9 +78,11 @@ int main(int argc, char** argv) {
     Require(!ConfigManager::Save(root / "absent" / "settings.toml", config),
             "An unwritable destination reported success");
 
-    Write(path, "renderer = 'native'\nuser_data_root = 'my saves'\nkeybind_a = 'J,K,L'\n");
+    Write(path, "renderer = 'native'\nuser_data_root = 'my saves'\nkeybind_a = 'J,K,L'\n"
+                "ultrawide_target_aspect = 2.3889\n");
     GameConfig options;
-    Require(options.renderer == "native" && options.frame_rate == 30, "Native defaults changed");
+    Require(options.renderer == "native" && options.frame_rate == 30 && options.aspect_ratio == -1.0,
+            "Native defaults changed");
     Require(ConfigManager::Load(path, options), "Extended settings failed to load");
     Require(options.key_binds[0] == "J,K,L", "Loading truncated hand-written key alternatives");
     options.graphics_device = "Test graphics adapter";
@@ -98,6 +100,7 @@ int main(int argc, char** argv) {
     options.max_frame_latency = 3;
     options.triple_buffering = true;
     options.transparency_antialiasing = true;
+    options.aspect_ratio = 2.3889;
     Require(ConfigManager::Save(path, options), "Extended settings failed to save");
     GameConfig restored;
     Require(ConfigManager::Load(path, restored), "Extended settings failed to reload");
@@ -111,7 +114,7 @@ int main(int argc, char** argv) {
       Require(restored.msaa_samples == 8 && restored.frame_rate == 120 && restored.brightness == 0.6 &&
                   restored.native_backend == options.native_backend &&
                   restored.internal_resolution_scale == 1.5 && restored.max_frame_latency == 3 &&
-                  restored.triple_buffering && restored.transparency_antialiasing,
+                  restored.triple_buffering && restored.transparency_antialiasing && restored.aspect_ratio == 2.3889,
               "Native renderer options did not persist");
     }
     Write(path, "renderer = 'xenos'\ngpu_plugin = 'xenos'\nnative_backend = 'vulkan'\nuser_language = 4\nuser_data_root = 'my saves'\n");

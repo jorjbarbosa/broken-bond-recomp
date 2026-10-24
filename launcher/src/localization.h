@@ -149,8 +149,6 @@ enum class TextId {
   MouseRightName,
   MouseMiddleName,
   SaveFailed,
-  UnavailableTag,
-  AspectUnavailableReason,
   Count
 };
 

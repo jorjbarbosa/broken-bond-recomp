@@ -27,13 +27,11 @@ bool Shown(const Option& option) {
 }
 
 bool UsedBy(const Option& option, bool native) {
-  return option.available &&
-      (option.renderer == Renderer::kBoth || (option.renderer == Renderer::kNative) == native);
+  return option.renderer == Renderer::kBoth || (option.renderer == Renderer::kNative) == native;
 }
 
 // The "only in one renderer" tag, in a smaller size of the current font.
 const char* TagText(const Option& option) {
-  if (!option.available) return Tr(TextId::UnavailableTag);
   return Tr(option.renderer == Renderer::kXenos ? TextId::XenosOnlyTag : TextId::NativeOnlyTag);
 }
 
@@ -240,9 +238,8 @@ void RenderDescription(const Option& option, bool native) {
   ImGui::TextWrapped("%s", Tr(native_text ? option.native_description : option.description));
   if (!UsedBy(option, native)) {
     ImGui::PushStyleColor(ImGuiCol_Text, kWarning);
-    ImGui::TextWrapped("%s", Tr(!option.available ? TextId::AspectUnavailableReason :
-                               option.renderer == Renderer::kXenos ? TextId::XenosOnlyReason
-                                                                   : TextId::NativeOnlyReason));
+    ImGui::TextWrapped("%s", Tr(option.renderer == Renderer::kXenos ? TextId::XenosOnlyReason
+                                                                  : TextId::NativeOnlyReason));
     ImGui::PopStyleColor();
   }
 }

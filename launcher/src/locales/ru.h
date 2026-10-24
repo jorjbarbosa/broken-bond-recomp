@@ -145,8 +145,6 @@ inline constexpr const char* kRu[] = {
     "ПКМ",  // MouseRightName
     "СКМ",  // MouseMiddleName
     "Не удалось сохранить. Проверьте файл настроек и права на запись в папку.",  // SaveFailed
-    "Недоступно",  // UnavailableTag
-    "Для ultrawide ещё требуется проверить проекцию камеры Broken Bond и вывод изображения. Игра использует 16:9.",  // AspectUnavailableReason
 };
 
 }  // namespace localization_strings

@@ -145,8 +145,6 @@ inline constexpr const char* kDe[] = {
     "Rechte Maus",  // MouseRightName
     "Mittlere Maus",  // MouseMiddleName
     "Speichern fehlgeschlagen. Prüfe die Konfigurationsdatei und die Schreibrechte des Ordners.",  // SaveFailed
-    "Nicht verfügbar",  // UnavailableTag
-    "Ultrawide erfordert noch die Validierung der Kameraprojektion von Broken Bond und der Ausgabe. Das Spiel verwendet 16:9.",  // AspectUnavailableReason
 };
 
 }  // namespace localization_strings

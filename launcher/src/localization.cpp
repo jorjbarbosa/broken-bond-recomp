@@ -168,8 +168,6 @@ const char* const kStringsEn[] = {
     "Right mouse",  // MouseRightName
     "Middle mouse",  // MouseMiddleName
     "Could not save settings. Check the configuration file and folder write permissions.",  // SaveFailed
-    "Unavailable",  // UnavailableTag
-    "Ultrawide is not available yet: Broken Bond camera projection and presentation still need validation. The game uses 16:9.",  // AspectUnavailableReason
 };
 
 // Portuguese string table (pt-BR)
@@ -318,8 +316,6 @@ const char* const kStringsPtBr[] = {
     "Mouse dir.",  // MouseRightName
     "Mouse meio",  // MouseMiddleName
     "Não foi possível salvar. Verifique o arquivo de configuração e a permissão de escrita na pasta.",  // SaveFailed
-    "Indisponível",  // UnavailableTag
-    "Ultrawide ainda não está disponível: a projeção da câmera e a apresentação de Broken Bond precisam ser validadas. O jogo usa 16:9.",  // AspectUnavailableReason
 };
 
 static_assert(std::size(kStringsEn) == static_cast<size_t>(TextId::Count));

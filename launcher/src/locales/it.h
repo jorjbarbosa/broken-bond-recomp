@@ -145,8 +145,6 @@ inline constexpr const char* kIt[] = {
     "Mouse dx",  // MouseRightName
     "Mouse centrale",  // MouseMiddleName
     "Salvataggio non riuscito. Controlla il file di configurazione e i permessi di scrittura della cartella.",  // SaveFailed
-    "Non disponibile",  // UnavailableTag
-    "Ultrawide richiede ancora la verifica della proiezione della telecamera di Broken Bond e della presentazione. Il gioco usa 16:9.",  // AspectUnavailableReason
 };
 
 }  // namespace localization_strings
