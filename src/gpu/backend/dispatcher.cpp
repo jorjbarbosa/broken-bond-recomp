@@ -1,4 +1,5 @@
 #include "gpu/backend/dispatcher.h"
+#include "gpu/backend/lifecycle.h"
 #include <windows.h>
 #include <chrono>
 #include <condition_variable>
@@ -59,6 +60,7 @@ struct Dispatcher::State {
 
   void Start() {
     owner = std::thread([this] {
+      SetThreadDescription(GetCurrentThread(), L"Native Engine Owner");
       sampler::RegisterThread("engine");  // REX_NATIVE_SAMPLE_PERIOD_US.
       for (;;) {
         std::function<void()> task;
@@ -247,7 +249,7 @@ Dispatcher::Dispatcher(bool dedicatedOwner, bool deferredTranslation)
 }
 Dispatcher::~Dispatcher() {
   std::string evidence;
-  if (!Shutdown(evidence)) std::_Exit(88);
+  if (!Shutdown(evidence)) ExitUnreleased("dispatcher-destructor", evidence);
 }
 
 bool Dispatcher::Initialize(std::string& evidence, const RenderMode& mode) {

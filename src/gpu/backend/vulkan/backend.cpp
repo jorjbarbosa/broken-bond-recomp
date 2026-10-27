@@ -1561,9 +1561,13 @@ bool Backend::ResolveSurface(const ResolveRequest& request, uint64_t& fence, std
   auto& dest = state_->textures[request.dest_key];
   if (!dest.texture || dest.width != host.dest_width || dest.height != host.dest_height || dest.depth != depth ||
       (sampled && !dest.render_target)) {
-    // Recreated once no submitted or recorded work can still use it: its heap
-    // views go with it, and the draw makes the new image's.
-    if (dest.texture && state_->InFlight(dest.last_use)) return fail("native-resolve-destination-in-flight");
+    // Submitted or recorded work may still use the old image: it waits for
+    // that sequence with its heap views (Reclaim). Otherwise its views go with
+    // it. The draw makes the new image's.
+    if (dest.texture && state_->InFlight(dest.last_use)) {
+      state_->retired_textures.push_back(std::move(dest));
+      ++state_->textures_retired;
+    }
     dest = {};
     // A depth destination, or the one of a color sample, is the render target of its pass.
     dest.texture = state_->device->createTexture(plume::RenderTextureDesc::Texture2D(

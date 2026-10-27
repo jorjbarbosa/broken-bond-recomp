@@ -6,11 +6,23 @@
 
 #include <atomic>
 #include <cstdint>
+#include <cstdlib>
 #include <string>
+#include <string_view>
 #include <fmt/format.h>
+#include <rex/logging.h>
 #include "gpu/backend/contracts.h"
 
 namespace gpu {
+
+// The end of an owner whose release could not prove the GPU done with its
+// resources: they cannot be destroyed, so the process ends, with the reason in
+// the log rather than silently.
+[[noreturn]] inline void ExitUnreleased(std::string_view where, std::string_view evidence) {
+  REXLOG_ERROR("[broken_bond] {}: the engine could not be released: {}", where, evidence);
+  rex::FlushLogging();
+  std::_Exit(88);
+}
 
 // The reason Initialize refuses a render mode, or null.
 inline const char* RenderModeError(const RenderMode& mode) {

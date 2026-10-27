@@ -55,6 +55,10 @@ using namespace gpu;
 namespace gpu {
 std::unique_ptr<DeviceOwner> device_owner;
 [[noreturn]] void StopInOrder(PPCContext& ctx, std::string_view reason, int code) {
+  // The reason first, before any of the waits below (the owner's claim, the
+  // interrupts, the services): a stop that blocks there still leaves its cause.
+  REXLOG_ERROR("[broken_bond] Native renderer stopping: {}", reason);
+  rex::FlushLogging();
   host::ClaimStop(reason, ctx);  // Parks a second stopping thread.
   // Any stop on the measurement thread keeps the partial profile, a guard
   // outside the draw census (a resolve) included.

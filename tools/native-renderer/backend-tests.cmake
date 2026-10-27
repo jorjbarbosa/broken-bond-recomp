@@ -8,8 +8,9 @@ add_library(native_engine_test_units STATIC src/gpu/backend/engine.cpp
             src/gpu/backend/pipeline_keys.cpp src/gpu/backend/pipeline_set.cpp src/gpu/backend/dispatcher.cpp
             src/gpu/shaders/package.cpp src/gpu/shaders/shader_cache_data.cpp)
 target_include_directories(native_engine_test_units PUBLIC src)
+# rex::runtime: the SDK logging of backend/lifecycle.h.
 target_link_libraries(native_engine_test_units PUBLIC native_renderer_plume_vulkan
-                      broken_bond_smolv libzstd_static fmt::fmt)
+                      broken_bond_smolv libzstd_static fmt::fmt rex::runtime)
 if(BROKENBOND_NATIVE_D3D12)
     target_sources(native_engine_test_units PRIVATE src/gpu/backend/d3d12/backend.cpp)
     target_link_libraries(native_engine_test_units PUBLIC native_renderer_plume)
