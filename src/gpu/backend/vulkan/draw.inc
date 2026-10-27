@@ -492,8 +492,8 @@ bool Backend::DrawIndexed(const DrawRequest& r, uint64_t& fence, std::string& ev
   if (depth) depth->last_use = s.batch.sequence;
   // The screen layer's into the centered 16:9 area (regions.h, ScreenArea).
   const ScreenArea area(scale, r.screen_area);
-  VkViewport viewport{area.X(r.viewport[0]), area.Y(r.viewport[1]), r.viewport[2] * area.sx,
-                       r.viewport[3] * area.sy, r.viewport[4], r.viewport[5]};
+  const ScreenArea::Viewport host = area.ViewportInHost(r.viewport);  // regions.h
+  VkViewport viewport{host.x, host.y, host.width, host.height, r.viewport[4], r.viewport[5]};
   const int32_t left = std::clamp(area.EdgeX(r.scissor[0]), 0, int32_t(target.desc.width));
   const int32_t top = std::clamp(area.EdgeY(r.scissor[1]), 0, int32_t(target.desc.height));
   VkRect2D scissor{{left, top}, {uint32_t(std::max(0, std::min(area.EdgeX(r.scissor[2]), int32_t(target.desc.width)) - left)),

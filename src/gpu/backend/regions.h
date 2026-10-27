@@ -4,6 +4,7 @@
 #pragma once
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdint>
 #include <vector>
@@ -91,10 +92,30 @@ struct ScreenArea {
   int32_t EdgeX(int32_t x) const { return Edge(x, ox, sx); }
   int32_t EdgeY(int32_t y) const { return Edge(y, oy, sy); }
 
+  // A draw viewport (x, y, width, height of the request, in guest pixels) in
+  // host pixels. Its whole guest edges map as the scissor's and the surfaces'
+  // do, rounded at a fractional scale, so the viewport covers exactly the host
+  // rows and columns of the guest pixels it spans. Scaling the extent instead
+  // gives a target one guest row high (two host rows at 1.5x) a viewport 1.5
+  // rows high: once the half-pixel offset moves the geometry, no host pixel
+  // center is left inside, and a post-processing ramp drawn there stays black.
+  // Fractional guest edges, and every edge at an integer scale, map as before.
+  struct Viewport {
+    float x = 0, y = 0, width = 0, height = 0;
+  };
+  Viewport ViewportInHost(const std::array<float, 6>& v) const {
+    const float x = ViewportEdge(v[0], ox, sx), y = ViewportEdge(v[1], oy, sy);
+    return {x, y, ViewportEdge(v[0] + v[2], ox, sx) - x, ViewportEdge(v[1] + v[3], oy, sy) - y};
+  }
+
  private:
   // Each edge alone, exact at 1x, as ResolutionScale maps it.
   static int32_t Edge(int32_t e, float o, float k) {
     return k == 1.0f && o == 0.0f ? e : int32_t(std::lround(double(o) + double(e) * k));
+  }
+  static float ViewportEdge(float e, float o, float k) {
+    const float whole = std::round(e);
+    return e != whole ? o + e * k : float(Edge(int32_t(whole), o, k));
   }
 };
 
