@@ -8,3 +8,11 @@ REXCVAR_DEFINE_BOOL(show_fps_overlay, false, "broken_bond/UI",
                     "Show FPS and frametime overlay (toggle with F1, Xenos only)");
 
 REX_DEFINE_APP(broken_bond, BrokenBondApp::Create)
+
+// The discrete GPU on hybrid laptops (NVIDIA Optimus, AMD PowerXpress): the
+// drivers read these exports from the executable only, not from
+// rexruntime.dll.
+extern "C" {
+__declspec(dllexport) unsigned long NvOptimusEnablement = 0x00000001;
+__declspec(dllexport) int AmdPowerXpressRequestHighPerformance = 1;
+}
