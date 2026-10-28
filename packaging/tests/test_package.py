@@ -36,8 +36,9 @@ def main():
         version = package.read('broken_bond.version').decode('ascii').strip()
         assert version, 'empty version'
         assert version in package.read('README.txt').decode('utf-8-sig')
-    sums = (archive.parent / 'SHA256SUMS.txt').read_text(encoding='ascii').split()
-    assert sums == [hashlib.sha256(archive.read_bytes()).hexdigest(), archive.name], sums
+    sums = (archive.parent / 'SHA256SUMS.txt').read_text(encoding='ascii').splitlines()
+    line = f'{hashlib.sha256(archive.read_bytes()).hexdigest()}  {archive.name}'
+    assert line in sums, sums
     print(f'PASS: {len(names)} ZIP files match the published folder; required files and notices, '
           f'clean defaults, version {version}, no launcher, installer or game data, SHA256SUMS.txt matches')
 

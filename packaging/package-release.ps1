@@ -157,6 +157,10 @@ The game tells you about new releases and opens the release page.
 Close the game, keep your broken_bond.toml, and replace the other files with
 those of the new ZIP. Keep game, user (saves), DLC and mods.
 A broken_bond_launcher.exe left by version 0.1.0-beta can be deleted.
+Copies installed with the 0.1.0-beta installer can use the separately
+distributed BrokenBondInstaller.exe instead: it updates the port files, removes
+the launcher and points the shortcuts at broken_bond.exe, keeping game files,
+saves and settings. Later updates use the ZIP.
 
 TRANSLATIONS:
 Translation packages in mods\<name> appear under Settings > Game > Game
