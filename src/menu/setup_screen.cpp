@@ -90,6 +90,10 @@ void SetupScreen::Hide() {
   actions_ = {};
 }
 
+void SetupScreen::SetControlsOpen(bool open) {
+  if (document_) document_->SetClass("controls-open", open);
+}
+
 void SetupScreen::SetGamepadHints(bool gamepad) {
   gamepad_hints_ = gamepad;
   if (document_) {

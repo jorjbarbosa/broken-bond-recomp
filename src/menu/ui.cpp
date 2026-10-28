@@ -147,9 +147,12 @@ void Ui::Shutdown() {
   HideDialog();
   panel_.Hide();
   panel_shown_ = false;
+  controls_.Hide(); controls_shown_ = false;
+  setup_.SetControlsOpen(false);
   setup_.Hide();
   setup_shown_ = false;
   pad_.Shutdown();
+  controls::Hardware().Shutdown();
   tick_ = {};
   fps_visible_ = false;
   Rml::Shutdown();  // The documents, the context, its geometry and textures.
@@ -195,13 +198,29 @@ void Ui::ShowPanel(std::string title, std::vector<std::string> tabs, int tab, st
                     std::function<void(int)> select_tab, std::function<void()> close, std::string focus) {
   if (!context_) return;
   ++view_revision_;
+  controls_.Hide(); controls_shown_ = false;
+  setup_.SetControlsOpen(false);
   context_->ProcessMouseMove(-1, -1, 0);
   panel_shown_ = panel_.Show(*context_, std::move(title), std::move(tabs), tab, std::move(rows),
                               std::move(select_tab), std::move(close), std::move(focus), setup_.Shown());
   panel_.SetGamepadHints(gamepad_input_);
   UpdateDocuments();
 }
-void Ui::HidePanel() { ++view_revision_; panel_.Hide(); panel_shown_ = false; UpdateDocuments(); }
+void Ui::HidePanel() {
+  ++view_revision_; controls_.Hide(); controls_shown_ = false; setup_.SetControlsOpen(false);
+  panel_.Hide(); panel_shown_ = false; UpdateDocuments();
+}
+void Ui::ShowControls(controls::Config config, std::function<bool(const controls::Config&)> save,
+                      std::function<void()> close, std::string menu_key) {
+  if (!context_) return;
+  ++view_revision_;
+  controls::Hardware().StopAllRumble();
+  CancelKeyCapture(); panel_.Hide(); panel_shown_ = false;
+  controls_shown_ = controls_.Show(*context_, std::move(config), std::move(save), std::move(close), std::move(menu_key),
+                                   setup_.Shown());
+  setup_.SetControlsOpen(controls_shown_.load());
+  controls_.SetGamepadHints(gamepad_input_); UpdateDocuments();
+}
 
 void Ui::EnableGameMenu(std::string key, std::string chord, std::function<void()> toggle) {
   menu_key_ = std::move(key); toggle_menu_ = std::move(toggle); game_menu_enabled_ = bool(toggle_menu_);
@@ -209,6 +228,7 @@ void Ui::EnableGameMenu(std::string key, std::string chord, std::function<void()
 }
 void Ui::ShowOverlay(std::function<void()> settings, std::function<void()> dlc,
                       std::function<void()> quit, std::function<void()> close) {
+  controls::Hardware().StopAllRumble();
   HideOverlay();
   if (!context_) return;
   context_->ProcessMouseMove(-1, -1, 0);
@@ -243,6 +263,7 @@ void Ui::HideOverlay() {
 void Ui::UseGamepad(bool gamepad) {
   if (gamepad_input_ == gamepad) return;
   gamepad_input_ = gamepad; panel_.SetGamepadHints(gamepad);
+  controls_.SetGamepadHints(gamepad);
   setup_.SetGamepadHints(gamepad);
   if (overlay_) overlay_->GetElementById("overlay-close-hint")->SetInnerRML(Text(gamepad ? "close-pad" : "close-key"));
 }
@@ -294,14 +315,17 @@ void Ui::PollInput() {
   if (!initialized_) return;
   if (tick_) tick_();
   const bool focused = !input_active_ || input_active_();
+  controls::Hardware().Poll(controls::Backend(), focused);
+  controls_.Tick(focused);
   UpdateStatus();
-  pad_.Poll(TakesInput() && focused, [this](rex::ui::VirtualKey key) {
+  if (controls_.BlocksNavigation()) return;
+  pad_.PollDevices(*controls::Hardware().Devices(), TakesInput() && focused, [this](rex::ui::VirtualKey key) {
     UseGamepad(true); dispatching_gamepad_ = true;
     rex::ui::KeyEvent down(nullptr, key, 1, false, false, false, false, false);
     rex::ui::KeyEvent up(nullptr, key, 1, true, false, false, false, false);
     OnKeyDown(down); OnKeyUp(up);
     dispatching_gamepad_ = false;
-  });
+  }, controls_.UseStickNavigation());
 }
 
 void Ui::HideDialog() {
@@ -348,7 +372,7 @@ void Ui::ShowDialog(const std::string& title, const std::string& message,
 void Ui::UpdateDocuments() {
   UpdateStatus();
   if (overlay_) {
-    const bool bar = !panel_.Shown() && !dialog_;
+    const bool bar = !panel_.Shown() && !controls_.Shown() && !dialog_;
     if (bar && !overlay_->IsVisible()) {
       overlay_->Show(Rml::ModalFlag::None, Rml::FocusFlag::Document);
       if (auto* item = overlay_->GetElementById(overlay_events_->last_focus)) item->Focus();
@@ -356,7 +380,7 @@ void Ui::UpdateDocuments() {
   }
   if (fps_) fps_->SetClass("menu-open", overlay_shown_.load());
   if (fps_) {
-    const bool fps = fps_visible_.load() && !setup_shown_.load() && !panel_.Shown() && !dialog_;
+    const bool fps = fps_visible_.load() && !setup_shown_.load() && !panel_.Shown() && !controls_.Shown() && !dialog_;
     if (fps && !fps_->IsVisible()) {
       rate_frames_ = frames_.load(std::memory_order_relaxed);
       rate_time_ = std::chrono::steady_clock::now();
@@ -426,6 +450,7 @@ void Ui::Draw(rex::ui::UIDrawContext& context) {
     context_->SetDimensions({width, height});
     context_->SetDensityIndependentPixelRatio(std::max(1.0f, float(height) / 720.0f));
     panel_.Layout(width, height, context_->GetDensityIndependentPixelRatio());
+    controls_.Layout(width, height, context_->GetDensityIndependentPixelRatio());
   }
   if (fps_ && fps_->IsVisible()) UpdateRate();
   setup_.UpdateLogo(*render_);
@@ -439,6 +464,8 @@ void Ui::Draw(rex::ui::UIDrawContext& context) {
 }
 
 void Ui::OnKeyDown(rex::ui::KeyEvent& e) {
+  if (controls_.Shown() && !dispatching_gamepad_) controls_.Key(e.virtual_key(), true, e.prev_state());
+  if (controls_.BlocksNavigation()) { e.set_handled(true); return; }
   if (!dispatching_gamepad_) UseGamepad(false);
   if (key_capture_) {
     e.set_handled(true);
@@ -459,6 +486,8 @@ void Ui::OnKeyDown(rex::ui::KeyEvent& e) {
 }
 
 void Ui::OnKeyUp(rex::ui::KeyEvent& e) {
+  if (controls_.Shown() && !dispatching_gamepad_) controls_.Key(e.virtual_key(), false);
+  if (controls_.BlocksNavigation()) { e.set_handled(!overlay_shown_.load()); return; }
   if (toggle_menu_ && e.virtual_key() == rex::ui::ParseVirtualKey(menu_key_)) return;
   if (key_capture_) { e.set_handled(!overlay_shown_.load()); return; }
   if (!TakesInput() || e.is_alt_pressed()) return;
@@ -470,6 +499,8 @@ void Ui::OnKeyUp(rex::ui::KeyEvent& e) {
 }
 
 void Ui::OnMouseDown(rex::ui::MouseEvent& e) {
+  if (controls_.Shown()) controls_.MouseButton(int(e.button()), true);
+  if (controls_.BlocksNavigation()) { e.set_handled(true); return; }
   if (key_capture_) {
     context_->ProcessMouseMove(e.x(), e.y(), 0);
     auto* target = context_->GetHoverElement();
@@ -496,6 +527,8 @@ void Ui::OnMouseDown(rex::ui::MouseEvent& e) {
 }
 
 void Ui::OnMouseMove(rex::ui::MouseEvent& e) {
+  if (controls_.Shown()) controls_.MouseMove(e.x(), e.y(), e.dx(), e.dy());
+  if (controls_.BlocksNavigation()) { e.set_handled(true); return; }
   UseGamepad(false);
   if (!TakesInput() && !status_shown_.load()) return;
   if (TakesInput()) e.set_handled(true);
@@ -503,6 +536,8 @@ void Ui::OnMouseMove(rex::ui::MouseEvent& e) {
 }
 
 void Ui::OnMouseUp(rex::ui::MouseEvent& e) {
+  if (controls_.Shown()) controls_.MouseButton(int(e.button()), false);
+  if (controls_.BlocksNavigation()) { e.set_handled(!overlay_shown_.load()); return; }
   if (!TakesInput() && !notice_pressed_) return;
   notice_pressed_ = false;
   e.set_handled(!overlay_shown_.load());

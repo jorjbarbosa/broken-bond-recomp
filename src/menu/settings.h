@@ -40,6 +40,8 @@ class Settings {
   void CommitChange(const std::string& key, GameConfig next, std::string focus = {});
   bool Save(const GameConfig& config);
   void Redraw(std::string focus = {});
+  // The controls page over the settings (Controls tab).
+  void Controls();
   void SaveMenuOptions(const std::string& key, MenuOptions next);
   std::filesystem::path directory_;
   GameConfig config_, initial_;

@@ -53,6 +53,17 @@ void Settings::Reload() {
     if (rex::ui::ParseVirtualKey(menu_options_.key) == rex::ui::VirtualKey::kNone) menu_options_.key = "F1";
   } catch (...) {}
 }
+void Settings::Controls() {
+  if (pending_config_) return;
+  if (!config_.controls.version) { ui_->ShowDialog(Text("save-failed"), Text("save-failed"), {{Text("cancel"), {}}}); return; }
+  ui_->ShowControls(config_.controls, [this](const controls::Config& next) {
+    auto proposed = config_; proposed.controls = next;
+    if (!Save(proposed)) return false;
+    config_ = std::move(proposed); controls::Publish(config_.controls);
+    if (changed_) changed_("controls");
+    return true;
+  }, [this] { Redraw("configure-controls"); }, menu_options_.key);
+}
 bool Settings::ApplyBeforeGame() const {
   try {
     std::ifstream input(directory_ / "broken_bond.toml", std::ios::binary);
@@ -305,19 +316,13 @@ std::vector<PanelRow> Settings::Rows(int group) {
         [](GameConfig& config, int value) { config.anisotropic_override = value + 1; });
     toggle("transparency_antialiasing", TextId::TransparencyAaLabel, TextId::TransparencyAaDescription, &GameConfig::transparency_antialiasing);
   } else if (group == 3) {
+    // The four players' devices, bindings, dead zones and keyboard and mouse
+    // live on the controls page (controls.h).
+    rows.push_back({"configure-controls", Text("c-configure"), "›", Text("c-configure-help"), false, false, {}, 0, {},
+        [this] { Controls(); }});
     choice("input_backend", TextId::SdlInputLabel, TextId::SdlInputDescription, {"XInput", "SDL"},
         config_.input_backend == "xinput" ? 0 : 1, config_.input_backend != initial_.input_backend, true,
         [](GameConfig& config, int value) { config.input_backend = value ? "sdl" : "xinput"; });
-    toggle("mnk_mode", TextId::KeyboardMouseLabel, TextId::KeyboardMouseDescription, &GameConfig::mnk_mode);
-    if (config_.mnk_mode) {
-      toggle("mnk_mouse", TextId::MouseCameraLabel, TextId::MouseCameraDescription, &GameConfig::mnk_mouse);
-      std::vector<std::string> sensitivities;
-      for (int i = 10; i <= 300; i += 10) sensitivities.push_back(std::to_string(i) + "%");
-      choice("mnk_sensitivity", TextId::MouseSensitivityLabel, TextId::MouseSensitivityDescription, sensitivities,
-          int(std::lround(std::clamp(config_.mnk_sensitivity, 0.1, 3.0) * 10)) - 1,
-          config_.mnk_sensitivity != initial_.mnk_sensitivity, true,
-          [](GameConfig& config, int value) { config.mnk_sensitivity = (value + 1) / 10.0; });
-    }
     rows.push_back({"bind_game_menu", Text("menu-key"), menu_options_.key, Text("menu-key"),
         menu_options_.key != initial_menu_options_.key, false, {}, 0, {}, [this] {
       ui_->ShowDialog(Text("menu-key"), Tr(TextId::KeysHint), {{Text("cancel"), [this] { ui_->CancelKeyCapture(); }}});

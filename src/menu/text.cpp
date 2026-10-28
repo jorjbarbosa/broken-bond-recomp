@@ -97,6 +97,8 @@ constexpr Entry strings[] = {
 };
 }
 const char* Text(std::string_view key) {
+  extern const char* ControlsText(std::string_view key);  // controls_text.cpp
+  if (auto* translated = ControlsText(key)) return translated;
   if (key == "play") return Tr(TextId::BtnPlay);
   if (key == "settings") return Tr(TextId::TabSettings);
   if (key == "ready") return Tr(TextId::StatusReady);

@@ -11,6 +11,7 @@
 
 #include "menu/panel.h"
 #include "menu/pad_input.h"
+#include "menu/controls.h"
 #include "menu/setup_screen.h"
 #include "menu/text.h"
 #include <atomic>
@@ -65,8 +66,12 @@ class Ui final : public rex::ui::UIDrawer, public rex::ui::WindowInputListener {
   void ShowPanel(std::string title, std::vector<std::string> tabs, int tab, std::vector<PanelRow> rows,
                  std::function<void(int)> select_tab, std::function<void()> close, std::string focus = {});
   void HidePanel();
+  // The controls page (controls.h) in place of the settings panel: the four
+  // players' devices and bindings; save keeps the edits, close returns.
+  void ShowControls(controls::Config config, std::function<bool(const controls::Config&)> save,
+                    std::function<void()> close, std::string menu_key);
   std::string PanelFocus() const { return panel_.FocusId(); }
-  bool PanelShown() const { return panel_.Shown(); }
+  bool PanelShown() const { return panel_.Shown() || controls_.Shown(); }
   // UI thread: asynchronous results belong to the view that started them.
   uint64_t ViewRevision() const { return view_revision_; }
   void CaptureKey(std::function<void(std::string)> captured);
@@ -84,7 +89,8 @@ class Ui final : public rex::ui::UIDrawer, public rex::ui::WindowInputListener {
   bool HintShown() const { return hint_shown_; }
   void SetShadersVisible(bool visible, uint32_t pending = 0, float progress = -1);
   // A document is shown (any thread): the native mode draws frames then.
-  bool Shown() const { return fps_visible_.load() || setup_shown_.load() || panel_shown_.load() || overlay_shown_.load() ||
+  bool Shown() const { return fps_visible_.load() || setup_shown_.load() || panel_shown_.load() ||
+                              controls_shown_.load() || overlay_shown_.load() ||
                               status_shown_.load(); }
   // A frame of the UI, on the UI thread: the app's call in the native mode,
   // the presenter's with Xenos.
@@ -101,7 +107,7 @@ class Ui final : public rex::ui::UIDrawer, public rex::ui::WindowInputListener {
  private:
   void UpdateDocuments();
   void UpdateRate();
-  bool TakesInput() const { return context_ && (setup_.Shown() || panel_.Shown() || dialog_ || overlay_); }
+  bool TakesInput() const { return context_ && (setup_.Shown() || panel_.Shown() || controls_.Shown() || dialog_ || overlay_); }
   struct MenuEvents;
   std::unique_ptr<MenuEvents> overlay_events_, status_events_;
   Rml::ElementDocument* overlay_ = nullptr;
@@ -141,6 +147,8 @@ class Ui final : public rex::ui::UIDrawer, public rex::ui::WindowInputListener {
   TextSystem text_;
   std::atomic<bool> panel_shown_{false};
   SetupScreen setup_;
+  Controls controls_;
+  std::atomic<bool> controls_shown_{false};
   std::atomic<bool> fps_visible_{false}, setup_shown_{false};
   bool initialized_ = false;
   uint64_t view_revision_ = 0;

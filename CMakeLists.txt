@@ -151,7 +151,9 @@ if(BROKENBOND_NATIVE_RENDERER)
         # The setup screen's logo, read from the player's Naruto_clip.SRA.
         src/menu/game_logo.cpp
         # The four players' controls: profiles, hardware, the drivers they configure.
-        src/controls/config.cpp src/controls/service.cpp src/controls/runtime.cpp src/controls/capture.cpp)
+        src/controls/config.cpp src/controls/service.cpp src/controls/runtime.cpp src/controls/capture.cpp
+        # Their page in the menus.
+        src/menu/controls.cpp src/menu/controls_text.cpp)
     # The files that menu/assets.cpp embeds (#embed): a change rebuilds it.
     file(GLOB_RECURSE BROKENBOND_UI_FILES CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/ui/*)
     set_source_files_properties(src/menu/assets.cpp PROPERTIES OBJECT_DEPENDS "${BROKENBOND_UI_FILES}")
@@ -306,6 +308,12 @@ if(BROKENBOND_NATIVE_RENDERER)
         add_test(NAME controls_service COMMAND broken_bond_controls_service_test)
         add_test(NAME controls_replay COMMAND broken_bond_controls_replay_test
             "${CMAKE_CURRENT_BINARY_DIR}/test-data/controls-replay")
+        # The menus' input gate over a driver that ignores the active callback
+        # (as XInput and the replay do), the shader activity the menus show,
+        # and the desktop shortcut.
+        add_executable(broken_bond_menu_input_test tests/menu_input_test.cpp)
+        target_link_libraries(broken_bond_menu_input_test PRIVATE broken_bond_menu_components ole32 shell32)
+        add_test(NAME menu_input COMMAND broken_bond_menu_input_test "${CMAKE_CURRENT_BINARY_DIR}/test-data/menu-input")
     endif()
 endif()
 

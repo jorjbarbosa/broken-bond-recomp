@@ -292,6 +292,7 @@ class BrokenBondApp : public rex::ReXApp {
       gpu::ui::UiLayer().SetFrameRequest({});  // No Swap draws the menus from here on.
       gpu::ui::UiLayer().SetFirstPresentCallback({});
       broken_bond::menu::input_blocked = true;
+      broken_bond::controls::Hardware().StopAllRumble();  // No pad keeps rumbling while the game closes.
       app_context().CallInUIThreadDeferred([this] {
         menu_dlc_.Wait();  // Finish the DLC page's copies before the process can exit.
         // Closed on the setup screen: the start ends cleanly there.

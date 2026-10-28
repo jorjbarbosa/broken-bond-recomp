@@ -8,12 +8,15 @@
 #include <functional>
 #include <vector>
 #include <string>
+namespace broken_bond::controls { struct Inventory; }
 namespace broken_bond::menu {
 class PadInput {
  public:
   bool Initialize();
   void Shutdown();
   void Poll(bool takes_input, const std::function<void(rex::ui::VirtualKey)>& key);
+  void PollDevices(const controls::Inventory& inventory, bool takes_input,
+                   const std::function<void(rex::ui::VirtualKey)>& key, bool allow_sticks = true);
   void SetShortcut(std::string chord, std::function<void()> toggle) { chord_ = std::move(chord); toggle_ = std::move(toggle); }
   void Shortcut(bool held);
   // The same navigation path is used by physical and virtual controllers.
@@ -22,6 +25,7 @@ class PadInput {
  private:
   bool initialized_ = false;
   uint32_t previous_ = 0;
+  bool sticks_need_release_ = false;
   std::vector<SDL_Gamepad*> pads_;
   std::string chord_ = "Back+Start";
   std::function<void()> toggle_;

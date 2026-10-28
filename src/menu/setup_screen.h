@@ -43,6 +43,8 @@ class SetupScreen {
   }
   void Hide();
   void SetGamepadHints(bool gamepad);
+  // The controls page over the screen hides the screen's own items.
+  void SetControlsOpen(bool open);
   // The logo of a ready game, read on a worker; the render interface gets it
   // once it is there (UI thread, each frame).
   void UpdateLogo(RenderInterface& render);
