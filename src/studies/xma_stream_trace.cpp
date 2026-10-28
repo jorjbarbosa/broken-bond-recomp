@@ -16,6 +16,7 @@
 // milliseconds since the first record. Without the variable the hook only runs
 // the original. Both renderer modes.
 
+#include <bit>
 #include <chrono>
 #include <cstdint>
 #include <cstdio>
@@ -60,7 +61,7 @@ Trace* Open() {
 }
 
 uint32_t Load32(uint8_t* base, uint32_t address) {
-  return _byteswap_ulong(*reinterpret_cast<uint32_t*>(base + address));
+  return std::byteswap(*reinterpret_cast<uint32_t*>(base + address));
 }
 
 // A guest heap address: the stream objects and their tables live there.

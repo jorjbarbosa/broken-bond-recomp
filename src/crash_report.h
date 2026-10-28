@@ -1,7 +1,7 @@
 // broken_bond - ReXGlue Recompiled Project
 //
-// Crash report of a guest fault, in the log (crash_report.cpp): the vectored
-// exception handler after the SDK's writes, for a fault the SDK does not
+// Crash report of a guest fault, in the log (crash_report.cpp): a handler in
+// the SDK's exception chain, after its own, for a fault the SDK does not
 // resume (the "Unhandled guest access violation" line), the guest thread, its
 // registers and the chain of return addresses of the guest stack with the
 // repetitions counted, so a crash explains itself without a dump. For a fault

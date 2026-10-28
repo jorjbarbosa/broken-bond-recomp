@@ -1,6 +1,6 @@
 // The version of the port (port_version.h).
 #include "port_version.h"
-#include <windows.h>
+#include "gpu/common/platform.h"
 #include <algorithm>
 #include <cctype>
 #include <filesystem>
@@ -14,17 +14,11 @@ bool IsVersion(const std::string& text) {
            return std::isalnum(c) || c == '.' || c == '-' || c == '+';
          });
 }
-std::filesystem::path ExecutableDirectory() {
-  wchar_t buffer[MAX_PATH]{};
-  const DWORD length = GetModuleFileNameW(nullptr, buffer, MAX_PATH);
-  if (!length || length >= MAX_PATH) return {};
-  return std::filesystem::path(buffer).parent_path();
-}
 }  // namespace
 
 std::string PortVersion() {
   static const std::string version = [] {
-    std::ifstream file(ExecutableDirectory() / "broken_bond.version");
+    std::ifstream file(gpu::platform::ExecutablePath().parent_path() / "broken_bond.version");
     std::string line;
     if (file && std::getline(file, line)) {
       const auto first = line.find_first_not_of(" \t\r\n");

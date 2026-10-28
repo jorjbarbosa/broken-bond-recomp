@@ -30,6 +30,14 @@ set(BROKENBOND_SOURCES
     src/mods/translation_data.cpp
     src/mods/translation_mod.cpp
 )
+# The host system services (gpu/common/platform.h), which the crash report also
+# uses in the Xenos host; the Xenos adapter choice and the hybrid-GPU exports
+# (graphics_device_win32.cpp) only on Windows.
+if(WIN32)
+    list(APPEND BROKENBOND_SOURCES src/graphics_device_win32.cpp src/gpu/common/platform_win32.cpp)
+else()
+    list(APPEND BROKENBOND_SOURCES src/gpu/common/platform_posix.cpp)
+endif()
 
 add_subdirectory(third_party/nlohmann_json)
 
@@ -102,17 +110,16 @@ if(BROKENBOND_NATIVE_RENDERER)
          src/studies/rand_trace.cpp src/studies/audio_trace.cpp src/studies/xma_stream_trace.cpp
          src/studies/export_trace.cpp
          src/studies/kernel_io_exports.cpp src/studies/kernel_xma_exports.cpp)
-    # The host system services (gpu/common/platform.h), and the diagnostics
-    # that need Windows (minidumps, page protection with a vectored handler,
-    # suspended thread stacks, the swapchain proof's window sizes, the CDB
-    # witness of the title thread); elsewhere they do nothing.
+    # The diagnostics that need Windows (minidumps, page protection with a
+    # vectored handler, suspended thread stacks, the swapchain proof's window
+    # sizes, the CDB witness of the title thread); elsewhere they do nothing.
     if(WIN32)
-        list(APPEND BROKENBOND_SOURCES src/gpu/common/platform_win32.cpp
+        list(APPEND BROKENBOND_SOURCES
              src/gpu/diagnostics/crash_dump.cpp src/gpu/diagnostics/sampler.cpp
              src/gpu/diagnostics/heap_watch.cpp src/gpu/diagnostics/present_proof.cpp
              src/gpu/backend/title_witness.cpp)
     else()
-        list(APPEND BROKENBOND_SOURCES src/gpu/common/platform_posix.cpp src/gpu/diagnostics/inert_posix.cpp)
+        list(APPEND BROKENBOND_SOURCES src/gpu/diagnostics/inert_posix.cpp)
     endif()
 endif()
 

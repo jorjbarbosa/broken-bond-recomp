@@ -23,9 +23,10 @@
 //   ui/shaders/vulkan_spirv/guest_output_ffx_cas_resample_ps.h a812592cabcdff59
 //   ui/shaders/vulkan_spirv/guest_output_ffx_fsr_easu_ps.h f4337cd793a7bf69
 //   ui/shaders/vulkan_spirv/guest_output_ffx_fsr_rcas_ps.h ac7f5a099e752370
-#include <windows.h>
 
 namespace gpu::sdk_shaders {
+// The type of the arrays as fxc writes them (BYTE of windows.h).
+using BYTE = unsigned char;
 #include "gpu/backend/sdk_shaders/guest_output_triangle_strip_rect_vs.h"
 #include "gpu/backend/sdk_shaders/guest_output_bilinear_ps.h"
 #include "gpu/backend/sdk_shaders/guest_output_ffx_cas_sharpen_ps.h"

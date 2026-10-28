@@ -2,8 +2,8 @@
 #include "gpu/backend/vulkan/completion.h"
 #include "gpu/backend/failure_channel.h"
 
-#include <windows.h>
 #include <fmt/format.h>
+#include <rex/thread.h>
 
 namespace gpu::vulkan {
 namespace {
@@ -24,7 +24,7 @@ Completion::~Completion() {
 
 void Completion::Start() {
   thread_ = std::thread([this] {
-    SetThreadDescription(GetCurrentThread(), L"Native Vulkan Completion");
+    rex::thread::set_current_thread_name("Native Vulkan Completion");
     Run();
   });
 }

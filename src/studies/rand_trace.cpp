@@ -11,6 +11,7 @@
 // time of day among them) with its call chain. Times are milliseconds since the
 // first record. Without the variable the hooks only run the originals.
 
+#include <bit>
 #include <chrono>
 #include <cstdint>
 #include <cstdio>
@@ -65,7 +66,7 @@ int64_t Elapsed(const Trace& t) {
 }
 
 uint32_t Load32(uint8_t* base, uint32_t address) {
-  return _byteswap_ulong(*reinterpret_cast<uint32_t*>(base + address));
+  return std::byteswap(*reinterpret_cast<uint32_t*>(base + address));
 }
 
 // The return addresses above the caller: each frame keeps the previous stack

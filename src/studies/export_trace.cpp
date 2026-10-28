@@ -15,6 +15,7 @@
 
 #include "studies/export_trace.h"
 
+#include <bit>
 #include <chrono>
 #include <cstdint>
 #include <cstdio>
@@ -67,15 +68,15 @@ uint8_t* Guest(uint32_t address) {
 }
 uint32_t Load32(uint32_t address) {
   const uint8_t* p = Guest(address);
-  return p ? _byteswap_ulong(*reinterpret_cast<const uint32_t*>(p)) : 0;
+  return p ? std::byteswap(*reinterpret_cast<const uint32_t*>(p)) : 0;
 }
 uint16_t Load16(uint32_t address) {
   const uint8_t* p = Guest(address);
-  return p ? _byteswap_ushort(*reinterpret_cast<const uint16_t*>(p)) : 0;
+  return p ? std::byteswap(*reinterpret_cast<const uint16_t*>(p)) : 0;
 }
 uint64_t Load64(uint32_t address) {
   const uint8_t* p = Guest(address);
-  return p ? _byteswap_uint64(*reinterpret_cast<const uint64_t*>(p)) : 0;
+  return p ? std::byteswap(*reinterpret_cast<const uint64_t*>(p)) : 0;
 }
 
 // X_OBJECT_ATTRIBUTES: +4 the X_ANSI_STRING name (length, maximum, buffer).
