@@ -162,6 +162,18 @@ target_link_libraries(broken_bond_data_paths PRIVATE broken_bond::json)
 if(WIN32)
     target_link_libraries(broken_bond_data_paths PRIVATE shell32 ole32 uuid)
 endif()
+# The data folder's preparation: the lock, the copy of earlier locations into
+# it and a change of location at the next start (src/data_migration.h). The
+# SDK's header-only TOML parser and xxHash, without its runtime.
+add_library(broken_bond_data_migration STATIC src/data_migration.cpp)
+target_include_directories(broken_bond_data_migration PUBLIC src)
+target_include_directories(broken_bond_data_migration SYSTEM PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/sdk/thirdparty/tomlplusplus/include"
+    "${CMAKE_CURRENT_SOURCE_DIR}/sdk/thirdparty/xxHash")
+target_link_libraries(broken_bond_data_migration PUBLIC broken_bond_data_paths PRIVATE broken_bond::json)
+if(WIN32)
+    target_link_libraries(broken_bond_data_migration PRIVATE shell32 ole32)
+endif()
 if(BROKENBOND_NATIVE_RENDERER)
     target_link_libraries(broken_bond PRIVATE RmlUi::Core)
     # The settings code of the menus: the configuration file, languages, key
@@ -359,6 +371,17 @@ if(BROKENBOND_NATIVE_RENDERER)
         endif()
         add_test(NAME data_paths COMMAND broken_bond_data_paths_test "${_data_storage}/paths")
         set_tests_properties(data_paths PROPERTIES FIXTURES_REQUIRED data_storage_dir)
+        # The data folder's preparation on scratch fixtures (src/data_migration.h).
+        add_executable(broken_bond_data_migration_test tests/data_migration_test.cpp)
+        target_link_libraries(broken_bond_data_migration_test PRIVATE broken_bond_data_migration broken_bond::json)
+        if(WIN32)
+            target_link_libraries(broken_bond_data_migration_test PRIVATE advapi32)
+        endif()
+        if(MSVC)
+            target_compile_options(broken_bond_data_migration_test PRIVATE /utf-8)
+        endif()
+        add_test(NAME data_migration COMMAND broken_bond_data_migration_test "${_data_storage}/migration")
+        set_tests_properties(data_migration PROPERTIES FIXTURES_REQUIRED data_storage_dir TIMEOUT 300)
         # The four players' controls (src/controls): profiles and their file, key
         # capture, the configured drivers, the hardware service on SDL's virtual
         # gamepads (with the SDK's SDL driver beside it: one static SDL), and the
