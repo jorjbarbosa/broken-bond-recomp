@@ -97,7 +97,8 @@ struct Written {
   uint32_t object = 0;  // An object matrix's object, 0 otherwise.
 };
 
-int enabled = -1, bones_enabled = -1, turned_enabled = -1;
+std::atomic<int> enabled{-1}, bones_enabled{-1};
+int turned_enabled = -1;
 std::unordered_map<uint32_t, Track> tracks;  // By object.
 std::unordered_map<uint32_t, BoneTrack> bone_tracks;  // By matrix.
 std::unordered_set<uint32_t> object_written;  // The object matrices written in this view block.
@@ -114,7 +115,7 @@ std::vector<Written> camera_written;  // The camera entries written in this view
 // for the whole view block.
 std::unordered_map<uint32_t, BoneTrack> global_tracks;
 std::vector<Written> global_written;
-int globals_enabled = -1;
+std::atomic<int> globals_enabled{-1};
 Applied applied;
 std::atomic<uint32_t> mounts_other_thread{0};
 // The pointers the engine freed (82120A70, any thread) since the last view
@@ -736,6 +737,16 @@ bool Enabled() {
 }
 
 const Applied& LastApplied() { return applied; }
+void ResetHistory(uint8_t* base) {
+  Restore(base);
+  tracks.clear(); bone_tracks.clear(); global_tracks.clear(); cameras.clear();
+  mounted.clear(); candidates.clear(); object_written.clear(); camera_entries_done.clear();
+  applied = {};
+  enabled = bones_enabled = globals_enabled = -1;
+  watching.store(false);
+  std::lock_guard lock(freed_mutex);
+  freed.clear(); freed_overflow = false;
+}
 
 uint32_t MountsOtherThread() { return mounts_other_thread.load(); }
 

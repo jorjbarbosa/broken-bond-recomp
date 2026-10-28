@@ -10,6 +10,7 @@
 #include <windows.h>
 #include <fmt/format.h>
 #include <rex/hook.h>
+#include <rex/logging.h>
 #include <rex/ppc/context.h>
 #include <algorithm>
 #include <atomic>
@@ -37,10 +38,11 @@ constexpr uint32_t kViewsOff = 0x833A34F0;  // Set while a world is replaced: no
 constexpr uint32_t kWorld = 0x833A3464;
 constexpr uint32_t kWorldEffects = 0x833A3468;  // The argument of 82BECF98.
 
-int enabled = -1;
-bool by_variable = false;  // The mode set by REX_NATIVE_STATE_INTERPOLATION: F8 and the title's label.
-uint32_t rate = 0;
-bool switched_off = false, f8_down = false;
+// The mode set by REX_NATIVE_STATE_INTERPOLATION: F8 and the title's label.
+const bool by_variable = [] { const char* v = std::getenv("REX_NATIVE_STATE_INTERPOLATION"); return v && *v; }();
+std::atomic<bool> switched_off{false};
+bool f8_down = false;
+std::atomic<uint32_t> configured_rate{0};  // Accepted only at the start of a complete loop iteration.
 // The limiter's rate (PaceRate), decided on the main thread and read by the
 // render thread; 0 before the first decision.
 std::atomic<uint32_t> pace_rate{0};
@@ -239,12 +241,12 @@ bool Gating() { return gpu::Active() && Enabled(); }
 }  // namespace
 
 bool Enabled() {
-  if (enabled < 0) {
-    const char* text = std::getenv("REX_NATIVE_STATE_INTERPOLATION");
-    by_variable = text && *text;
-    enabled = by_variable ? (std::string_view(text) == "1" ? 1 : 0) : CurrentSettings().frame_rate > 30 ? 1 : 0;
-  }
-  return enabled == 1;
+  static const bool forced = [] {
+    const char* v = std::getenv("REX_NATIVE_STATE_INTERPOLATION");
+    return v && std::string_view(v) == "1";
+  }();
+  const uint32_t accepted = configured_rate.load();
+  return by_variable ? forced : (accepted ? accepted : CurrentSettings().frame_rate) > 30;
 }
 
 bool Owning() { return Enabled() && !switched_off; }
@@ -252,13 +254,14 @@ bool Owning() { return Enabled() && !switched_off; }
 bool ByVariable() { return Enabled() && by_variable; }
 
 uint32_t FrameRate() {
-  if (!rate) {
+  static const uint32_t forced = [] {
     const char* text = std::getenv("REX_NATIVE_FRAME_RATE");
     const int n = text ? std::atoi(text) : 0;
-    const uint32_t option = CurrentSettings().frame_rate;
-    rate = n >= 30 && n <= 240 ? uint32_t(n) : option > 30 ? option : 60u;
-  }
-  return rate;
+    return n >= 30 && n <= 240 ? uint32_t(n) : 0u;
+  }();
+  const uint32_t accepted = configured_rate.load();
+  const uint32_t option = accepted ? accepted : CurrentSettings().frame_rate;
+  return forced ? forced : option > 30 ? option : 60u;
 }
 
 uint32_t PaceRate() {
@@ -307,6 +310,19 @@ const char* Label() {
 
 // The two calls of the main loop.
 void WorldChangeStep(PPCContext& ctx, uint8_t* base) {
+  const uint32_t option = CurrentSettings().frame_rate;
+  if (gpu::Active() && configured_rate.load() != option) {
+    // 827F7790 calls WorldChangeStep, then MainStep, on every iteration. A
+    // new frame rate starts here, so both calls of an iteration pace alike.
+    interpolation::ResetHistory(base);
+    started = decided = view_started = false;
+    frames_since_tick = 0; last = 0; debt = 0; view_shown = 0; view_time = -1;
+    frame.gate = false; frame.alpha = 1; frame.tick = true;
+    pace_rate.store(0);
+    configured_rate.store(option);
+    host::Record("native-live-frame-rate", fmt::format("\"frame_rate\":{},\"clock_reset\":true", option));
+    REXLOG_INFO("[broken_bond] Frame rate: {} (interpolation clock reset)", option);
+  }
   if (Gating()) {
     Decide(base);
     if (!frame.tick) return;
