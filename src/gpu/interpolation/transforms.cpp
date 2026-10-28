@@ -5,7 +5,7 @@
 #include "gpu/common/title_loading.h"
 #include "gpu/d3d/d3d.h"
 #include "gpu/host/services.h"
-#include <windows.h>
+#include "gpu/common/platform.h"
 #include <fmt/format.h>
 #include <rex/hook.h>
 #include <rex/ppc/context.h>
@@ -137,16 +137,16 @@ uint64_t resets = 0;  // Since the start.
 // mounted a tick ago, or from a bone array, may no longer point at mapped
 // memory; CopyFromGuest fails instead of faulting.
 bool Read32(uint8_t* base, uint32_t address, uint32_t& out) {
-  if (!CopyFromGuest(&out, base + address, 4)) return false;
-  out = _byteswap_ulong(out);
+  if (!CopyFromGuest(GuestMemory(), address, &out, 4)) return false;
+  out = std::byteswap(out);
   return true;
 }
 bool ReadFloats(uint8_t* base, uint32_t address, float* out, size_t count) {
-  if (!CopyFromGuest(out, base + address, 4 * count)) return false;
+  if (!CopyFromGuest(GuestMemory(), address, out, 4 * count)) return false;
   for (size_t i = 0; i < count; ++i) {
     uint32_t v;
     std::memcpy(&v, out + i, 4);
-    v = _byteswap_ulong(v);
+    v = std::byteswap(v);
     std::memcpy(out + i, &v, 4);
   }
   return true;
@@ -309,7 +309,7 @@ bool TurnedEnabled() {
 bool f7_down = false;
 bool turned_switched = false;  // F7 pressed since the last record.
 void SwitchTurned() {
-  const bool down = tick::ByVariable() && (GetAsyncKeyState(VK_F7) & 0x8000) != 0;
+  const bool down = tick::ByVariable() && platform::KeyDown(platform::Key::kF7);
   if (down && !f7_down) {
     turned_enabled = TurnedEnabled() ? 0 : 1;
     turned_switched = true;

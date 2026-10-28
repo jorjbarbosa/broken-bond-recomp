@@ -99,7 +99,7 @@ int main(int argc, char** argv) {
   PresentMode present;
   present.vsync = false;
   check("attach", engine->Run([&](Engine& e, std::string& out) {
-    return e.AttachWindow(window, out, present) && e.CreateSurface(SurfaceDesc{kSurface, kWidth, kHeight}, out);
+    return e.AttachWindow(platform::WindowHandles(window), out, present) && e.CreateSurface(SurfaceDesc{kSurface, kWidth, kHeight}, out);
   }, evidence), evidence);
   ClearRequest clear;
   clear.color_keys[0] = kSurface;
@@ -514,7 +514,7 @@ int main(int argc, char** argv) {
       engine = std::make_unique<Dispatcher>(true);
       check("second-initialize", engine->Initialize(evidence, TestRenderMode()), evidence);
       check("second-attach", engine->Run([&](Engine& e, std::string& out) {
-        return e.AttachWindow(window, out, present) && e.CreateSurface(SurfaceDesc{kSurface, kWidth, kHeight}, out);
+        return e.AttachWindow(platform::WindowHandles(window), out, present) && e.CreateSurface(SurfaceDesc{kSurface, kWidth, kHeight}, out);
       }, evidence), evidence);
       check("second-green", engine->Run([&](Engine& e, std::string& out) {
         uint64_t fence = 0;

@@ -66,7 +66,7 @@ bool Backend::Present(uint32_t slot, bool capture, std::vector<uint8_t>& bgra, u
                        uint32_t& height, std::string& evidence, bool& presented) {
   presented = false;
   auto& s = *state_; bgra.clear(); width = height = 0;
-  if (!s.ready || s.owner_thread != GetCurrentThreadId() || !s.window || slot >= s.stages.size())
+  if (!s.ready || s.owner_thread != rex::thread::current_thread_system_id() || !s.Attached() || slot >= s.stages.size())
     return GraphicsError(evidence, "native-present-owner-or-slot");
   auto& stage = s.stages[slot];
   if (!stage.staged || stage.presented) return GraphicsError(evidence, "native-present-slot-not-staged");
@@ -77,7 +77,7 @@ bool Backend::Present(uint32_t slot, bool capture, std::vector<uint8_t>& bgra, u
     return true;
   };
   uint32_t width_now = 0, height_now = 0;
-  if (!ClientSize(s.window, width_now, height_now)) return skipped("window-empty");
+  if (!platform::ClientSize(s.window, width_now, height_now)) return skipped("window-empty");
   const char* reason = nullptr; VkResult result = VK_SUCCESS;
   if (!s.CloseBatch(reason, result)) return GraphicsError(evidence, reason, result);
   if (s.surface_lost && !s.RecreateSurface(width_now, height_now, evidence)) return false;
@@ -103,11 +103,11 @@ bool Backend::Present(uint32_t slot, bool capture, std::vector<uint8_t>& bgra, u
   std::vector<int32_t> acquire_results;
   bool renewed = false, surface_renewed = false;
   for (;;) {
-    if (!ClientSize(s.window, width_now, height_now)) return skipped("window-closed-or-minimized");
+    if (!platform::ClientSize(s.window, width_now, height_now)) return skipped("window-closed-or-minimized");
     result = vkAcquireNextImageKHR(s.vulkan->vk, s.swapchain, 20'000'000, VK_NULL_HANDLE, s.acquire_fence, &index);
     acquire_results.push_back(int32_t(result));
     if (result == VK_ERROR_OUT_OF_DATE_KHR) {
-      if (!ClientSize(s.window, width_now, height_now)) return skipped("window-empty");
+      if (!platform::ClientSize(s.window, width_now, height_now)) return skipped("window-empty");
       if (!s.CreateSwapchain(width_now, height_now, evidence)) return false;
     } else if (result == VK_ERROR_SURFACE_LOST_KHR && !surface_renewed) {
       surface_renewed = true;

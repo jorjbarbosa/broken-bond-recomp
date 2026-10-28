@@ -46,12 +46,13 @@
 #include "gpu/diagnostics/sampler.h"
 #include "gpu/d3d/present.h"
 #include "gpu/settings.h"
+#include "gpu/common/platform.h"
 #include "gpu/common/sha256.h"
+#include <rex/ui/window.h>
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
-#include <dxgiformat.h>
 #include <array>
 #include <chrono>
 #include <atomic>
@@ -67,9 +68,6 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
-#include <windows.h>
-#include <wrl/client.h>
-#include <dxcapi.h>
 #include <fmt/format.h>
 #include <fmt/ranges.h>
 #include <rex/cvar.h>
@@ -143,12 +141,10 @@ uint64_t dropped_sync_interrupts = 0;  // Render thread only.
 // The limiter of the own Swap. The period is the title's presentation interval
 // (+13596, in vblanks of 60 Hz); a Swap that arrives after its deadline starts
 // a new phase instead of catching up in a burst. With the state interpolation
-// mode (interpolation/tick.h) the period is 1/rate s instead. The wait is a
-// high-resolution waitable timer up to about 1 ms before the deadline, then a
-// spin on the QPC.
-// Render thread only.
+// mode (interpolation/tick.h) the period is 1/rate s instead. The wait is the
+// finest timer of the system (platform::Sleep) up to about 1 ms before the
+// deadline, then a spin on the tick clock. Render thread only.
 struct SwapLimiter {
-  HANDLE timer = nullptr;
   int64_t frequency = 0, next = 0;
   uint32_t interval = 0, rate = 0;  // rate: the frame rate of the state interpolation mode, else 0.
   uint64_t paced = 0, waited = 0, late = 0, max_late_us = 0, timer_failures = 0;
@@ -161,11 +157,11 @@ std::string LimiterSummary() {
 }
 // The window at the first own Swap: the port's name and version
 // (port_version.h) as the title, in place of the SDK's executable name and
-// build stamp, and the window brought to the front (restored if minimized),
-// since the launcher that started the game has exited by then and the window
-// may have opened behind the others. Then the frame-time meter: fps, mean and max frame time of the last
+// build stamp, and the window raised (Window::Focus), since the launcher that
+// started the game has exited by then and the window may have opened behind
+// the others. Then the frame-time meter: fps, mean and max frame time of the last
 // half second, measured between the ends of consecutive own Swaps (after the
-// limiter, the QPC of SwapLimiter), written twice per second as
+// limiter, the ticks of SwapLimiter), written twice per second as
 // "<title> | 30.0 fps | 33.3 ms (max 36.1)". Fire and forget on the UI thread
 // (CallInUIThreadDeferred, values captured by value). REX_NATIVE_FPS_TITLE=0
 // leaves the meter out. Render thread only; the image is untouched.
@@ -175,10 +171,6 @@ struct FrameMeter {
   int enabled = -1;
   bool titled = false;
 } frame_meter;
-std::wstring BaseTitle() {
-  const std::string title = broken_bond::WindowTitle();
-  return std::wstring(title.begin(), title.end());
-}
 void MeterSwap() {
   auto& m = frame_meter;
   if (m.enabled < 0) {
@@ -186,50 +178,47 @@ void MeterSwap() {
     m.enabled = text && std::string_view(text) == "0" ? 0 : 1;
   }
   if (!m.titled) {
-    HWND hwnd = DisplayHwnd();
     auto* runtime = rex::Runtime::instance();
     auto* app = runtime ? runtime->app_context() : nullptr;
-    if (hwnd && app) {
+    if (DisplayWindow() && app) {
       m.titled = true;
-      app->CallInUIThreadDeferred([hwnd] {
-        SetWindowTextW(hwnd, BaseTitle().c_str());
-        if (IsIconic(hwnd)) ShowWindow(hwnd, SW_RESTORE);
-        if (GetForegroundWindow() != hwnd) SetForegroundWindow(hwnd);
+      app->CallInUIThreadDeferred([] {
+        auto* window = DisplayWindow();
+        if (!window) return;
+        window->SetTitle(broken_bond::WindowTitle());
+        window->Focus();
       });
     }
   }
   const int64_t f = swap_limiter.frequency;
   if (!m.enabled || !f) return;
-  LARGE_INTEGER now{};
-  QueryPerformanceCounter(&now);
+  const int64_t now = platform::Ticks();
   if (m.last) {
-    const int64_t d = now.QuadPart - m.last;
+    const int64_t d = now - m.last;
     m.sum += d;
     m.max = std::max(m.max, d);
     ++m.frames;
   }
-  m.last = now.QuadPart;
-  if (!m.window_start) m.window_start = now.QuadPart;
-  if (now.QuadPart - m.window_start < f / 2 || !m.frames || !m.sum) return;
+  m.last = now;
+  if (!m.window_start) m.window_start = now;
+  if (now - m.window_start < f / 2 || !m.frames || !m.sum) return;
   const double mean_ms = 1000.0 * double(m.sum) / double(m.frames) / double(f);
   const double max_ms = 1000.0 * double(m.max) / double(f);
   const double fps = double(m.frames) * double(f) / double(m.sum);
   m.sum = m.max = 0;
   m.frames = 0;
-  m.window_start = now.QuadPart;
-  HWND hwnd = DisplayHwnd();
+  m.window_start = now;
   auto* runtime = rex::Runtime::instance();
   auto* app = runtime ? runtime->app_context() : nullptr;
-  if (!hwnd || !app) return;
+  if (!DisplayWindow() || !app) return;
   const std::string mode = gpu::tick::Label();  // REX_NATIVE_STATE_INTERPOLATION.
-  app->CallInUIThreadDeferred([hwnd, fps, mean_ms, max_ms, mode] {
-    wchar_t text[400]{};
-    swprintf_s(text, L"%s | %.1f fps | %.1f ms (max %.1f)", BaseTitle().c_str(), fps, mean_ms, max_ms);
-    if (!mode.empty()) {
-      wcscat_s(text, L" | ");
-      wcscat_s(text, std::wstring(mode.begin(), mode.end()).c_str());
-    }
-    SetWindowTextW(hwnd, text);
+  app->CallInUIThreadDeferred([fps, mean_ms, max_ms, mode] {
+    auto* window = DisplayWindow();
+    if (!window) return;
+    std::string text = fmt::format("{} | {:.1f} fps | {:.1f} ms (max {:.1f})", broken_bond::WindowTitle(), fps,
+                                   mean_ms, max_ms);
+    if (!mode.empty()) text += " | " + mode;
+    window->SetTitle(text);
   });
 }
 // The interval the own Swap is paced at when it is not the title's: the
@@ -261,40 +250,28 @@ void PaceSwap(PPCContext& ctx, uint8_t* base, uint32_t dev) {
     UncoveredOperation(ctx, fmt::format("Swap-presentation-interval-uncovered-{}", interval));
     interval = std::clamp(interval, 1u, 4u);
   }
-  if (!l.frequency) {
-    LARGE_INTEGER frequency{};
-    QueryPerformanceFrequency(&frequency);
-    l.frequency = frequency.QuadPart;
-    l.timer = CreateWaitableTimerExW(nullptr, nullptr, CREATE_WAITABLE_TIMER_HIGH_RESOLUTION, TIMER_ALL_ACCESS);
-    if (!l.timer) StopInOrder(ctx, "Swap-limiter-timer", 88);
-  }
+  if (!l.frequency) l.frequency = platform::TickFrequency();
   if (interval != l.interval || rate != l.rate) l.next = 0;  // A new period starts a new phase.
   l.interval = interval;
   l.rate = rate;
   const int64_t period = rate ? l.frequency / rate : int64_t(interval) * l.frequency / 60;
-  LARGE_INTEGER now{};
-  QueryPerformanceCounter(&now);
+  int64_t now = platform::Ticks();
   ++l.paced;
-  if (l.next && now.QuadPart < l.next) {
-    const int64_t remaining = l.next - now.QuadPart, margin = l.frequency / 1000;
-    if (remaining > margin) {
-      LARGE_INTEGER due{};  // Relative, in 100 ns units.
-      due.QuadPart = -std::max<int64_t>(1, (remaining - margin) * 10000000 / l.frequency);
-      if (SetWaitableTimerEx(l.timer, &due, 0, nullptr, nullptr, nullptr, 0)) WaitForSingleObject(l.timer, 1000);
-      else ++l.timer_failures;
-    }
+  if (l.next && now < l.next) {
+    const int64_t remaining = l.next - now, margin = l.frequency / 1000;
+    if (remaining > margin && !platform::Sleep(remaining - margin)) ++l.timer_failures;
     do {
-      YieldProcessor();
-      QueryPerformanceCounter(&now);
-    } while (now.QuadPart < l.next);
+      platform::Pause();
+      now = platform::Ticks();
+    } while (now < l.next);
     ++l.waited;
     l.next += period;
   } else {
     if (l.next) {
       ++l.late;
-      l.max_late_us = std::max<uint64_t>(l.max_late_us, uint64_t((now.QuadPart - l.next) * 1000000 / l.frequency));
+      l.max_late_us = std::max<uint64_t>(l.max_late_us, uint64_t((now - l.next) * 1000000 / l.frequency));
     }
-    l.next = now.QuadPart + period;
+    l.next = now + period;
   }
 }
 }  // namespace gpu
@@ -480,7 +457,7 @@ REX_HOOK_RAW(sub_821B1DD0) {
   const auto present = PostStageFront(ctx, front, n, front_record != "null");
   uint32_t frame_fence = 0;
   std::string fence_fields;
-  HANDLE lot_event = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+  FrameEvent lot_event = CreateFrameEvent();
   if (!lot_event) StopInOrder(ctx, "Swap-frame-lot-event", 88);
   auto close_lot = [lot_event](uint32_t) {
     auto* dispatcher = gpu::host::ActiveDispatcher();

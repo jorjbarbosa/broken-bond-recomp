@@ -74,7 +74,6 @@ if(BROKENBOND_NATIVE_RENDERER)
          # The backend: the D3D12 engine, its pipeline set, its dispatcher and the title-thread witness.
          src/gpu/backend/engine.cpp src/gpu/backend/failure_channel.cpp
          src/gpu/backend/pipeline_keys.cpp src/gpu/backend/pipeline_set.cpp src/gpu/backend/dispatcher.cpp
-         src/gpu/backend/title_witness.cpp
          # The D3D boundary of the native renderer, one unit per responsibility.
          src/gpu/d3d/hooks.cpp src/gpu/d3d/device.cpp src/gpu/d3d/resources.cpp
          src/gpu/d3d/pass.cpp src/gpu/d3d/draw.cpp src/gpu/d3d/state.cpp src/gpu/d3d/screen_layer.cpp
@@ -86,9 +85,6 @@ if(BROKENBOND_NATIVE_RENDERER)
          src/gpu/diagnostics/frame_state.cpp src/gpu/diagnostics/census.cpp
          src/gpu/diagnostics/frame_trace.cpp src/gpu/diagnostics/start_evidence.cpp
          src/gpu/diagnostics/frame_capture.cpp src/gpu/diagnostics/measure.cpp
-         src/gpu/diagnostics/present_proof.cpp
-         src/gpu/diagnostics/crash_dump.cpp src/gpu/diagnostics/sampler.cpp
-         src/gpu/diagnostics/heap_watch.cpp
          # The UI layer of the Present, the SDK's immediate drawing over it and the UI
          # screen before the game.
          src/gpu/ui/layer.cpp src/gpu/ui/immediate_drawer.cpp src/gpu/ui/screen.cpp
@@ -106,6 +102,18 @@ if(BROKENBOND_NATIVE_RENDERER)
          src/studies/rand_trace.cpp src/studies/audio_trace.cpp src/studies/xma_stream_trace.cpp
          src/studies/export_trace.cpp
          src/studies/kernel_io_exports.cpp src/studies/kernel_xma_exports.cpp)
+    # The host system services (gpu/common/platform.h), and the diagnostics
+    # that need Windows (minidumps, page protection with a vectored handler,
+    # suspended thread stacks, the swapchain proof's window sizes, the CDB
+    # witness of the title thread); elsewhere they do nothing.
+    if(WIN32)
+        list(APPEND BROKENBOND_SOURCES src/gpu/common/platform_win32.cpp
+             src/gpu/diagnostics/crash_dump.cpp src/gpu/diagnostics/sampler.cpp
+             src/gpu/diagnostics/heap_watch.cpp src/gpu/diagnostics/present_proof.cpp
+             src/gpu/backend/title_witness.cpp)
+    else()
+        list(APPEND BROKENBOND_SOURCES src/gpu/common/platform_posix.cpp src/gpu/diagnostics/inert_posix.cpp)
+    endif()
 endif()
 
 if(WIN32)

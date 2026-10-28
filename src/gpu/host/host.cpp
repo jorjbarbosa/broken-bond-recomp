@@ -6,6 +6,7 @@
 #include "gpu/host/internal.h"
 #include "gpu/d3d/d3d.h"
 #include "gpu/common/guest_memory.h"
+#include "gpu/common/platform.h"
 #include "gpu/settings.h"
 #include "gpu/diagnostics/crash_dump.h"
 #include "gpu/diagnostics/heap_watch.h"
@@ -13,7 +14,6 @@
 #include <cstdlib>
 #include <fmt/format.h>
 #include <rex/logging.h>
-#include <rex/string.h>
 #include <rex/system/interfaces/graphics.h>
 #include <rex/system/xmemory.h>
 
@@ -39,7 +39,7 @@ std::atomic<bool> enabled{false};
 bool Enabled() { return enabled.load(); }
 bool Read(rex::memory::Memory* memory, uint32_t address, void* target, size_t size) {
   if (!address || uint64_t(address) + size > UINT32_MAX) return false;
-  return CopyFromGuest(target, memory->TranslateVirtual(address), size);  // guest_memory.h
+  return CopyFromGuest(memory, address, target, size);  // guest_memory.h
 }
 
 // The window close of the native mode, on the UI thread, before
@@ -76,10 +76,8 @@ void Configure(rex::RuntimeConfig& config) {
   if (!available) {
     REXLOG_ERROR("[broken_bond] Requested native_backend '{}' is unavailable in this build. No backend fallback.", backend);
     rex::FlushLogging();
-    const auto message = rex::string::to_utf16(fmt::format("The graphics API '{}' is not available in this build.\n\n"
-        "Choose another one in the launcher's Display settings and start the game again.", backend));
-    MessageBoxW(nullptr, reinterpret_cast<const wchar_t*>(message.c_str()), L"broken_bond",
-                MB_OK | MB_ICONERROR | MB_TOPMOST | MB_SETFOREGROUND);
+    platform::ShowError("broken_bond", fmt::format("The graphics API '{}' is not available in this build.\n\n"
+        "Choose another one in Settings > Display and start the game again.", backend));
     std::_Exit(88);
   }
 #if defined(BROKENBOND_NATIVE_VULKAN)

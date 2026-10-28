@@ -8,6 +8,12 @@ add_library(native_engine_test_units STATIC src/gpu/backend/engine.cpp
             src/gpu/backend/pipeline_keys.cpp src/gpu/backend/pipeline_set.cpp src/gpu/backend/dispatcher.cpp
             src/gpu/shaders/package.cpp src/gpu/shaders/shader_cache_data.cpp)
 target_include_directories(native_engine_test_units PUBLIC src)
+# The frame events and the host services of the engine (gpu/common).
+if(WIN32)
+    target_sources(native_engine_test_units PRIVATE src/gpu/common/platform_win32.cpp)
+else()
+    target_sources(native_engine_test_units PRIVATE src/gpu/common/platform_posix.cpp)
+endif()
 # rex::runtime: the SDK logging of backend/lifecycle.h.
 target_link_libraries(native_engine_test_units PUBLIC native_renderer_plume_vulkan
                       broken_bond_smolv libzstd_static fmt::fmt rex::runtime)
@@ -105,6 +111,7 @@ endif()
 # The constant packets and the pooled storage of captures (CPU only).
 add_executable(native_draw_storage_test src/gpu/common/tests/draw_storage_test.cpp)
 target_include_directories(native_draw_storage_test PRIVATE src)
+target_link_libraries(native_draw_storage_test PRIVATE rex::runtime) # gpu/common/frame_event.h uses rex/thread.h.
 # Host test of the Vulkan device (no guest code): clear, upload, copy and
 # readback, with a bounded wait on the submission.
 add_executable(native_vulkan_transfer_test src/gpu/backend/vulkan/tests/transfer_test.cpp)

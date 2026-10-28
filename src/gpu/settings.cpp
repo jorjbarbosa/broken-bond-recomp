@@ -5,6 +5,7 @@
 #include "gpu/settings.h"
 #include "gpu/backend/dispatcher.h"
 #include "gpu/host/services.h"
+#include "gpu/common/platform.h"
 #include "wine.h"
 #include <algorithm>
 #include <atomic>
@@ -16,7 +17,6 @@
 #include <mutex>
 #include <string_view>
 #include <vector>
-#include <windows.h>
 #include <fmt/format.h>
 #include <rex/cvar.h>
 #include <rex/logging.h>
@@ -270,12 +270,8 @@ void LoadSettings() {
   // A negative value (the default) follows the primary monitor, where the window opens.
   double aspect = REXCVAR_GET(aspect_ratio);
   if (std::isfinite(aspect) && aspect < 0) {
-    MONITORINFO info{};
-    info.cbSize = sizeof(info);
-    const HMONITOR monitor = MonitorFromPoint(POINT{0, 0}, MONITOR_DEFAULTTOPRIMARY);
-    const bool known = monitor && GetMonitorInfoW(monitor, &info);
-    const LONG w = info.rcMonitor.right - info.rcMonitor.left, h = info.rcMonitor.bottom - info.rcMonitor.top;
-    aspect = known && w > 0 && h > 0 ? double(w) / double(h) : 0.0;
+    uint32_t w = 0, h = 0;
+    aspect = platform::PrimaryDisplaySize(w, h) ? double(w) / double(h) : 0.0;
   }
   s.aspect_ratio = std::isfinite(aspect) && aspect >= 1.25 && aspect <= 4.0 &&
                            std::abs(aspect / (16.0 / 9.0) - 1.0) > 0.005

@@ -107,7 +107,7 @@ int main(int argc, char** argv) {
   present.vsync = false;
   SurfaceDesc color{0x1000, 64, 36, 0, 1};
   check("attach", dispatcher.Run([&](Engine& e, std::string& out) {
-    return e.AttachWindow(window, out, present) && e.CreateSurface(color, out);
+    return e.AttachWindow(platform::WindowHandles(window), out, present) && e.CreateSurface(color, out);
   }, evidence), evidence);
   // The size of a new resolve of the surface: the engine's scale.
   const auto resolved = [&](uint32_t key, uint32_t& w, uint32_t& h) {

@@ -195,7 +195,7 @@ VkResult Backend::State::HeapSampler(const VkSamplerCreateInfo& info, uint32_t& 
 }
 
 bool Backend::PreparePipelines(std::string& evidence) {
-  if (!state_->ready || state_->owner_thread != GetCurrentThreadId())
+  if (!state_->ready || state_->owner_thread != rex::thread::current_thread_system_id())
     return GraphicsError(evidence, "native-prepare-owner");
   if (!state_->EnsureGraphics(evidence)) return false;
   evidence = "{\"prepared\":true,\"backend\":\"vulkan\"}";
@@ -258,7 +258,7 @@ bool Backend::DrawIndexed(const DrawRequest& r, uint64_t& fence, std::string& ev
   fence = 0;
   auto fail = [&](const char* reason, VkResult code = VK_ERROR_UNKNOWN) { return GraphicsError(evidence, reason, code); };
   auto& s = *state_;
-  if (!s.ready || s.owner_thread != GetCurrentThreadId() || s.operation_poisoned || s.unproved_execution)
+  if (!s.ready || s.owner_thread != rex::thread::current_thread_system_id() || s.operation_poisoned || s.unproved_execution)
     return fail("native-draw-owner-or-state");
   State::Surface *color = nullptr, *depth = nullptr;
   if (!r.depth_only || r.color_key) {
