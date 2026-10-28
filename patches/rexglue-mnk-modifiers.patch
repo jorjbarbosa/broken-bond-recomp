@@ -1,6 +1,66 @@
+diff --git a/include/rex/input/mnk/mnk_input_driver.h b/include/rex/input/mnk/mnk_input_driver.h
+index c8751b7..3fafca0 100644
+--- a/include/rex/input/mnk/mnk_input_driver.h
++++ b/include/rex/input/mnk/mnk_input_driver.h
+@@ -15,6 +15,8 @@
+ #include <rex/ui/window_listener.h>
+ 
+ #include <atomic>
++#include <array>
++#include <memory>
+ #include <cstdint>
+ #include <mutex>
+ #include <queue>
+@@ -24,6 +26,15 @@ namespace rex::input::mnk {
+ 
+ void SetMouseLookActive(bool active);
+ bool IsMouseLookActive();
++struct Profile {
++  bool enabled = false, mouse = true;
++  uint32_t user = 0;
++  double sensitivity = 1.0;
++  std::array<std::string, 24> bindings;
++};
++// A host may publish a profile without racing cvar strings read by the guest.
++void SetProfile(std::shared_ptr<const Profile> profile);
++std::shared_ptr<const Profile> GetProfile();
+ 
+ class MnkInputDriver final : public InputDriver,
+                              public rex::ui::WindowInputListener,
+diff --git a/src/input/mnk/mnk_input_driver.cpp b/src/input/mnk/mnk_input_driver.cpp
+index 3f9422d..8698101 100644
 --- a/src/input/mnk/mnk_input_driver.cpp
 +++ b/src/input/mnk/mnk_input_driver.cpp
-@@ -68,9 +68,12 @@
+@@ -59,6 +59,28 @@ REXCVAR_DEFINE_STRING(keybind_start, "X,Return", "Input/Keybinds/Controller", "S
+ REXCVAR_DEFINE_STRING(keybind_guide, "", "Input/Keybinds/Controller", "Guide button");
+ 
+ namespace rex::input::mnk {
++namespace {
++std::atomic<std::shared_ptr<const Profile>> host_profile;
++double MotionValue(std::string_view token, double dx, double dy) {
++  if (token == "MouseUp") return std::max(0.0, -dy);
++  if (token == "MouseDown") return std::max(0.0, dy);
++  if (token == "MouseLeft") return std::max(0.0, -dx);
++  if (token == "MouseRight") return std::max(0.0, dx);
++  return 0;
++}
++double BoundMotion(const std::string& bind, double dx, double dy) {
++  double result = 0; size_t at = 0;
++  do {
++    auto end = bind.find(',', at);
++    result = std::max(result, MotionValue(std::string_view(bind).substr(at, end == std::string::npos ? end : end-at), dx, dy));
++    if (end == std::string::npos) break;
++    at = end+1;
++  } while (true);
++  return result;
++}
++}
++void SetProfile(std::shared_ptr<const Profile> profile) { host_profile.store(std::move(profile)); }
++std::shared_ptr<const Profile> GetProfile() { return host_profile.load(); }
+ 
+ namespace {
+ 
+@@ -68,9 +90,12 @@ constexpr rex::input::DeviceId kMnkDevice = static_cast<rex::input::DeviceId>(0x
  // Bind values are a comma-separated list of alternatives, each optionally
  // carrying modifier prefixes: "Q,I" or "Shift+W". Modifier matching is exact,
  // so "Up" stays silent while Shift is held and "Shift+Up" stays silent without
@@ -16,7 +76,7 @@
  constexpr uint8_t kModShift = 1u << 0;
  constexpr uint8_t kModCtrl = 1u << 1;
  constexpr uint8_t kModAlt = 1u << 2;
-@@ -86,6 +89,20 @@
+@@ -86,6 +111,20 @@ uint8_t LiveModifiers(const bool (&key_down)[256]) {
    return mods;
  }
  
@@ -37,119 +97,39 @@
  // Strips leading modifier prefixes off 'token', advancing it to the bare key
  // name and returning the mask they require.
  uint8_t TakeModifiers(std::string_view& token) {
-@@ -122,87 +139,9 @@
+@@ -122,17 +161,51 @@ std::string_view TrimSpaces(std::string_view s) {
    return s;
  }
  
--bool TokenPressed(const bool (&key_down)[256], std::string_view token, uint8_t live_mods) {
--  uint8_t want = TakeModifiers(token);
--  if (want != live_mods) {
--    return false;
--  }
--  rex::ui::VirtualKey vk = rex::ui::ParseVirtualKey(token);
--  if (vk == rex::ui::VirtualKey::kNone) {
--    return false;
--  }
--  uint16_t idx = static_cast<uint16_t>(vk);
--  return idx < 256 && key_down[idx];
--}
--
--std::atomic<bool> mouse_look_active{true};
--
--}  // namespace
--
--void SetMouseLookActive(bool active) {
--  mouse_look_active.store(active, std::memory_order_relaxed);
--}
--
--bool IsMouseLookActive() {
--  return mouse_look_active.load(std::memory_order_relaxed);
--}
--
--using rex::ui::VirtualKey;
--
--MnkInputDriver::MnkInputDriver(rex::ui::Window* window, size_t window_z_order)
--    : InputDriver(window, window_z_order) {}
--
--MnkInputDriver::~MnkInputDriver() {
--  // Detach handled by OnClosing; if window outlives the driver, clean up here.
--  DetachFromWindow();
--}
--
--X_STATUS MnkInputDriver::Setup() {
--  return X_STATUS_SUCCESS;
--}
--
--void MnkInputDriver::OnWindowAvailable(rex::ui::Window* window) {
--  if (window) {
--    {
--      std::lock_guard lock(state_mutex_);
--      attached_window_ = window;
--    }
--    window->AddInputListener(this, window_z_order());
--    window->AddListener(this);
--  }
--}
--
--void MnkInputDriver::OnClosing(rex::ui::UIEvent&) {
--  DetachFromWindow();
--}
--
--void MnkInputDriver::DetachFromWindow() {
--  rex::ui::Window* window = attached_window_;
--  if (!window) {
--    return;
--  }
--  window->app_context().CallInUIThreadSynchronous([this, window] {
--    // Detach first so nothing new is queued, then run out what already was.
--    {
--      std::lock_guard lock(state_mutex_);
--      attached_window_ = nullptr;
--    }
--    if (mouse_capture_update_queued_.load(std::memory_order_relaxed)) {
--      window->app_context().ExecutePendingFunctionsFromUIThread();
--    }
--    ReleaseMouseCaptureFromUIThread(window);
--    window->RemoveInputListener(this);
--    window->RemoveListener(this);
--  });
--}
--
--bool MnkInputDriver::IsEnabled() const {
--  return REXCVAR_GET(mnk_mode);
--}
--
--static bool IsBindPressed(const bool (&key_down)[256], const std::string& cvar_val) {
--  const uint8_t live_mods = LiveModifiers(key_down);
--  std::string_view rest(cvar_val);
 +// Calls f(token) for each trimmed, non-empty alternative of a bind value.
 +template <typename F>
 +void ForEachToken(std::string_view rest, F&& f) {
-   while (!rest.empty()) {
-     size_t comma = rest.find(',');
-     std::string_view token = rest.substr(0, comma);
-@@ -212,11 +151,114 @@
-       rest.remove_prefix(comma + 1);
-     }
-     token = TrimSpaces(token);
--    if (!token.empty() && TokenPressed(key_down, token, live_mods)) {
--      return true;
--    }
--  }
--  return false;
++  while (!rest.empty()) {
++    size_t comma = rest.find(',');
++    std::string_view token = rest.substr(0, comma);
++    if (comma == std::string_view::npos) {
++      rest = std::string_view();
++    } else {
++      rest.remove_prefix(comma + 1);
++    }
++    token = TrimSpaces(token);
 +    if (!token.empty() && f(token)) {
 +      return;
 +    }
 +  }
 +}
 +
-+bool TokenPressed(const bool (&key_down)[256], std::string_view token, uint8_t live_mods) {
-+  uint8_t want = TakeModifiers(token);
-+  rex::ui::VirtualKey vk = rex::ui::ParseVirtualKey(token);
-+  if (vk == rex::ui::VirtualKey::kNone) {
-+    return false;
-+  }
-+  uint16_t idx = static_cast<uint16_t>(vk);
+ bool TokenPressed(const bool (&key_down)[256], std::string_view token, uint8_t live_mods) {
+   uint8_t want = TakeModifiers(token);
+-  if (want != live_mods) {
+-    return false;
+-  }
+   rex::ui::VirtualKey vk = rex::ui::ParseVirtualKey(token);
+   if (vk == rex::ui::VirtualKey::kNone) {
+     return false;
+   }
+   uint16_t idx = static_cast<uint16_t>(vk);
+-  return idx < 256 && key_down[idx];
 +  if (idx >= 256 || !key_down[idx]) {
 +    return false;
 +  }
@@ -170,73 +150,35 @@
 +    return false;
 +  });
 +  return mods;
-+}
-+
-+std::atomic<bool> mouse_look_active{true};
-+
-+}  // namespace
-+
-+void SetMouseLookActive(bool active) {
-+  mouse_look_active.store(active, std::memory_order_relaxed);
-+}
-+
-+bool IsMouseLookActive() {
-+  return mouse_look_active.load(std::memory_order_relaxed);
-+}
-+
-+using rex::ui::VirtualKey;
-+
-+MnkInputDriver::MnkInputDriver(rex::ui::Window* window, size_t window_z_order)
-+    : InputDriver(window, window_z_order) {}
-+
-+MnkInputDriver::~MnkInputDriver() {
-+  // Detach handled by OnClosing; if window outlives the driver, clean up here.
-+  DetachFromWindow();
-+}
-+
-+X_STATUS MnkInputDriver::Setup() {
-+  return X_STATUS_SUCCESS;
-+}
-+
-+void MnkInputDriver::OnWindowAvailable(rex::ui::Window* window) {
-+  if (window) {
-+    {
-+      std::lock_guard lock(state_mutex_);
-+      attached_window_ = window;
-+    }
-+    window->AddInputListener(this, window_z_order());
-+    window->AddListener(this);
-+  }
-+}
-+
-+void MnkInputDriver::OnClosing(rex::ui::UIEvent&) {
-+  DetachFromWindow();
-+}
-+
-+void MnkInputDriver::DetachFromWindow() {
-+  rex::ui::Window* window = attached_window_;
-+  if (!window) {
-+    return;
-+  }
-+  window->app_context().CallInUIThreadSynchronous([this, window] {
-+    // Detach first so nothing new is queued, then run out what already was.
-+    {
-+      std::lock_guard lock(state_mutex_);
-+      attached_window_ = nullptr;
-+    }
-+    if (mouse_capture_update_queued_.load(std::memory_order_relaxed)) {
-+      window->app_context().ExecutePendingFunctionsFromUIThread();
-+    }
-+    ReleaseMouseCaptureFromUIThread(window);
-+    window->RemoveInputListener(this);
-+    window->RemoveListener(this);
-+  });
-+}
-+
-+bool MnkInputDriver::IsEnabled() const {
-+  return REXCVAR_GET(mnk_mode);
-+}
-+
+ }
+ 
+ std::atomic<bool> mouse_look_active{true};
+@@ -197,26 +270,18 @@ void MnkInputDriver::DetachFromWindow() {
+ }
+ 
+ bool MnkInputDriver::IsEnabled() const {
+-  return REXCVAR_GET(mnk_mode);
++  auto profile = GetProfile();
++  return profile ? profile->enabled : REXCVAR_GET(mnk_mode);
+ }
+ 
+-static bool IsBindPressed(const bool (&key_down)[256], const std::string& cvar_val) {
+-  const uint8_t live_mods = LiveModifiers(key_down);
+-  std::string_view rest(cvar_val);
+-  while (!rest.empty()) {
+-    size_t comma = rest.find(',');
+-    std::string_view token = rest.substr(0, comma);
+-    if (comma == std::string_view::npos) {
+-      rest = std::string_view();
+-    } else {
+-      rest.remove_prefix(comma + 1);
+-    }
+-    token = TrimSpaces(token);
+-    if (!token.empty() && TokenPressed(key_down, token, live_mods)) {
+-      return true;
+-    }
+-  }
+-  return false;
 +static bool IsBindPressed(const bool (&key_down)[256], const std::string& cvar_val,
 +                          uint8_t live_mods) {
 +  bool pressed = false;
@@ -248,7 +190,67 @@
  }
  
  void MnkInputDriver::EnumerateDevices(std::vector<DeviceInfo>& out) {
-@@ -274,61 +316,86 @@
+@@ -227,6 +292,7 @@ void MnkInputDriver::EnumerateDevices(std::vector<DeviceInfo>& out) {
+   DeviceInfo info;
+   info.id = kMnkDevice;
+   info.name = "Keyboard and Mouse";
++  info.key = "keyboard";
+   info.synthetic = true;
+   out.push_back(info);
+ }
+@@ -248,8 +314,8 @@ X_RESULT MnkInputDriver::GetDeviceCapabilities(DeviceId id, uint32_t flags,
+     out_caps->gamepad.thumb_ly = static_cast<int16_t>(0x7FFF);
+     out_caps->gamepad.thumb_rx = static_cast<int16_t>(0x7FFF);
+     out_caps->gamepad.thumb_ry = static_cast<int16_t>(0x7FFF);
+-    out_caps->vibration.left_motor_speed = 0xFFFF;
+-    out_caps->vibration.right_motor_speed = 0xFFFF;
++    out_caps->vibration.left_motor_speed = 0;
++    out_caps->vibration.right_motor_speed = 0;
+   }
+   return X_ERROR_SUCCESS;
+ }
+@@ -259,6 +325,40 @@ X_RESULT MnkInputDriver::GetDeviceState(DeviceId id, X_INPUT_STATE* out_state) {
+     return X_ERROR_DEVICE_NOT_CONNECTED;
+   }
+ 
++  const auto profile = GetProfile();
++  if (profile) {
++    QueueMouseCaptureUpdate(profile->mouse && IsMouseLookActive() && has_focus_ && is_active());
++    std::lock_guard lock(state_mutex_);
++    if (!has_focus_ || !is_active()) {
++      mouse_dx_ = mouse_dy_ = 0;
++      if (out_state) { *out_state = {}; out_state->packet_number = packet_number_; }
++      return X_ERROR_SUCCESS;
++    }
++    uint8_t standalone = 0;
++    for (const auto& bind : profile->bindings) standalone |= StandaloneModifiers(bind);
++    standalone |= StandaloneModifiers(REXCVAR_GET(keybind_guide));
++    const uint8_t mods = LiveModifiers(key_down_) & static_cast<uint8_t>(~standalone);
++    std::array<double, 24> values{};
++    for (size_t action = 0; action < values.size(); ++action) {
++      if (IsBindPressed(key_down_, profile->bindings[action], mods)) values[action] = 1;
++      if (profile->mouse && IsMouseLookActive())
++        values[action] = std::max(values[action], std::min(1.0, BoundMotion(profile->bindings[action], mouse_dx_, mouse_dy_) * profile->sensitivity * 200.0 / 32767.0));
++    }
++    mouse_dx_ = mouse_dy_ = 0;
++    X_INPUT_STATE state{}; state.packet_number = ++packet_number_;
++    constexpr uint16_t buttons[] = {0x1000,0x2000,0x4000,0x8000,0x100,0x200,0,0,0x40,0x80,0x10,0x20};
++    uint16_t pressed = 0;
++    for (size_t i = 0; i < 12; ++i) if (values[i] > .5) pressed |= buttons[i];
++    for (size_t i = 0; i < 4; ++i) if (values[20+i] > .5) pressed |= uint16_t(1u << i);
++    state.gamepad.buttons = pressed;
++    if (IsBindPressed(key_down_, REXCVAR_GET(keybind_guide), mods))
++      state.gamepad.buttons = uint16_t(state.gamepad.buttons) | X_INPUT_GAMEPAD_GUIDE;
++    state.gamepad.left_trigger = uint8_t(values[6]*255); state.gamepad.right_trigger = uint8_t(values[7]*255);
++    state.gamepad.thumb_lx = int16_t((values[15]-values[14])*32767); state.gamepad.thumb_ly = int16_t((values[12]-values[13])*32767);
++    state.gamepad.thumb_rx = int16_t((values[19]-values[18])*32767); state.gamepad.thumb_ry = int16_t((values[16]-values[17])*32767);
++    if (out_state) *out_state = state;
++    return X_ERROR_SUCCESS;
++  }
+   // Mouse look is opt in. Without this gate, keyboard input alone would hide
+   // and lock the cursor, breaking the ImGui overlays.
+   QueueMouseCaptureUpdate(IsEnabled() && REXCVAR_GET(mnk_mouse) && IsMouseLookActive() &&
+@@ -274,61 +374,86 @@ X_RESULT MnkInputDriver::GetDeviceState(DeviceId id, X_INPUT_STATE* out_state) {
  
    std::lock_guard lock(state_mutex_);
  
@@ -360,3 +362,62 @@
      ry -= INT16_MAX;
  
    if (REXCVAR_GET(mnk_mouse) && IsMouseLookActive()) {
+@@ -489,8 +614,6 @@ void MnkInputDriver::OnKeyDown(rex::ui::KeyEvent& e) {
+ }
+ 
+ void MnkInputDriver::OnKeyUp(rex::ui::KeyEvent& e) {
+-  if (!IsEnabled())
+-    return;
+   std::lock_guard lock(state_mutex_);
+   uint16_t vk = static_cast<uint16_t>(e.virtual_key());
+   SetKeyState(vk, false);
+@@ -510,14 +633,16 @@ void MnkInputDriver::OnMouseDown(rex::ui::MouseEvent& e) {
+     case rex::ui::MouseEvent::Button::kMiddle:
+       SetKeyState(static_cast<uint16_t>(VirtualKey::kMButton), true);
+       break;
++    case rex::ui::MouseEvent::Button::kX1:
++      SetKeyState(static_cast<uint16_t>(VirtualKey::kXButton1), true); break;
++    case rex::ui::MouseEvent::Button::kX2:
++      SetKeyState(static_cast<uint16_t>(VirtualKey::kXButton2), true); break;
+     default:
+       break;
+   }
+ }
+ 
+ void MnkInputDriver::OnMouseUp(rex::ui::MouseEvent& e) {
+-  if (!IsEnabled())
+-    return;
+   std::lock_guard lock(state_mutex_);
+   switch (e.button()) {
+     case rex::ui::MouseEvent::Button::kLeft:
+@@ -529,6 +654,10 @@ void MnkInputDriver::OnMouseUp(rex::ui::MouseEvent& e) {
+     case rex::ui::MouseEvent::Button::kMiddle:
+       SetKeyState(static_cast<uint16_t>(VirtualKey::kMButton), false);
+       break;
++    case rex::ui::MouseEvent::Button::kX1:
++      SetKeyState(static_cast<uint16_t>(VirtualKey::kXButton1), false); break;
++    case rex::ui::MouseEvent::Button::kX2:
++      SetKeyState(static_cast<uint16_t>(VirtualKey::kXButton2), false); break;
+     default:
+       break;
+   }
+@@ -541,14 +670,11 @@ void MnkInputDriver::OnMouseMove(rex::ui::MouseEvent& e) {
+   int32_t y = e.y();
+   {
+     std::lock_guard lock(state_mutex_);
+-    if (relative_mouse_mode_) {
+-      // The pointer is locked, so the absolute position no longer moves.
+-      mouse_dx_ += e.dx();
+-      mouse_dy_ += e.dy();
+-    } else {
+-      mouse_dx_ += float(x - prev_mouse_x_);
+-      mouse_dy_ += float(y - prev_mouse_y_);
+-    }
++    // The pointer is locked, so the absolute position no longer moves.
++    const float dx = relative_mouse_mode_ ? e.dx() : float(x - prev_mouse_x_);
++    const float dy = relative_mouse_mode_ ? e.dy() : float(y - prev_mouse_y_);
++    mouse_dx_ += dx;
++    mouse_dy_ += dy;
+   }
+   prev_mouse_x_ = x;
+   prev_mouse_y_ = y;
