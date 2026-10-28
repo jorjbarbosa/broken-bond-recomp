@@ -31,7 +31,7 @@ $PSVersionTable.PSVersion
 
 ## 2. Fetch the SDK
 
-The official ReXGlue SDK is the `sdk` submodule, pinned to a specific commit. Fetch it with symbolic links enabled, which some of its dependencies need:
+The official ReXGlue SDK is the `sdk` submodule, pinned to a specific commit. The menus of the native build use [RmlUi](https://github.com/mikke89/RmlUi) 6.3 and [FreeType](https://freetype.org) 2.15.0, also pinned submodules, in `third_party/rmlui` and `third_party/freetype`; the build applies a local RmlUi fix to a copy in the build folder (`cmake/rmlui-patches/`), so the submodule stays clean. Fetch the submodules with symbolic links enabled, which some of the SDK's dependencies need:
 
 ```powershell
 git -c core.symlinks=true submodule update --init --recursive

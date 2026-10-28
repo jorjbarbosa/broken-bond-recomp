@@ -100,6 +100,15 @@
         @{ Name = 'Zstandard'; License = 'BSD-3-Clause'
            Url = 'https://github.com/facebook/zstd'; File = 'packaging/licenses/zstd.txt'; Target = 'zstd.txt'
            Usage = 'broken_bond.exe (embedded shader package decoder)' }
+        @{ Name = 'RmlUi 6.3'; License = 'MIT'
+           Url = 'https://github.com/mikke89/RmlUi'; File = 'third_party/rmlui/LICENSE.txt'; Target = 'rmlui.txt'
+           Usage = 'broken_bond.exe (menus)' }
+        @{ Name = 'robin_hood hashing and itlib (inside RmlUi)'; License = 'MIT'
+           Url = 'https://github.com/mikke89/RmlUi'; File = 'third_party/rmlui/Include/RmlUi/Core/Containers/LICENSE.txt'; Target = 'rmlui-containers.txt'
+           Usage = 'broken_bond.exe (menus)' }
+        @{ Name = 'FreeType 2.15.0 (portions of this software are copyright The FreeType Project, https://freetype.org)'; License = 'FTL'
+           Url = 'https://freetype.org'; File = 'third_party/freetype/docs/FTL.TXT'; Target = 'freetype.txt'
+           Usage = 'broken_bond.exe (menus)' }
         @{ Name = 'volk'; License = 'MIT'; Condition = 'NativeVulkan'
            Url = 'https://github.com/zeux/volk'; File = 'packaging/licenses/volk.txt'; Target = 'volk.txt'
            Usage = 'broken_bond.exe (Vulkan loader)' }

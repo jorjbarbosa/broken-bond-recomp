@@ -39,6 +39,25 @@ option(BROKENBOND_NATIVE_RENDERER "Build the native game and launcher" OFF)
 option(BROKENBOND_NATIVE_D3D12 "Build the native Direct3D 12 backend" ON)
 option(BROKENBOND_NATIVE_VULKAN "Build the native Vulkan backend and SPIR-V shaders" ON)
 option(BROKENBOND_NATIVE_TESTS "Build the native backend host tests" OFF)
+# The UI of the menus in the native build: RmlUi 6.3 over FreeType 2.15.0
+# (third_party submodules), both static. FreeType without its optional
+# dependencies (the fonts are plain TTF) and RmlUi without samples; RmlUi takes
+# the FreeType target, not a FreeType of the system.
+if(BROKENBOND_NATIVE_RENDERER)
+    block()
+        set(BUILD_SHARED_LIBS OFF)
+        foreach(_dependency IN ITEMS ZLIB BZIP2 PNG HARFBUZZ BROTLI HVF)
+            set(FT_DISABLE_${_dependency} ON)
+        endforeach()
+        add_subdirectory(third_party/freetype third_party/freetype EXCLUDE_FROM_ALL)
+        add_library(Freetype::Freetype ALIAS freetype)
+        set(CMAKE_DISABLE_FIND_PACKAGE_Freetype ON)
+        set(RMLUI_SAMPLES OFF)
+        set(RMLUI_FONT_ENGINE freetype)
+        add_subdirectory(third_party/rmlui third_party/rmlui EXCLUDE_FROM_ALL)
+    endblock()
+    include(cmake/rmlui_patches.cmake)
+endif()
 if(BROKENBOND_NATIVE_RENDERER)
     if(NOT BROKENBOND_NATIVE_D3D12 AND NOT BROKENBOND_NATIVE_VULKAN)
         message(FATAL_ERROR "Enable at least one native backend")
@@ -110,6 +129,9 @@ if(WIN32)
 endif()
 target_include_directories(broken_bond PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
 target_link_libraries(broken_bond PRIVATE broken_bond::json)
+if(BROKENBOND_NATIVE_RENDERER)
+    target_link_libraries(broken_bond PRIVATE RmlUi::Core)
+endif()
 
 # The translation codec and package reader without the game (tests/translation_test.cpp).
 add_executable(broken_bond_translation_test EXCLUDE_FROM_ALL
