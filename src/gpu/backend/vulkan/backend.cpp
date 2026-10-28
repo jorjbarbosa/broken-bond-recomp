@@ -10,7 +10,8 @@
 // command list goes to the queue only through FailureChannel::Authorize.
 //
 // Draws and resolves are in draw.inc/resolve.inc; presentation and its WSI
-// retirement are in present.inc/output.inc. They share this batch lifetime.
+// retirement are in present.inc/output.inc, and the UI layer of the Present in
+// ui.inc. They share this batch lifetime.
 #include "gpu/backend/backend.h"
 #include "gpu/backend/lifecycle.h"
 #include "gpu/backend/pipeline_set.h"
@@ -315,7 +316,11 @@ class Backend final : public gpu::Backend {
   bool SetVsync(bool, std::string& evidence) override;
   bool StageFront(uint32_t, uint32_t& slot, std::string& evidence) override;
   bool Present(uint32_t, bool, std::vector<uint8_t>& bgra, uint32_t& width, uint32_t& height,
-               std::string& evidence) override;
+               std::string& evidence, bool& presented) override;
+  bool UploadUiTexture(uint32_t key, uint32_t width, uint32_t height, const std::vector<uint8_t>& rgba,
+                       std::string& evidence) override;
+  bool ReleaseUiTexture(uint32_t key, std::string& evidence) override;
+  bool SetUiFrame(UiFrame frame, std::string& evidence) override;
   std::string ResourceCounts() override;
   bool ReleaseTexture(uint32_t key, std::string& evidence) override;
   bool ReleaseSampled(uint32_t address, std::string& evidence) override;
@@ -622,6 +627,34 @@ struct Backend::State {
   bool OutputEffects(OutputImage& source, BackImage& back, uint32_t x, uint32_t y, uint32_t width, uint32_t height,
                      VkBuffer ramp, VkDeviceSize ramp_offset, std::string& evidence);
   void ReleaseOutput();
+  // The UI layer of the Present (ui.inc): RGBA8 textures by key, each with its
+  // view and descriptor set (key 0 the white texture), the frame of SetUiFrame
+  // and the pipeline of ui_pass.hlsl. A replaced or released texture waits for
+  // the sequence of its last use.
+  struct UiTexture {
+    std::shared_ptr<VmaImage> image;
+    std::shared_ptr<GraphicsResources> objects;  // Its view and the pool of its set.
+    VkDescriptorSet set{};
+    uint32_t width = 0, height = 0;
+    SyncState state;
+    uint64_t last_use = 0;
+  };
+  std::unordered_map<uint32_t, UiTexture> ui_textures;
+  std::vector<UiTexture> retired_ui_textures;
+  UiFrame ui_frame;
+  VkSampler ui_sampler{};
+  VkDescriptorSetLayout ui_set{};
+  VkPipelineLayout ui_layout{};
+  PipelineSet::Pipeline ui_pipeline;
+  // Draws whose texture was released after their frame was set are skipped.
+  uint64_t ui_texture_uploads = 0, ui_frames_drawn = 0, ui_draws_skipped = 0;
+  bool UiFrameVisible() const {
+    return ui_frame.width > 0 && ui_frame.height > 0 && !ui_frame.draws.empty() && !ui_frame.indices.empty();
+  }
+  bool EnsureUiLayer(std::string& evidence);
+  bool WriteUiTexture(uint32_t key, uint32_t width, uint32_t height, const uint8_t* rgba, std::string& evidence);
+  bool DrawUi(BackImage& back, std::string& evidence);
+  void ReleaseUi();
   std::map<std::string, PipelineSet::Pipeline> resolve_pipelines;
   std::array<uint8_t, 4096> vs_block{}, ps_block{};
   bool EnsureGraphics(std::string& evidence);
@@ -655,6 +688,7 @@ struct Backend::State {
 #include "gpu/backend/vulkan/resolve.inc"
 #include "gpu/backend/vulkan/present.inc"
 #include "gpu/backend/vulkan/output.inc"
+#include "gpu/backend/vulkan/ui.inc"
 
 #if defined(NATIVE_RENDERER_ENGINE_FAULT_TEST)
 class Backend::State::Hooks final : public CompletionTestHooks {
@@ -832,6 +866,7 @@ void Backend::State::Reclaim(uint64_t completed) {
     ++buffers_released;
     return true;
   });
+  std::erase_if(retired_ui_textures, [&](const UiTexture& t) { return t.last_use <= completed; });
 }
 
 bool Backend::State::OpenBatch(const char*& reason, VkResult& result) {
@@ -1172,6 +1207,7 @@ bool Backend::Shutdown(std::string& evidence) {
   state_->retired_sampled.clear();
   state_->retired_buffers.clear();
   state_->pipeline_set.Clear();
+  state_->ReleaseUi();
   state_->ReleaseGraphics();
   state_->surfaces.clear();
   state_->textures.clear();
@@ -1453,7 +1489,9 @@ std::string Backend::ResourceCounts() {
                      "\"sampled_released\":{},\"sampled_retired\":{},\"views_allocated\":{},\"views_free\":{},"
                      "\"stage_slots\":{},\"swapchain\":{},\"buffers\":{},\"retired_buffers\":{},"
                      "\"buffers_created\":{},\"buffers_released\":{},\"buffers_retired\":{},\"buffer_uploads\":{},"
-                     "\"readbacks\":{},\"batches_in_flight\":{},\"depth_resolves\":{}}}",
+                     "\"readbacks\":{},\"batches_in_flight\":{},\"depth_resolves\":{},\"ui_textures\":{},"
+                     "\"retired_ui_textures\":{},\"ui_texture_uploads\":{},\"ui_frames_drawn\":{},"
+                     "\"ui_draws_skipped\":{}}}",
                      textures, state_->textures.size(), state_->sampled.size(), state_->surfaces.size(),
                      state_->retired_surfaces.size(), state_->retired_textures.size(), state_->textures_released,
                      state_->textures_retired, state_->retired_sampled.size(), state_->sampled_released,
@@ -1462,7 +1500,9 @@ std::string Backend::ResourceCounts() {
                      state_->swapchain != VK_NULL_HANDLE,
                      state_->buffers.size(), state_->retired_buffers.size(), state_->buffers_created,
                      state_->buffers_released, state_->buffers_retired, state_->buffer_uploads,
-                     state_->readbacks.size(), state_->batches_in_flight.size(), state_->depth_resolves);
+                     state_->readbacks.size(), state_->batches_in_flight.size(), state_->depth_resolves,
+                     state_->ui_textures.size() - state_->ui_textures.count(0), state_->retired_ui_textures.size(),
+                     state_->ui_texture_uploads, state_->ui_frames_drawn, state_->ui_draws_skipped);
 }
 
 std::string Backend::PipelineSummary() {

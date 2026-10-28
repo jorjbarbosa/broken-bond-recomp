@@ -21,11 +21,15 @@ target_compile_definitions(native_engine_test_units PUBLIC BROKENBOND_NATIVE_VUL
                            NATIVE_RENDERER_ENGINE_FAULT_TEST=1 BROKENBOND_SHADER_CACHE_SPIRV=1
                            _CRT_SECURE_NO_WARNINGS)
 add_dependencies(native_engine_test_units broken_bond_native_shader_cache)
-foreach(_broken_bond_engine_test IN ITEMS latch lifetime failure translation resource depth_resolve depth_only)
+foreach(_broken_bond_engine_test IN ITEMS latch lifetime failure translation resource depth_resolve depth_only ui)
     add_executable(native_engine_${_broken_bond_engine_test}_test
                    src/gpu/backend/tests/${_broken_bond_engine_test}_test.cpp)
     target_link_libraries(native_engine_${_broken_bond_engine_test}_test PRIVATE native_engine_test_units)
 endforeach()
+# The UI layer and the SDK's immediate drawing over it, through a dispatcher.
+add_executable(native_engine_ui_layer_test src/gpu/ui/tests/layer_test.cpp src/gpu/ui/layer.cpp
+               src/gpu/ui/immediate_drawer.cpp)
+target_link_libraries(native_engine_ui_layer_test PRIVATE native_engine_test_units)
 # The Vulkan tests: the completion service (held submissions, injected
 # failures and the race) and the check of the SPIR-V contract.
 foreach(_broken_bond_engine_test IN ITEMS completion shader_contract present draw_cache instancing)
@@ -109,7 +113,7 @@ target_link_libraries(native_shader_package_test PRIVATE broken_bond_smolv libzs
 target_compile_definitions(native_shader_package_test PRIVATE BROKENBOND_SHADER_CACHE_SPIRV=1 NOMINMAX
                            WIN32_LEAN_AND_MEAN)
 add_dependencies(native_shader_package_test broken_bond_native_shader_cache)
-set(native_tests latch lifetime failure translation resource depth_resolve depth_only completion shader_contract present draw_cache instancing)
+set(native_tests latch lifetime failure translation resource depth_resolve depth_only ui ui_layer completion shader_contract present draw_cache instancing)
 if(BROKENBOND_NATIVE_D3D12)
     list(APPEND native_tests bindings)
 endif()

@@ -39,6 +39,7 @@
 #include "gpu/backend/depth_resolve.h"  // kDepthResolveVs, ...MsPs, ...SinglePs (DXIL).
 #include "gpu/backend/sample_resolve.h"  // kSampleResolvePs (DXIL).
 #include "gpu/backend/sdk_shaders.h"   // CAS, FSR1, bilinear and FXAA of the SDK (DXBC).
+#include "gpu/backend/ui_pass.h"  // kUiVs, kUiPs (DXIL).
 
 namespace plume { std::unique_ptr<RenderInterface> CreateD3D12Interface(); }
 
@@ -159,7 +160,11 @@ class Backend final : public gpu::Backend {
   bool SetVsync(bool enabled, std::string& evidence) override;
   bool StageFront(uint32_t key, uint32_t& slot, std::string& evidence) override;
   bool Present(uint32_t slot, bool capture, std::vector<uint8_t>& bgra, uint32_t& width, uint32_t& height,
-               std::string& evidence) override;
+               std::string& evidence, bool& presented) override;
+  bool UploadUiTexture(uint32_t key, uint32_t width, uint32_t height, const std::vector<uint8_t>& rgba,
+                       std::string& evidence) override;
+  bool ReleaseUiTexture(uint32_t key, std::string& evidence) override;
+  bool SetUiFrame(UiFrame frame, std::string& evidence) override;
   std::string ResourceCounts() override;
   bool ReleaseTexture(uint32_t key, std::string& evidence) override;
   bool ReleaseSampled(uint32_t address, std::string& evidence) override;
@@ -352,6 +357,11 @@ struct Backend::State {
       ++buffers_released;
       return true;
     });
+    std::erase_if(retired_ui_textures, [&](UiTexture& t) {
+      if (completed == UINT64_MAX || completed < t.last_use_fence) return false;
+      free_ui_views.push_back(t.view);
+      return true;
+    });
   }
   // Sampled copies of guest texture memory, keyed by the caller.
   struct Sampled {
@@ -521,6 +531,39 @@ struct Backend::State {
   uint64_t staged_frames = 0, presents = 0, presents_skipped_empty = 0, resizes = 0, gamma_updates = 0;
   uint64_t latency_waits = 0, latency_timeouts = 0, captures = 0;
   bool BackBufferViews(HRESULT& hr);  // RTVs of the current back buffers.
+  // The UI layer of the Present (UiFrame): RGBA8 textures by key, each with
+  // an SRV slot in ui_views (key 0 the white texture), the frame of SetUiFrame
+  // and the root signature and pipeline of ui_pass.hlsl. A replaced or
+  // released texture and its slot wait for the fence of their last use.
+  struct UiTexture {
+    Microsoft::WRL::ComPtr<ID3D12Resource> resource;
+    uint32_t width = 0, height = 0;
+    uint32_t view = UINT32_MAX;  // Its slot in ui_views; UINT32_MAX = none.
+    D3D12_RESOURCE_STATES state = D3D12_RESOURCE_STATE_COPY_DEST;
+    uint64_t last_use_fence = 0;
+  };
+  static constexpr uint32_t kUiViews = 256;
+  std::unordered_map<uint32_t, UiTexture> ui_textures;
+  std::vector<UiTexture> retired_ui_textures;
+  std::vector<uint32_t> free_ui_views;
+  uint32_t next_ui_view = 0;
+  UiFrame ui_frame;
+  Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> ui_views;
+  Microsoft::WRL::ComPtr<ID3D12RootSignature> ui_root;
+  Microsoft::WRL::ComPtr<ID3D12PipelineState> ui_pipeline;
+  // Draws whose texture was released after their frame was set are skipped.
+  uint64_t ui_texture_uploads = 0, ui_frames_drawn = 0, ui_draws_skipped = 0;
+  bool UiFrameVisible() const {
+    return ui_frame.width > 0 && ui_frame.height > 0 && !ui_frame.draws.empty() && !ui_frame.indices.empty();
+  }
+  // Root signature, pipeline, heap and the white texture, once; in the open batch.
+  bool EnsureUiLayer(const char*& reason, HRESULT& hr);
+  // Creates (or recreates at a new size) and fills the texture of key in the open batch.
+  bool WriteUiTexture(uint32_t key, uint32_t width, uint32_t height, const uint8_t* rgba, const char*& reason,
+                      HRESULT& hr);
+  // The frame's draws into the back buffer of rtv, in the open batch.
+  bool DrawUi(ID3D12GraphicsCommandList* commands, D3D12_CPU_DESCRIPTOR_HANDLE rtv, uint32_t width, uint32_t height,
+              const char*& reason, HRESULT& hr);
 };
 namespace {
 constexpr size_t kUploadPageBytes = size_t(8) << 20;  // Pooled page; larger requests get their own.
@@ -927,6 +970,14 @@ bool Backend::Shutdown(std::string& evidence) {
   state_->present_views.Reset();
   state_->present_pipeline.Reset();
   state_->present_root.Reset();
+  state_->ui_textures.clear();  // Their last use completed above.
+  state_->retired_ui_textures.clear();
+  state_->free_ui_views.clear();
+  state_->next_ui_view = 0;
+  state_->ui_frame = {};
+  state_->ui_views.Reset();
+  state_->ui_pipeline.Reset();
+  state_->ui_root.Reset();
   state_->depth_resolve_rtv.Reset();
   state_->sample_resolve.Reset();
   state_->depth_resolve_ms.Reset();
@@ -1565,6 +1616,247 @@ bool Backend::State::OutputEffects(ID3D12GraphicsCommandList* commands, uint32_t
   return true;
 }
 
+// The UI layer (ui_pass.hlsl): t0 in a table of ui_views, the inverse
+// coordinate space as root constants (b0) and the linear clamp sampler
+// static; straight alpha blending into the back buffer. Each piece once, so a
+// failed attempt resumes where it stopped.
+bool Backend::State::EnsureUiLayer(const char*& reason, HRESULT& hr) {
+  if (ui_pipeline) return true;
+  auto* d3d = static_cast<plume::D3D12Device*>(device.get())->d3d;
+  hr = S_OK;
+  if (!ui_root) {
+    D3D12_DESCRIPTOR_RANGE range{};
+    range.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+    range.NumDescriptors = 1;
+    D3D12_ROOT_PARAMETER params[2]{};
+    params[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    params[0].DescriptorTable.NumDescriptorRanges = 1;
+    params[0].DescriptorTable.pDescriptorRanges = &range;
+    params[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+    params[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;  // b0: the inverse space.
+    params[1].Constants.Num32BitValues = 2;
+    params[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_VERTEX;
+    D3D12_STATIC_SAMPLER_DESC sampler{};
+    sampler.Filter = D3D12_FILTER_MIN_MAG_MIP_LINEAR;
+    sampler.AddressU = sampler.AddressV = sampler.AddressW = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
+    sampler.MaxLOD = D3D12_FLOAT32_MAX;
+    sampler.ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+    D3D12_ROOT_SIGNATURE_DESC desc{};
+    desc.NumParameters = 2;
+    desc.pParameters = params;
+    desc.NumStaticSamplers = 1;
+    desc.pStaticSamplers = &sampler;
+    desc.Flags = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
+    Microsoft::WRL::ComPtr<ID3DBlob> blob, error;
+    if (FAILED(hr = D3D12SerializeRootSignature(&desc, D3D_ROOT_SIGNATURE_VERSION_1, &blob, &error)) ||
+        FAILED(hr = d3d->CreateRootSignature(0, blob->GetBufferPointer(), blob->GetBufferSize(),
+                                             IID_PPV_ARGS(&ui_root)))) {
+      reason = "native-ui-root";
+      return false;
+    }
+  }
+  if (!ui_views) {
+    const D3D12_DESCRIPTOR_HEAP_DESC heap{D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, kUiViews,
+                                          D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE, 0};
+    if (FAILED(hr = d3d->CreateDescriptorHeap(&heap, IID_PPV_ARGS(&ui_views)))) {
+      reason = "native-ui-heap";
+      return false;
+    }
+  }
+  if (!ui_textures.contains(0)) {
+    const uint8_t white[4] = {0xFF, 0xFF, 0xFF, 0xFF};
+    if (!WriteUiTexture(0, 1, 1, white, reason, hr)) return false;
+  }
+  const D3D12_INPUT_ELEMENT_DESC elements[] = {
+      {"POSITION", 0, DXGI_FORMAT_R32G32_FLOAT, 0, offsetof(UiVertex, x), D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
+      {"TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, offsetof(UiVertex, u), D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
+      {"COLOR", 0, DXGI_FORMAT_R8G8B8A8_UNORM, 0, offsetof(UiVertex, color), D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA,
+       0}};
+  D3D12_GRAPHICS_PIPELINE_STATE_DESC pipeline{};
+  pipeline.pRootSignature = ui_root.Get();
+  pipeline.VS = {kUiVs, sizeof(kUiVs)};
+  pipeline.PS = {kUiPs, sizeof(kUiPs)};
+  auto& blend = pipeline.BlendState.RenderTarget[0];
+  blend.BlendEnable = TRUE;
+  blend.SrcBlend = D3D12_BLEND_SRC_ALPHA;
+  blend.DestBlend = D3D12_BLEND_INV_SRC_ALPHA;
+  blend.BlendOp = D3D12_BLEND_OP_ADD;
+  blend.SrcBlendAlpha = D3D12_BLEND_ONE;
+  blend.DestBlendAlpha = D3D12_BLEND_INV_SRC_ALPHA;
+  blend.BlendOpAlpha = D3D12_BLEND_OP_ADD;
+  blend.LogicOp = D3D12_LOGIC_OP_NOOP;
+  blend.RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
+  pipeline.SampleMask = UINT_MAX;
+  pipeline.RasterizerState.FillMode = D3D12_FILL_MODE_SOLID;
+  pipeline.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
+  pipeline.RasterizerState.DepthClipEnable = TRUE;
+  pipeline.InputLayout = {elements, UINT(std::size(elements))};
+  pipeline.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+  pipeline.NumRenderTargets = 1;
+  pipeline.RTVFormats[0] = DXGI_FORMAT_B8G8R8A8_UNORM;
+  pipeline.SampleDesc.Count = 1;
+  if (FAILED(hr = d3d->CreateGraphicsPipelineState(&pipeline, IID_PPV_ARGS(&ui_pipeline)))) {
+    reason = "native-ui-pipeline";
+    return false;
+  }
+  return true;
+}
+
+// A texture at a new size is a new resource: the old one is retired with its
+// view while submitted work can still read it, else its view slot is reused.
+// At the same size the copy goes into the texture, after the draws recorded
+// before it (the barrier orders them).
+bool Backend::State::WriteUiTexture(uint32_t key, uint32_t width, uint32_t height, const uint8_t* rgba,
+                                    const char*& reason, HRESULT& hr) {
+  auto* d3d = static_cast<plume::D3D12Device*>(device.get())->d3d;
+  D3D12_RESOURCE_DESC desc{};
+  desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+  desc.Width = width;
+  desc.Height = height;
+  desc.DepthOrArraySize = desc.MipLevels = 1;
+  desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+  desc.SampleDesc.Count = 1;
+  D3D12_PLACED_SUBRESOURCE_FOOTPRINT footprint{};
+  UINT64 bytes = 0;
+  d3d->GetCopyableFootprints(&desc, 0, 1, 0, &footprint, nullptr, nullptr, &bytes);
+  UploadPage* page = nullptr;
+  size_t page_offset = 0;
+  if (!Upload(size_t(bytes), page, page_offset, hr)) {
+    reason = "native-ui-texture-upload";
+    return false;
+  }
+  for (uint32_t row = 0; row < height; ++row)
+    std::memcpy(page->cpu + page_offset + footprint.Offset + size_t(row) * footprint.Footprint.RowPitch,
+                rgba + size_t(row) * width * 4, size_t(width) * 4);
+  auto& t = ui_textures[key];
+  if (t.resource && (t.width != width || t.height != height)) {
+    const uint64_t completed_now = static_cast<plume::D3D12CommandFence*>(fence.get())->d3d->GetCompletedValue();
+    if (t.last_use_fence && (completed_now == UINT64_MAX || completed_now < t.last_use_fence)) {
+      retired_ui_textures.push_back(std::move(t));
+      t = {};
+    } else {
+      t.resource.Reset();
+    }
+  }
+  const bool created = !t.resource;
+  if (created) {
+    if (t.view == UINT32_MAX) {
+      if (!free_ui_views.empty()) {
+        t.view = free_ui_views.back();
+        free_ui_views.pop_back();
+      } else if (next_ui_view < kUiViews) {
+        t.view = next_ui_view++;
+      } else {
+        ui_textures.erase(key);
+        reason = "native-ui-views-exhausted";
+        return false;
+      }
+    }
+    D3D12_HEAP_PROPERTIES heap{};
+    heap.Type = D3D12_HEAP_TYPE_DEFAULT;
+    heap.CreationNodeMask = heap.VisibleNodeMask = 1;
+    if (FAILED(hr = d3d->CreateCommittedResource(&heap, D3D12_HEAP_FLAG_NONE, &desc, D3D12_RESOURCE_STATE_COPY_DEST,
+                                                 nullptr, IID_PPV_ARGS(&t.resource)))) {
+      free_ui_views.push_back(t.view);
+      ui_textures.erase(key);
+      reason = "native-ui-texture-create";
+      return false;
+    }
+    t.width = width;
+    t.height = height;
+    t.state = D3D12_RESOURCE_STATE_COPY_DEST;
+    D3D12_SHADER_RESOURCE_VIEW_DESC srv{};
+    srv.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    srv.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+    srv.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+    srv.Texture2D.MipLevels = 1;
+    auto cpu = ui_views->GetCPUDescriptorHandleForHeapStart();
+    cpu.ptr += SIZE_T(d3d->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV)) * t.view;
+    d3d->CreateShaderResourceView(t.resource.Get(), &srv, cpu);
+  }
+  ID3D12GraphicsCommandList* const commands = batch_list.Get();
+  auto transition = [&](D3D12_RESOURCE_STATES after) {
+    if (t.state == after) return;
+    D3D12_RESOURCE_BARRIER b{};
+    b.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+    b.Transition.pResource = t.resource.Get();
+    b.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+    b.Transition.StateBefore = t.state;
+    b.Transition.StateAfter = after;
+    commands->ResourceBarrier(1, &b);
+    t.state = after;
+  };
+  transition(D3D12_RESOURCE_STATE_COPY_DEST);
+  D3D12_TEXTURE_COPY_LOCATION to{}, from{};
+  to.pResource = t.resource.Get();
+  to.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+  from.pResource = page->buffer.Get();
+  from.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+  from.PlacedFootprint = footprint;
+  from.PlacedFootprint.Offset += page_offset;
+  commands->CopyTextureRegion(&to, 0, 0, 0, &from, nullptr);
+  transition(D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+  t.last_use_fence = batch.fence;
+  ++ui_texture_uploads;
+  return true;
+}
+
+// The vertices and indices go into the batch's upload memory; each draw
+// binds its texture and its scissor rect in pixels (UiScissorPixels).
+bool Backend::State::DrawUi(ID3D12GraphicsCommandList* commands, D3D12_CPU_DESCRIPTOR_HANDLE rtv, uint32_t width,
+                            uint32_t height, const char*& reason, HRESULT& hr) {
+  const UiFrame& f = ui_frame;
+  const size_t vertex_bytes = f.vertices.size() * sizeof(UiVertex);
+  const size_t index_bytes = f.indices.size() * sizeof(uint16_t);
+  UploadPage* page = nullptr;
+  size_t offset = 0;
+  if (!Upload(vertex_bytes + index_bytes, page, offset, hr)) {
+    reason = "native-ui-frame-upload";
+    return false;
+  }
+  std::memcpy(page->cpu + offset, f.vertices.data(), vertex_bytes);
+  std::memcpy(page->cpu + offset + vertex_bytes, f.indices.data(), index_bytes);
+  const D3D12_VERTEX_BUFFER_VIEW vertices{page->gpu + offset, UINT(vertex_bytes), UINT(sizeof(UiVertex))};
+  const D3D12_INDEX_BUFFER_VIEW indices{page->gpu + offset + vertex_bytes, UINT(index_bytes), DXGI_FORMAT_R16_UINT};
+  auto* d3d = static_cast<plume::D3D12Device*>(device.get())->d3d;
+  const UINT increment = d3d->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+  commands->OMSetRenderTargets(1, &rtv, FALSE, nullptr);
+  const D3D12_VIEWPORT viewport{0.0f, 0.0f, float(width), float(height), 0.0f, 1.0f};
+  commands->RSSetViewports(1, &viewport);
+  ID3D12DescriptorHeap* heaps[] = {ui_views.Get()};
+  commands->SetDescriptorHeaps(1, heaps);
+  commands->SetGraphicsRootSignature(ui_root.Get());
+  commands->SetPipelineState(ui_pipeline.Get());
+  const float inverse_space[2] = {1.0f / f.width, 1.0f / f.height};
+  commands->SetGraphicsRoot32BitConstants(1, 2, inverse_space, 0);
+  commands->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+  commands->IASetVertexBuffers(0, 1, &vertices);
+  commands->IASetIndexBuffer(&indices);
+  uint32_t bound = UINT32_MAX;
+  for (const UiDraw& d : f.draws) {
+    if (!d.index_count) continue;
+    auto it = ui_textures.find(d.texture);
+    if (it == ui_textures.end()) {
+      ++ui_draws_skipped;
+      continue;
+    }
+    std::array<uint32_t, 4> rect{};
+    if (!UiScissorPixels(d, f, width, height, rect)) continue;
+    const D3D12_RECT scissor{LONG(rect[0]), LONG(rect[1]), LONG(rect[2]), LONG(rect[3])};
+    commands->RSSetScissorRects(1, &scissor);
+    if (it->second.view != bound) {
+      auto gpu = ui_views->GetGPUDescriptorHandleForHeapStart();
+      gpu.ptr += UINT64(increment) * it->second.view;
+      commands->SetGraphicsRootDescriptorTable(0, gpu);
+      bound = it->second.view;
+    }
+    commands->DrawIndexedInstanced(d.index_count, 1, d.index_offset, INT(d.vertex_offset), 0);
+    it->second.last_use_fence = batch.fence;
+  }
+  ++ui_frames_drawn;
+  return true;
+}
+
 bool Backend::AttachWindow(void* window, std::string& evidence, const PresentMode& mode) {
   auto fail = [&](const char* reason, HRESULT hr = E_FAIL) {
     evidence = fmt::format("{{\"attached\":false,\"reason\":\"{}\",\"hresult\":{}}}", reason, static_cast<uint32_t>(hr));
@@ -1822,7 +2114,8 @@ bool Backend::StageFront(uint32_t key, uint32_t& slot, std::string& evidence) {
 }
 
 bool Backend::Present(uint32_t slot, bool capture, std::vector<uint8_t>& bgra, uint32_t& width,
-                                   uint32_t& height, std::string& evidence) {
+                                   uint32_t& height, std::string& evidence, bool& presented) {
+  presented = false;
   bgra.clear();
   width = height = 0;
   auto fail = [&](const char* reason, HRESULT hr = E_FAIL) {
@@ -1917,6 +2210,8 @@ bool Backend::Present(uint32_t slot, bool capture, std::vector<uint8_t>& bgra, u
   auto* back = static_cast<plume::D3D12Texture*>(state_->swapchain->getTexture(index));
   const char* batch_reason = nullptr;
   if (!state_->OpenBatch(batch_reason, hr)) return fail(batch_reason, hr);
+  const bool ui = state_->UiFrameVisible();
+  if (ui && !state_->EnsureUiLayer(batch_reason, hr)) return fail(batch_reason, hr);
   ID3D12GraphicsCommandList* const commands = state_->batch_list.Get();
   auto barrier = [&](ID3D12Resource* resource, D3D12_RESOURCE_STATES before, D3D12_RESOURCE_STATES after) {
     if (before == after) return;
@@ -1948,7 +2243,7 @@ bool Backend::Present(uint32_t slot, bool capture, std::vector<uint8_t>& bgra, u
   barrier(back->d3d, D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET);
   auto rtv = state_->present_rtv->GetCPUDescriptorHandleForHeapStart();
   rtv.ptr += SIZE_T(device->d3d->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV)) * index;
-  // Invalidate before recording, including an effects path that may fail.
+  // Invalidate before recording, including an effects/UI path that may fail.
   state_->batch.draw_bindings = false;
   commands->OMSetRenderTargets(1, &rtv, FALSE, nullptr);
   if (effects) {
@@ -1976,6 +2271,11 @@ bool Backend::Present(uint32_t slot, bool capture, std::vector<uint8_t>& bgra, u
     commands->SetGraphicsRoot32BitConstants(2, 2, extent, 6);
     commands->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
     commands->DrawInstanced(3, 1, 0, 0);
+  }
+  // The UI layer over the image and its bars.
+  if (ui) {
+    if (!state_->DrawUi(commands, rtv, w, h, batch_reason, hr)) return fail(batch_reason, hr);
+    passes += "+ui";
   }
   Microsoft::WRL::ComPtr<ID3D12Resource> readback;
   D3D12_PLACED_SUBRESOURCE_FOOTPRINT footprint{};
@@ -2024,6 +2324,7 @@ bool Backend::Present(uint32_t slot, bool capture, std::vector<uint8_t>& bgra, u
       (chain.Flags & DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING) != 0;
   if (FAILED(hr = native->d3d->Present(state_->vsync ? 1 : 0, tearing ? DXGI_PRESENT_ALLOW_TEARING : 0)))
     return fail("native-present-swapchain", hr);
+  const bool visible = hr == S_OK;
   QueryPerformanceCounter(&t2);
   // The Present is queue work that still uses the back buffer after the
   // batch's Signal. A Signal after it lets WaitIdle (resize, capture, detach,
@@ -2063,13 +2364,72 @@ bool Backend::Present(uint32_t slot, bool capture, std::vector<uint8_t>& bgra, u
   const auto us = [&](const LARGE_INTEGER& a, const LARGE_INTEGER& b) {
     return (b.QuadPart - a.QuadPart) * 1000000 / frequency.QuadPart;
   };
-  evidence = fmt::format("{{\"presented\":true,\"slot\":{},\"key\":{},\"buffer\":{},\"size\":[{},{}],"
+  presented = visible;
+  evidence = fmt::format("{{\"presented\":{},\"slot\":{},\"key\":{},\"buffer\":{},\"size\":[{},{}],"
                          "\"image\":[{},{},{},{}],\"vsync\":{},\"tearing\":{},\"resized\":{},\"fence\":{},"
                          "\"latency_wait_us\":{},\"present_us\":{},\"gamma_from_title\":{},\"gamma_updates\":{},"
                          "\"presents\":{},\"captured\":{},\"passes\":\"{}\"}}",
-                         slot, stage.key, index, w, h, vx, vy, vw, vh, state_->vsync, tearing, resized, present_fence,
+                         presented, slot, stage.key, index, w, h, vx, vy, vw, vh, state_->vsync, tearing, resized, present_fence,
                          us(t0, t1), us(t1, t2), state_->gamma_from_title, state_->gamma_updates, state_->presents,
                          capture, passes);
+  return true;
+}
+
+bool Backend::UploadUiTexture(uint32_t key, uint32_t width, uint32_t height, const std::vector<uint8_t>& rgba,
+                              std::string& evidence) {
+  auto fail = [&](const char* reason, HRESULT hr = E_FAIL) {
+    evidence = fmt::format("{{\"uploaded\":false,\"reason\":\"{}\",\"key\":{},\"hresult\":{}}}", reason, key,
+                           static_cast<uint32_t>(hr));
+    return false;
+  };
+  if (!state_->ready || state_->owner_thread != GetCurrentThreadId() || state_->operation_poisoned ||
+      state_->unproved_execution) return fail("native-ui-owner-or-state");
+  HRESULT hr = S_OK;
+  const char* reason = nullptr;
+  if (!state_->OpenBatch(reason, hr) || !state_->EnsureUiLayer(reason, hr) ||
+      !state_->WriteUiTexture(key, width, height, rgba.data(), reason, hr))
+    return fail(reason, hr);
+  const uint64_t batch_operations = ++state_->batch.operations;
+  ++state_->operations;
+  if (batch_operations >= kBatchOperationsMax && !state_->CloseBatch(reason, hr)) return fail(reason, hr);
+  evidence = fmt::format("{{\"uploaded\":true,\"key\":{},\"size\":[{},{}],\"fence\":{}}}", key, width, height,
+                         state_->ui_textures[key].last_use_fence);
+  return true;
+}
+
+bool Backend::ReleaseUiTexture(uint32_t key, std::string& evidence) {
+  if (!state_->ready || state_->owner_thread != GetCurrentThreadId()) {
+    evidence = "{\"released\":false,\"reason\":\"native-ui-release-owner\"}";
+    return false;
+  }
+  // Key 0 (the white texture) belongs to the layer.
+  auto it = key ? state_->ui_textures.find(key) : state_->ui_textures.end();
+  if (it == state_->ui_textures.end()) {
+    evidence = fmt::format("{{\"released\":true,\"key\":{},\"ui_texture\":false}}", key);
+    return true;
+  }
+  const uint64_t completed = static_cast<plume::D3D12CommandFence*>(state_->fence.get())->d3d->GetCompletedValue();
+  const uint64_t last_use = it->second.last_use_fence;
+  const bool in_flight = last_use && (completed == UINT64_MAX || completed < last_use);
+  if (in_flight)
+    state_->retired_ui_textures.push_back(std::move(it->second));
+  else
+    state_->free_ui_views.push_back(it->second.view);
+  state_->ui_textures.erase(it);
+  evidence = fmt::format("{{\"released\":true,\"key\":{},\"ui_texture\":true,\"deferred\":{},\"last_use_fence\":{}}}",
+                         key, in_flight, last_use);
+  return true;
+}
+
+bool Backend::SetUiFrame(UiFrame frame, std::string& evidence) {
+  if (!state_->ready || state_->owner_thread != GetCurrentThreadId()) {
+    evidence = "{\"set\":false,\"reason\":\"native-ui-frame-owner\"}";
+    return false;
+  }
+  state_->ui_frame = std::move(frame);
+  evidence = fmt::format("{{\"set\":true,\"vertices\":{},\"indices\":{},\"draws\":{}}}",
+                         state_->ui_frame.vertices.size(), state_->ui_frame.indices.size(),
+                         state_->ui_frame.draws.size());
   return true;
 }
 
@@ -2083,7 +2443,8 @@ std::string Backend::ResourceCounts() {
                      "\"stage_slots\":{},\"swapchain\":{},\"depth_resolves\":{},\"sample_resolves\":{},\"buffers\":{},"
                      "\"retired_buffers\":{},"
                      "\"buffers_created\":{},\"buffers_released\":{},\"buffers_retired\":{},\"buffer_uploads\":{},"
-                     "\"buffer_heaps\":{},\"buffer_blocks_used\":{}}}",
+                     "\"buffer_heaps\":{},\"buffer_blocks_used\":{},\"ui_textures\":{},\"retired_ui_textures\":{},"
+                     "\"ui_views_free\":{},\"ui_texture_uploads\":{},\"ui_frames_drawn\":{},\"ui_draws_skipped\":{}}}",
                      textures, state_->textures.size(), state_->sampled.size(),
                      state_->surfaces.size(), state_->retired_surfaces.size(), state_->retired_textures.size(),
                      state_->textures_released, state_->textures_retired, state_->retired_sampled.size(),
@@ -2092,7 +2453,9 @@ std::string Backend::ResourceCounts() {
                      state_->buffers.size(),
                      state_->retired_buffers.size(), state_->buffers_created, state_->buffers_released,
                      state_->buffers_retired, state_->buffer_uploads, state_->buffer_heaps.size(),
-                     state_->buffer_blocks_used);
+                     state_->buffer_blocks_used, state_->ui_textures.size() - state_->ui_textures.count(0),
+                     state_->retired_ui_textures.size(), state_->free_ui_views.size(), state_->ui_texture_uploads,
+                     state_->ui_frames_drawn, state_->ui_draws_skipped);
 }
 
 bool Backend::LiveResources(ResourceKeys& keys, std::string& evidence) {

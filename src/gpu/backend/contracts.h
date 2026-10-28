@@ -4,6 +4,8 @@
 #pragma once
 #include "gpu/common/draw_storage.h"
 
+#include <algorithm>
+#include <cmath>
 #include <memory>
 #include <string>
 #include <array>
@@ -340,6 +342,46 @@ struct PresentMode {
   float cas_sharpness = 0.0f, fsr_sharpness_reduction = 0.2f;
   uint32_t fsr_passes = 4;
 };
+
+// The UI layer of the Present (backend/ui_pass.hlsl): textured triangles drawn
+// over the image and its bars, in a coordinate space stretched over the whole
+// back buffer, with straight alpha (the contract of rex::ui::ImmediateDrawer).
+// Texture 0 is white; the others are the UI textures of UploadUiTexture. A
+// draw's indices are relative to its vertex_offset; its scissor rect is in the
+// coordinate space.
+struct UiVertex {
+  float x = 0, y = 0, u = 0, v = 0;
+  uint32_t color = 0xFFFFFFFF;  // R8G8B8A8: red in the low byte.
+};
+struct UiDraw {
+  uint32_t texture = 0;
+  uint32_t index_offset = 0, index_count = 0, vertex_offset = 0;
+  bool scissor = false;
+  float scissor_left = 0, scissor_top = 0, scissor_right = 0, scissor_bottom = 0;
+};
+struct UiFrame {
+  float width = 0, height = 0;  // The coordinate space; 0 or no draws draws nothing.
+  std::vector<UiVertex> vertices;
+  std::vector<uint16_t> indices;
+  std::vector<UiDraw> draws;
+};
+// The scissor rect of a draw in back buffer pixels [left, right) x [top,
+// bottom), the whole buffer without one: a pixel is in when its center is, as
+// rex::ui::ImmediateDrawer::ScissorToRenderTarget rounds (16.8 fixed point).
+// False when the rect holds no pixel.
+inline bool UiScissorPixels(const UiDraw& d, const UiFrame& f, uint32_t width, uint32_t height,
+                            std::array<uint32_t, 4>& rect) {
+  rect = {0, 0, width, height};
+  if (!d.scissor) return width && height;
+  const auto pixel = [](float value, float scale, uint32_t limit) {
+    const float p = std::clamp(value * scale, 0.0f, float(limit));  // Finite: SetUiFrame checks it.
+    return uint32_t((int32_t(std::nearbyint(p * 256.0f)) + 127) >> 8);  // Nearest even, as the SDK.
+  };
+  const float sx = float(width) / f.width, sy = float(height) / f.height;
+  rect = {pixel(d.scissor_left, sx, width), pixel(d.scissor_top, sy, height), pixel(d.scissor_right, sx, width),
+          pixel(d.scissor_bottom, sy, height)};
+  return rect[2] > rect[0] && rect[3] > rect[1];
+}
 
 // The host graphics API of the engine, fixed for its life (backend.h).
 enum class GraphicsApi : uint8_t { kD3D12, kVulkan };
