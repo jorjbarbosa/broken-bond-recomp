@@ -83,6 +83,11 @@ logs the refusal. Graphics cards are enumerated through the selected API; a
 saved card that is no longer present falls back to the automatic choice. The frame rate and frame time are reported
 in the game window title.
 
+In game, F1 or Back + Start opens the game menu over the native renderer. The
+game keeps running, but its controller, keyboard and mouse input stay neutral
+while the menu shows; Esc or B closes it. With `show_fps_overlay = true` the
+frame rate also shows in a corner of the screen.
+
 ### Native renderer options
 
 These keys exist only in native renderer builds. Each takes effect on the next launch.

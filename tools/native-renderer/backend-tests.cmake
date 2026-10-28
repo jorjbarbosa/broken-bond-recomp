@@ -30,6 +30,9 @@ endforeach()
 add_executable(native_engine_ui_layer_test src/gpu/ui/tests/layer_test.cpp src/gpu/ui/layer.cpp
                src/gpu/ui/immediate_drawer.cpp)
 target_link_libraries(native_engine_ui_layer_test PRIVATE native_engine_test_units)
+# The menus over the UI layer: RmlUi, the embedded documents and fonts, the render interface.
+add_executable(native_engine_menu_test src/menu/tests/ui_test.cpp src/gpu/ui/layer.cpp src/gpu/ui/immediate_drawer.cpp)
+target_link_libraries(native_engine_menu_test PRIVATE native_engine_test_units broken_bond_menu_components)
 # The Vulkan tests: the completion service (held submissions, injected
 # failures and the race) and the check of the SPIR-V contract.
 foreach(_broken_bond_engine_test IN ITEMS completion shader_contract present draw_cache instancing)
@@ -113,7 +116,7 @@ target_link_libraries(native_shader_package_test PRIVATE broken_bond_smolv libzs
 target_compile_definitions(native_shader_package_test PRIVATE BROKENBOND_SHADER_CACHE_SPIRV=1 NOMINMAX
                            WIN32_LEAN_AND_MEAN)
 add_dependencies(native_shader_package_test broken_bond_native_shader_cache)
-set(native_tests latch lifetime failure translation resource depth_resolve depth_only ui ui_layer completion shader_contract present draw_cache instancing)
+set(native_tests latch lifetime failure translation resource depth_resolve depth_only ui ui_layer menu completion shader_contract present draw_cache instancing)
 if(BROKENBOND_NATIVE_D3D12)
     list(APPEND native_tests bindings)
 endif()

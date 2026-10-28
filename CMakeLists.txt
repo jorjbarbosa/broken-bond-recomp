@@ -138,11 +138,17 @@ if(BROKENBOND_NATIVE_RENDERER)
         src/menu/config_manager.cpp src/menu/folders.cpp src/menu/game_languages.cpp
         src/menu/graphics_devices.cpp src/menu/key_bindings.cpp src/menu/key_names.cpp
         src/menu/localization.cpp src/menu/update_checker.cpp src/menu/shortcut.cpp
-        src/mods/translation_data.cpp src/wine.cpp)
+        src/mods/translation_data.cpp src/wine.cpp
+        # The menus: RmlUi over the SDK's immediate drawing, with the files of ui/ embedded.
+        src/menu/text.cpp src/menu/panel.cpp src/menu/pad_input.cpp src/menu/input_gate.cpp
+        src/menu/render_interface.cpp src/menu/assets.cpp src/menu/ui.cpp)
+    # The files that menu/assets.cpp embeds (#embed): a change rebuilds it.
+    file(GLOB_RECURSE BROKENBOND_UI_FILES CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/ui/*)
+    set_source_files_properties(src/menu/assets.cpp PROPERTIES OBJECT_DEPENDS "${BROKENBOND_UI_FILES}")
     target_compile_features(broken_bond_menu_components PUBLIC cxx_std_23)
     target_include_directories(broken_bond_menu_components PUBLIC src)
     target_link_libraries(broken_bond_menu_components PUBLIC SDL3::SDL3-static rex::tomlplusplus broken_bond::json
-                          d3d12 dxgi winhttp ole32 shell32 uuid)
+                          rex::runtime RmlUi::Core d3d12 dxgi winhttp ole32 shell32 uuid)
     if(BROKENBOND_NATIVE_VULKAN)
         target_compile_definitions(broken_bond_menu_components PUBLIC BROKENBOND_MENU_NATIVE_VULKAN=1)
         target_include_directories(broken_bond_menu_components PRIVATE
@@ -154,6 +160,7 @@ if(BROKENBOND_NATIVE_RENDERER)
     if(MSVC)
         target_compile_options(broken_bond_menu_components PRIVATE /utf-8)
     endif()
+    target_link_libraries(broken_bond PRIVATE broken_bond_menu_components)
 endif()
 
 # The translation codec and package reader without the game (tests/translation_test.cpp).

@@ -109,6 +109,9 @@
         @{ Name = 'FreeType 2.15.0 (portions of this software are copyright The FreeType Project, https://freetype.org)'; License = 'FTL'
            Url = 'https://freetype.org'; File = 'third_party/freetype/docs/FTL.TXT'; Target = 'freetype.txt'
            Usage = 'broken_bond.exe (menus)' }
+        @{ Name = 'Roboto and Roboto Condensed (Roboto 3.016)'; License = 'OFL-1.1'
+           Url = 'https://github.com/googlefonts/roboto-3-classic'; File = 'ui/fonts/OFL.txt'; Target = 'roboto-condensed.txt'
+           Usage = 'broken_bond.exe (embedded menu fonts)' }
         @{ Name = 'volk'; License = 'MIT'; Condition = 'NativeVulkan'
            Url = 'https://github.com/zeux/volk'; File = 'packaging/licenses/volk.txt'; Target = 'volk.txt'
            Usage = 'broken_bond.exe (Vulkan loader)' }

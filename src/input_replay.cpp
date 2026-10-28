@@ -25,6 +25,9 @@
 // <flags> <user> <hid>" (a keystroke).
 
 #include "input_replay.h"
+#ifdef BROKENBOND_NATIVE_RENDERER_BOOTSTRAP
+#include "menu/input_gate.h"
+#endif
 
 #include <algorithm>
 #include <chrono>
@@ -45,6 +48,10 @@
 #include <rex/input/mnk/mnk_input_driver.h>
 #include <rex/input/nop/nop_input_driver.h>
 #include <rex/input/sdl/sdl_input_driver.h>
+#ifdef _WIN32
+#include <rex/input/xinput/xinput_input_driver.h>
+#endif
+#include <rex/cvar.h>
 #include <rex/logging.h>
 
 namespace {
@@ -336,12 +343,54 @@ const char* Variable(const char* name) {
   return value && *value ? value : nullptr;
 }
 
+// The input gate of the game menu (menu/input_gate.h), in the native build.
+bool GateEnabled() {
+#ifdef BROKENBOND_NATIVE_RENDERER_BOOTSTRAP
+  return broken_bond::menu::input_gate_enabled.load();
+#else
+  return false;
+#endif
+}
+std::unique_ptr<InputDriver> Gate(std::unique_ptr<InputDriver> driver) {
+#ifdef BROKENBOND_NATIVE_RENDERER_BOOTSTRAP
+  return broken_bond::menu::GateInput(std::move(driver));
+#else
+  return driver;
+#endif
+}
+
+// The SDK's default drivers (CreateDefaultInputSystem), each behind the input
+// gate of the game menu and optionally recorded.
+std::unique_ptr<rex::input::InputSystem> GatedDefaultInput(std::shared_ptr<Recorder> recorder = {}) {
+  auto input = std::make_unique<rex::input::InputSystem>(nullptr);
+  const auto add = [&](std::unique_ptr<InputDriver> driver) {
+    if (driver->Setup() != X_STATUS_SUCCESS) return;
+    driver = Gate(std::move(driver));
+    if (recorder) driver = std::make_unique<RecordingDriver>(std::move(driver), recorder);
+    input->AddDriver(std::move(driver));
+  };
+#ifdef _WIN32
+  if (rex::cvar::GetFlagByName("input_backend") == "xinput")
+    add(std::make_unique<rex::input::xinput::XinputInputDriver>(nullptr, 0));
+  else
+#endif
+    add(std::make_unique<rex::input::sdl::SDLInputDriver>(nullptr, 0));
+  add(std::make_unique<rex::input::mnk::MnkInputDriver>(nullptr, 0));
+  input->AddDriver(std::make_unique<rex::input::nop::NopInputDriver>(nullptr, 1));
+  input->SetDeviceAssignment(std::make_unique<rex::input::SlotAssignment>());
+  return input;
+}
+std::unique_ptr<rex::system::IInputSystem> DefaultInput(bool tool_mode) {
+  if (!tool_mode && GateEnabled()) return GatedDefaultInput();
+  return rex::input::CreateDefaultInputSystem(tool_mode);
+}
+
 }  // namespace
 
 std::unique_ptr<rex::system::IInputSystem> CreateInputSystem(bool tool_mode) {
   const char* record = Variable("REX_NATIVE_INPUT_RECORD");
   const char* replay = Variable("REX_NATIVE_INPUT_REPLAY");
-  if (tool_mode || (!record && !replay)) return rex::input::CreateDefaultInputSystem(tool_mode);
+  if (tool_mode || (!record && !replay)) return DefaultInput(tool_mode);
   auto input = std::make_unique<rex::input::InputSystem>(nullptr);
   bool built = false;
   if (replay) {
@@ -352,13 +401,17 @@ std::unique_ptr<rex::system::IInputSystem> CreateInputSystem(bool tool_mode) {
     if (driver->Load(replay, error)) {
       REXLOG_INFO("[broken_bond] input replay: {} ({} devices, {:.1f} s, by {}); the real devices are not read",
                   replay, driver->devices(), driver->end_us() / 1e6, by_time ? "time" : "read");
-      input->AddDriver(std::move(driver));
+      input->AddDriver(Gate(std::move(driver)));
       built = true;
     } else {
       REXLOG_ERROR("[broken_bond] input replay: {} not loaded ({}); using the real devices", replay, error);
     }
   } else {
     auto recorder = std::make_shared<Recorder>(record);
+    if (recorder->ok() && GateEnabled()) {
+      REXLOG_INFO("[broken_bond] input recording: {}", record);
+      return GatedDefaultInput(recorder);
+    }
     if (recorder->ok()) {
       // The default drivers of the SDK (CreateDefaultInputSystem, SDL backend), recorded.
       auto sdl = std::make_unique<rex::input::sdl::SDLInputDriver>(nullptr, 0);
@@ -373,7 +426,7 @@ std::unique_ptr<rex::system::IInputSystem> CreateInputSystem(bool tool_mode) {
       REXLOG_ERROR("[broken_bond] input recording: cannot write {}; not recording", record);
     }
   }
-  if (!built) return rex::input::CreateDefaultInputSystem(tool_mode);
+  if (!built) return DefaultInput(tool_mode);
   input->AddDriver(std::make_unique<rex::input::nop::NopInputDriver>(nullptr, 1));
   input->SetDeviceAssignment(std::make_unique<rex::input::SlotAssignment>());
   return input;
