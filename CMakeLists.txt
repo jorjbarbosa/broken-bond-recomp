@@ -26,15 +26,14 @@ set(BROKENBOND_SOURCES
     src/dlc_install.cpp
     src/crash_report.cpp
     src/game_image.cpp
-    src/wine.cpp
     src/mods/translation_data.cpp
     src/mods/translation_mod.cpp
 )
 # The host system services (gpu/common/platform.h), which the crash report also
 # uses in the Xenos host; the Xenos adapter choice and the hybrid-GPU exports
-# (graphics_device_win32.cpp) only on Windows.
+# (graphics_device_win32.cpp) and the Wine check only on Windows.
 if(WIN32)
-    list(APPEND BROKENBOND_SOURCES src/graphics_device_win32.cpp src/gpu/common/platform_win32.cpp)
+    list(APPEND BROKENBOND_SOURCES src/graphics_device_win32.cpp src/gpu/common/platform_win32.cpp src/wine.cpp)
 else()
     list(APPEND BROKENBOND_SOURCES src/gpu/common/platform_posix.cpp)
 endif()
@@ -48,6 +47,15 @@ option(BROKENBOND_NATIVE_RENDERER "Build the native game" OFF)
 option(BROKENBOND_NATIVE_D3D12 "Build the native Direct3D 12 backend" ON)
 option(BROKENBOND_NATIVE_VULKAN "Build the native Vulkan backend and SPIR-V shaders" ON)
 option(BROKENBOND_NATIVE_TESTS "Build the native backend host tests" OFF)
+# Outside Windows the game draws with the native renderer on Vulkan only: no
+# Direct3D 12 and no Xenos host.
+if(NOT WIN32)
+    if(NOT BROKENBOND_NATIVE_RENDERER)
+        message(FATAL_ERROR "Outside Windows the game draws with the native renderer: "
+                            "set BROKENBOND_NATIVE_RENDERER=ON")
+    endif()
+    set(BROKENBOND_NATIVE_D3D12 OFF CACHE BOOL "Build the native Direct3D 12 backend" FORCE)
+endif()
 # The UI of the menus in the native build: RmlUi 6.3 over FreeType 2.15.0
 # (third_party submodules), both static. FreeType without its optional
 # dependencies (the fonts are plain TTF) and RmlUi without samples; RmlUi takes
@@ -153,7 +161,7 @@ if(BROKENBOND_NATIVE_RENDERER)
         src/menu/config_manager.cpp src/menu/folders.cpp src/menu/game_languages.cpp
         src/menu/graphics_devices.cpp src/menu/key_bindings.cpp src/menu/key_names.cpp
         src/menu/localization.cpp src/menu/update_checker.cpp src/menu/shortcut.cpp
-        src/mods/translation_data.cpp src/wine.cpp
+        src/mods/translation_data.cpp
         # The menus: RmlUi over the SDK's immediate drawing, with the files of ui/ embedded.
         src/menu/text.cpp src/menu/panel.cpp src/menu/pad_input.cpp src/menu/input_gate.cpp
         src/menu/render_interface.cpp src/menu/assets.cpp src/menu/ui.cpp src/menu/settings.cpp
@@ -175,7 +183,13 @@ if(BROKENBOND_NATIVE_RENDERER)
     # The bounded zlib decoder of the SDK's stb (game_logo.cpp).
     target_include_directories(broken_bond_menu_components PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/sdk/thirdparty/stb)
     target_link_libraries(broken_bond_menu_components PUBLIC SDL3::SDL3-static rex::tomlplusplus broken_bond::json
-                          rex::runtime RmlUi::Core d3d12 dxgi winhttp ole32 shell32 uuid)
+                          rex::runtime RmlUi::Core)
+    if(WIN32)
+        # The Wine check, the graphics cards of DXGI, the update check over
+        # WinHTTP, the shortcut and the folder picker over COM.
+        target_sources(broken_bond_menu_components PRIVATE src/wine.cpp)
+        target_link_libraries(broken_bond_menu_components PUBLIC d3d12 dxgi winhttp ole32 shell32 uuid)
+    endif()
     if(BROKENBOND_NATIVE_VULKAN)
         target_compile_definitions(broken_bond_menu_components PUBLIC BROKENBOND_MENU_NATIVE_VULKAN=1)
         target_include_directories(broken_bond_menu_components PRIVATE
@@ -210,9 +224,6 @@ if(MSVC)
 endif()
 
 if(BROKENBOND_NATIVE_RENDERER)
-    if(NOT WIN32)
-        message(FATAL_ERROR "The native renderer requires Windows")
-    endif()
     include(${CMAKE_CURRENT_SOURCE_DIR}/tools/native-renderer/plume-engine.cmake)
     target_include_directories(broken_bond PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
     if(BROKENBOND_NATIVE_D3D12)
@@ -319,7 +330,11 @@ if(BROKENBOND_NATIVE_RENDERER)
             add_executable(broken_bond_controls_${_controls_test}_test tests/controls_${_controls_test}_test.cpp)
             target_link_libraries(broken_bond_controls_${_controls_test}_test PRIVATE broken_bond_menu_components)
         endforeach()
-        target_sources(broken_bond_controls_service_test PRIVATE sdk/src/input/sdl/sdl_input_driver.cpp)
+        if(WIN32)
+            # SDL is static in the runtime DLL and in the test: the driver unit is
+            # compiled beside the virtual fixture so both use one SDL instance.
+            target_sources(broken_bond_controls_service_test PRIVATE sdk/src/input/sdl/sdl_input_driver.cpp)
+        endif()
         target_sources(broken_bond_controls_replay_test PRIVATE src/input_replay.cpp)
         target_compile_definitions(broken_bond_controls_replay_test PRIVATE BROKENBOND_NATIVE_RENDERER_BOOTSTRAP=1)
         add_test(NAME controls_config COMMAND broken_bond_controls_config_test
@@ -329,12 +344,27 @@ if(BROKENBOND_NATIVE_RENDERER)
         add_test(NAME controls_service COMMAND broken_bond_controls_service_test)
         add_test(NAME controls_replay COMMAND broken_bond_controls_replay_test
             "${CMAKE_CURRENT_BINARY_DIR}/test-data/controls-replay")
-        # The menus' input gate over a driver that ignores the active callback
-        # (as XInput and the replay do), the shader activity the menus show,
-        # and the desktop shortcut.
-        add_executable(broken_bond_menu_input_test tests/menu_input_test.cpp)
-        target_link_libraries(broken_bond_menu_input_test PRIVATE broken_bond_menu_components ole32 shell32)
-        add_test(NAME menu_input COMMAND broken_bond_menu_input_test "${CMAKE_CURRENT_BINARY_DIR}/test-data/menu-input")
+        if(WIN32)
+            # The menus' input gate over a driver that ignores the active callback
+            # (as XInput and the replay do), the shader activity the menus show,
+            # and the desktop shortcut (COM).
+            add_executable(broken_bond_menu_input_test tests/menu_input_test.cpp)
+            target_link_libraries(broken_bond_menu_input_test PRIVATE broken_bond_menu_components ole32 shell32)
+            add_test(NAME menu_input COMMAND broken_bond_menu_input_test "${CMAKE_CURRENT_BINARY_DIR}/test-data/menu-input")
+        else()
+            # The SDK's POSIX waits: their timeouts and the sleep precision.
+            add_executable(broken_bond_posix_wait_test tests/posix_wait_test.cpp)
+            target_link_libraries(broken_bond_posix_wait_test PRIVATE rex::runtime)
+            add_test(NAME posix_wait COMMAND broken_bond_posix_wait_test)
+        endif()
+    endif()
+    # The SDK runtime next to the executable on Linux, where the executable finds
+    # it through its $ORIGIN RUNPATH; the SDK stages it itself only on Windows and macOS.
+    if(UNIX AND NOT APPLE AND TARGET rex::runtime)
+        add_custom_command(TARGET broken_bond POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    $<TARGET_FILE:rex::runtime> $<TARGET_FILE_DIR:broken_bond>
+            VERBATIM)
     endif()
 endif()
 

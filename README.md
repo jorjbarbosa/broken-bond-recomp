@@ -26,7 +26,7 @@ A PC recompilation of **Naruto: The Broken Bond**, released by Ubisoft for Xbox 
 
 The game draws with a native renderer on **Direct3D 12** or **Vulkan**, starts on its own setup screen, and keeps its settings in in-game menus; there is no separate launcher. The native renderer, the setup screen and the menus are adapted from the [Naruto: Rise of a Ninja recomp](https://github.com/jorjbarbosa/naruto-rise-recomp).
 
-The build and run workflow targets **Windows x64**.
+The build and run workflow targets **Windows x64**. The game also builds on **Linux x86-64** with Vulkan ([Linux build](docs/build-and-run.md#linux)); the Linux build is not validated on a desktop yet and has no release.
 
 > [!NOTE]
 > AI tools are used to assist the development of this project. The project's direction, technical decisions, and testing are the maintainer's, who reviews every change before it is published.
@@ -68,7 +68,7 @@ for the frame rate option, validation limits and known issues.
 
 ## Requirements
 
-- Windows x64.
+- Windows x64, or Linux x86-64 for a build from source.
 - A GPU supporting Direct3D 12 or Vulkan 1.2.
 - Your Xbox 360 copy of the game, as an ISO or extracted files, in the supported revision below. The source tree and the releases do not include game data.
 - The build tools listed in the [build guide](docs/build-and-run.md#1-prerequisites).

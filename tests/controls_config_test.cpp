@@ -5,7 +5,11 @@
 #include <iostream>
 #include <limits>
 #include <stdexcept>
+#ifdef _WIN32
 #include <windows.h>
+#else
+#include <unistd.h>
+#endif
 using namespace broken_bond::controls;
 void Check(bool value, const char* why) {
   if (!value)
@@ -142,7 +146,12 @@ int main(int argc, char** argv) {
           "restore both banks keeping device");
     // The temporary file ConfigManager::Save writes before it replaces the configuration.
     auto temporary = path;
-    temporary += L".launcher-" + std::to_wstring(GetCurrentProcessId()) + L".tmp";
+#ifdef _WIN32
+    const unsigned long process = GetCurrentProcessId();
+#else
+    const unsigned long process = getpid();
+#endif
+    temporary += ".launcher-" + std::to_string(process) + ".tmp";
     std::filesystem::create_directory(temporary);
     Check(!ConfigManager::Save(path, config) && Read(path) == text,
           "write failure preserves original file");

@@ -41,11 +41,16 @@ void ApplyAspectRatio(uint8_t* base) {
     return;
   }
   const float ratio = 1.0f / aspect;
+  // The protection is changed for the whole page: mprotect takes a page-aligned
+  // address (VirtualProtect rounds it down itself).
+  const uintptr_t page_mask = ~uintptr_t(rex::memory::page_size() - 1);
+  auto* page = reinterpret_cast<uint8_t*>(reinterpret_cast<uintptr_t>(host) & page_mask);
+  const size_t length = size_t(host - page) + sizeof(raw);
   rex::memory::PageAccess access{};
-  const bool writable = rex::memory::Protect(host, sizeof(raw), rex::memory::PageAccess::kReadWrite, &access);
+  const bool writable = rex::memory::Protect(page, length, rex::memory::PageAccess::kReadWrite, &access);
   raw = std::byteswap(std::bit_cast<uint32_t>(ratio));
   std::memcpy(host, &raw, sizeof(raw));
-  if (writable) rex::memory::Protect(host, sizeof(raw), access);
+  if (writable) rex::memory::Protect(page, length, access);
   REXLOG_INFO("[broken_bond] aspect ratio {:.4f}: camera ratio {:.6f} at 0x{:08X}", aspect, ratio, kCameraRatio);
   Record("native-aspect-ratio",
          fmt::format("\"aspect_ratio\":{},\"camera_ratio\":{},\"address\":\"{:08X}\"", aspect, ratio, kCameraRatio));

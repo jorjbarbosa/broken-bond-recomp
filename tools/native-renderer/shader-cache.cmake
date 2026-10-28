@@ -27,25 +27,41 @@
 # BROKENBOND_SHADER_STORE: the content-addressed store of the translated and compiled
 # shaders, kept across builds (shader_store.py; empty: none). It derives from the game
 # files, so it stays in a git-ignored folder; deleting it only makes the next build slower.
-# BROKENBOND_SPIRV_VAL: spirv-val of SPIRV-Tools, for SPIRV (the Vulkan SDK's, or the one
-# supplied through BROKENBOND_SPIRV_VAL).
+# BROKENBOND_SPIRV_VAL: spirv-val of SPIRV-Tools, for SPIRV (the Vulkan SDK's, the system's
+# on Linux, or the one supplied through BROKENBOND_SPIRV_VAL).
+#
+# BROKENBOND_DXC is the DXC of the build host from dxc-bin (dxc.exe on Windows, dxc-linux on
+# Linux), and BROKENBOND_DXC_ENV the command prefix that runs it and every tool that starts
+# it: dxc-linux finds libdxcompiler.so through LD_LIBRARY_PATH.
 include_guard(GLOBAL)
 include(ExternalProject)
 enable_language(C)  # Zstandard.
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
 
+get_filename_component(_brokenbond_fork "${CMAKE_CURRENT_LIST_DIR}/../xenosrecomp" ABSOLUTE)
+set(BROKENBOND_XENOS_RECOMP_THIRDPARTY "${_brokenbond_fork}/thirdparty"
+    CACHE PATH "thirdparty directory with the XenosRecomp dependencies")
+get_filename_component(_brokenbond_dxc_bin "${BROKENBOND_XENOS_RECOMP_THIRDPARTY}/dxc-bin" ABSOLUTE)
+if(CMAKE_HOST_WIN32)
+  set(BROKENBOND_DXC "${_brokenbond_dxc_bin}/bin/x64/dxc.exe")
+  set(BROKENBOND_DXC_ENV)
+elseif(CMAKE_HOST_SYSTEM_NAME STREQUAL "Linux")
+  set(BROKENBOND_DXC "${_brokenbond_dxc_bin}/bin/x64/dxc-linux")
+  set(BROKENBOND_DXC_ENV "${CMAKE_COMMAND}" -E env "LD_LIBRARY_PATH=${_brokenbond_dxc_bin}/lib/x64")
+else()
+  message(FATAL_ERROR "The shader cache of the native renderer has no DXC for ${CMAKE_HOST_SYSTEM_NAME}")
+endif()
+
 function(brokenbond_shader_cache target source)
   cmake_parse_arguments(PARSE_ARGV 2 arg "SPIRV" "PASSES" "")
   set(tools "${CMAKE_CURRENT_FUNCTION_LIST_DIR}")
-  get_filename_component(fork "${tools}/../xenosrecomp" ABSOLUTE)
+  set(fork "${_brokenbond_fork}")
   set(BROKENBOND_GAME_DIR "${CMAKE_CURRENT_SOURCE_DIR}/game" CACHE PATH "Local game files (xeshader.sdb)")
-  set(BROKENBOND_XENOS_RECOMP_THIRDPARTY "${fork}/thirdparty"
-      CACHE PATH "thirdparty directory with the XenosRecomp dependencies")
   set(BROKENBOND_SHADER_STORE "${CMAKE_CURRENT_SOURCE_DIR}/build/shader-store"
       CACHE PATH "Store of the translated and compiled shaders kept across builds (empty: none)")
   get_filename_component(game "${BROKENBOND_GAME_DIR}" ABSOLUTE)
   get_filename_component(thirdparty "${BROKENBOND_XENOS_RECOMP_THIRDPARTY}" ABSOLUTE)
-  foreach(input "${game}/xeshader.sdb" "${thirdparty}/dxc-bin/bin/x64/dxc.exe")
+  foreach(input "${game}/xeshader.sdb" "${BROKENBOND_DXC}")
     if(NOT EXISTS "${input}")
       message(FATAL_ERROR "The shader cache of the native renderer needs ${input}")
     endif()
@@ -102,8 +118,14 @@ function(brokenbond_shader_cache target source)
   # The fork as a host tool (the C compiler is the clang of the build, as C).
   # BUILD_ALWAYS runs its incremental build every time: without it an edit of
   # the fork's sources changes the store key of the translations while the old
-  # executable still translates them.
+  # executable still translates them. Its DXIL (the in-process cache mode, not the
+  # single-file mode the chain uses) needs dxil.dll, which dxc-bin has on Windows only.
   string(REGEX REPLACE "clang\\+\\+" "clang" c_compiler "${CMAKE_CXX_COMPILER}")
+  if(CMAKE_HOST_WIN32)
+    set(recomp_dxil ON)
+  else()
+    set(recomp_dxil OFF)
+  endif()
   set(recomp_build "${CMAKE_CURRENT_BINARY_DIR}/xenosrecomp")
   set(recomp "${recomp_build}/XenosRecomp/XenosRecomp${CMAKE_EXECUTABLE_SUFFIX}")
   ExternalProject_Add(${target}_xenosrecomp
@@ -111,7 +133,7 @@ function(brokenbond_shader_cache target source)
       BINARY_DIR "${recomp_build}"
       CMAKE_ARGS -DCMAKE_BUILD_TYPE=RelWithDebInfo "-DCMAKE_C_COMPILER=${c_compiler}"
                  "-DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}" "-DCMAKE_MAKE_PROGRAM=${CMAKE_MAKE_PROGRAM}"
-                 -DXENOS_RECOMP_DXIL=ON "-DXENOS_RECOMP_THIRDPARTY_ROOT=${thirdparty}"
+                 -DXENOS_RECOMP_DXIL=${recomp_dxil} "-DXENOS_RECOMP_THIRDPARTY_ROOT=${thirdparty}"
       BUILD_COMMAND "${CMAKE_COMMAND}" --build "${recomp_build}" --target XenosRecomp
       BUILD_ALWAYS ON
       INSTALL_COMMAND ""
@@ -124,8 +146,8 @@ function(brokenbond_shader_cache target source)
   list(TRANSFORM scripts PREPEND "${tools}/")
   add_custom_command(
       OUTPUT "${out}/shader_cache.bin" "${out}/shader_cache.json" ${spirv_outputs}
-      COMMAND "${Python3_EXECUTABLE}" -I "${tools}/build-shader-cache.py" "${game}/xeshader.sdb" "${recomp}"
-              "${fork}/XenosRecomp/shader_common.h" "${thirdparty}/dxc-bin/bin/x64/dxc.exe" "${out}"
+      COMMAND ${BROKENBOND_DXC_ENV} "${Python3_EXECUTABLE}" -I "${tools}/build-shader-cache.py" "${game}/xeshader.sdb"
+              "${recomp}" "${fork}/XenosRecomp/shader_common.h" "${BROKENBOND_DXC}" "${out}"
               "${BROKENBOND_SHADER_STORE}" --compressor "$<TARGET_FILE:${target}_shader_compress>" ${spirv}
       DEPENDS "${game}/xeshader.sdb" "${recomp}" ${target}_xenosrecomp "${fork}/XenosRecomp/shader_common.h"
               ${scripts} ${spirv_encoder} ${pass_sources} ${target}_shader_compress

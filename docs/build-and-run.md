@@ -2,7 +2,7 @@
 
 [Documentation](README.md) · [Configuration](configuration.md) · [Renderers](renderers.md)
 
-This guide describes the project's **Windows x64 / Release** workflow. Run the commands from the repository root in PowerShell 7. The scripts load the Visual Studio x64 build environment themselves when it is not loaded. Stop the sequence if any command fails.
+This guide describes the project's **Windows x64 / Release** workflow. Run the commands from the repository root in PowerShell 7. The scripts load the Visual Studio x64 build environment themselves when it is not loaded. Stop the sequence if any command fails. The native Linux build has its own [section](#linux).
 
 ## 1. Prerequisites
 
@@ -185,6 +185,66 @@ Keyboard defaults include Enter for Start, Space for A, Backspace for B, and WAS
 | The `[pointer_table]` and `[code_address]` SDK unit tests | The discovery patch; see [Automatic function discovery](automatic-function-discovery.md) for how to build and run them |
 
 A successful build or passing tests do not establish that the game runs; run it and check the log.
+
+## Linux
+
+The game also builds natively on Linux x86-64, without Wine or Proton: the native renderer on Vulkan only, with the window on Wayland or X11 through SDL3. The build and its host tests were checked on Ubuntu 26.04 with Clang 21 and CMake 4.2 under WSL, where the only Vulkan device is Mesa's software llvmpipe. Running the game on a Linux desktop with a GPU is not validated yet, and there is no Linux release yet.
+
+### Prerequisites
+
+The packages installed on the build system:
+
+```bash
+sudo apt install clang cmake ninja-build git pkg-config python3 spirv-tools nasm \
+  libssl-dev libgtk-3-dev libsdl2-dev libasound2-dev libpulse-dev libwayland-dev \
+  libxkbcommon-dev libxrandr-dev libxcursor-dev libxi-dev libxinerama-dev libxss-dev \
+  libudev-dev libvulkan-dev
+```
+
+Running the game needs a Vulkan 1.2 driver (Mesa or the NVIDIA driver) and the Vulkan loader, which desktop distributions install by default. DXC for Linux comes with `dxc-bin`, one of XenosRecomp's dependencies, so the shaders are translated and compiled on Linux too; the SPIR-V is the same as on Windows.
+
+### Build
+
+The game files go in `game/` as in [section 3](#3-prepare-the-game-files): extract the ISO with [extract-xiso](https://github.com/XboxDev/extract-xiso), or copy an extracted `game/`. `sha256sum game/default.xex` must give the revision's hash from [the README](../README.md#requirements). Then, from the repository root:
+
+```bash
+git -c core.symlinks=true submodule update --init --recursive
+bash scripts/build-sdk.sh
+
+git clone https://github.com/renderbag/plume.git out/plume
+git -C out/plume checkout d72379344dacd3dbf9f810f92ddc87e6de1845b1
+git -C out/plume submodule update --init contrib/volk contrib/Vulkan-Headers contrib/VulkanMemoryAllocator
+
+for name in fmt dxc-bin smol-v xxHash zstd; do
+  read -r url revision < <(python3 -c "import json,sys; d=json.load(open('tools/native-renderer/dependencies.json'))['xenosrecomp_thirdparty'][sys.argv[1]]; print(d['url'], d['revision'])" "$name")
+  git clone "$url" "tools/xenosrecomp/thirdparty/$name"
+  git -C "tools/xenosrecomp/thirdparty/$name" checkout "$revision"
+done
+
+./build/sdk-install/bin/rexglue codegen broken_bond_manifest.toml
+cmake --preset linux-release -DNATIVE_RENDERER_PLUME_SOURCE="$PWD/out/plume" \
+  -Drexglue_DIR="$PWD/build/sdk-install/lib/cmake/rexglue"
+cmake --build build/linux
+```
+
+`build-sdk.sh` applies the patches of `patches/series` and builds the SDK with its `linux-amd64` preset into `build/sdk-install`, as `build-sdk.ps1` does on Windows. The `linux-release` preset builds the native renderer, which is required on Linux, with Vulkan only; Plume needs only its volk, Vulkan Headers and Vulkan Memory Allocator submodules there. Add `-DBROKENBOND_NATIVE_TESTS=ON` to the configuration to build the host tests, then run them with `ctest --test-dir build/linux`. The renderer engine's tests run on any Vulkan device, Mesa's llvmpipe included; the tests that open a Win32 window or read Win32 thread priorities, and the shortcut test, run on Windows only.
+
+### Run
+
+`build/linux/` holds `broken_bond` and the SDK runtime `librexruntime.so`. Copy them together: the executable finds the library next to itself.
+
+```bash
+./build/linux/broken_bond --game_data_root="$PWD/game"
+```
+
+`--game_data_root` takes an extracted folder or an ISO; without it, the game looks for one next to the executable, as on Windows. Saves and caches go to `build/user/` for a build inside the repository and to `user/` next to the executable elsewhere, and the log to `logs/` next to the executable. SDL picks Wayland or X11; `SDL_VIDEO_DRIVER=x11` forces X11.
+
+### Known limitations
+
+- The diagnostics that need Windows (minidumps, the stack sampler, the heap watch, the swap-chain proof) are not built. The crash report in the log works; a fault inside the report itself ends the process.
+- The update check, the desktop shortcut and the system file picker of the game choice are Windows-only. Choose the game with `--game_data_root` or `custom_game_root` in `broken_bond.toml`.
+- Holding Shift at start does not open the setup screen; pass `--setup`.
+- The restart offered after changing the graphics card does nothing; restart the game yourself.
 
 ## Package
 

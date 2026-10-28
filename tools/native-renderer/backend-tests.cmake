@@ -27,31 +27,41 @@ target_compile_definitions(native_engine_test_units PUBLIC BROKENBOND_NATIVE_VUL
                            NATIVE_RENDERER_ENGINE_FAULT_TEST=1 BROKENBOND_SHADER_CACHE_SPIRV=1
                            _CRT_SECURE_NO_WARNINGS)
 add_dependencies(native_engine_test_units broken_bond_native_shader_cache)
-foreach(_broken_bond_engine_test IN ITEMS latch lifetime failure translation resource depth_resolve depth_only reconfigure ui pool present_edge)
+# The tests that open a Win32 window of their own (the presentation, the live
+# settings, the UI layer and the menus) or read Win32 thread priorities (the
+# pools) run on Windows only.
+set(_broken_bond_engine_tests latch lifetime failure translation resource depth_resolve depth_only)
+set(_broken_bond_vulkan_tests completion shader_contract draw_cache instancing)
+if(WIN32)
+    list(APPEND _broken_bond_engine_tests reconfigure ui pool present_edge)
+    list(APPEND _broken_bond_vulkan_tests present)
+endif()
+foreach(_broken_bond_engine_test IN LISTS _broken_bond_engine_tests)
     add_executable(native_engine_${_broken_bond_engine_test}_test
                    src/gpu/backend/tests/${_broken_bond_engine_test}_test.cpp)
     target_link_libraries(native_engine_${_broken_bond_engine_test}_test PRIVATE native_engine_test_units)
 endforeach()
-# The settings queue applied between frames, through a dispatcher (the journal is stubbed).
-add_executable(native_engine_settings_test src/gpu/tests/settings_test.cpp src/gpu/settings.cpp src/wine.cpp)
-target_link_libraries(native_engine_settings_test PRIVATE native_engine_test_units)
-# The UI layer and the SDK's immediate drawing over it, through a dispatcher.
-add_executable(native_engine_ui_layer_test src/gpu/ui/tests/layer_test.cpp src/gpu/ui/layer.cpp
-               src/gpu/ui/immediate_drawer.cpp)
-target_link_libraries(native_engine_ui_layer_test PRIVATE native_engine_test_units)
-# The menus over the UI layer: RmlUi, the embedded documents and fonts, the render interface.
-add_executable(native_engine_menu_test src/menu/tests/ui_test.cpp src/gpu/ui/layer.cpp src/gpu/ui/immediate_drawer.cpp
-               src/gpu/ui/screen.cpp)
-target_link_libraries(native_engine_menu_test PRIVATE native_engine_test_units broken_bond_menu_components)
+if(WIN32)
+    # The settings queue applied between frames, through a dispatcher (the journal is stubbed).
+    add_executable(native_engine_settings_test src/gpu/tests/settings_test.cpp src/gpu/settings.cpp src/wine.cpp)
+    target_link_libraries(native_engine_settings_test PRIVATE native_engine_test_units)
+    # The UI layer and the SDK's immediate drawing over it, through a dispatcher.
+    add_executable(native_engine_ui_layer_test src/gpu/ui/tests/layer_test.cpp src/gpu/ui/layer.cpp
+                   src/gpu/ui/immediate_drawer.cpp)
+    target_link_libraries(native_engine_ui_layer_test PRIVATE native_engine_test_units)
+    # The menus over the UI layer: RmlUi, the embedded documents and fonts, the render interface.
+    add_executable(native_engine_menu_test src/menu/tests/ui_test.cpp src/gpu/ui/layer.cpp
+                   src/gpu/ui/immediate_drawer.cpp src/gpu/ui/screen.cpp)
+    target_link_libraries(native_engine_menu_test PRIVATE native_engine_test_units broken_bond_menu_components)
+endif()
 # The Vulkan tests: the completion service (held submissions, injected
 # failures and the race) and the check of the SPIR-V contract.
-foreach(_broken_bond_engine_test IN ITEMS completion shader_contract present draw_cache instancing)
+foreach(_broken_bond_engine_test IN LISTS _broken_bond_vulkan_tests)
     add_executable(native_engine_${_broken_bond_engine_test}_test
                    src/gpu/backend/vulkan/tests/${_broken_bond_engine_test}_test.cpp)
     target_link_libraries(native_engine_${_broken_bond_engine_test}_test PRIVATE native_engine_test_units)
 endforeach()
 set(_draw_cache_shaders "${CMAKE_CURRENT_BINARY_DIR}/draw-cache-test")
-get_filename_component(_draw_cache_thirdparty "${BROKENBOND_XENOS_RECOMP_THIRDPARTY}" ABSOLUTE)
 file(MAKE_DIRECTORY "${_draw_cache_shaders}")
 foreach(_stage IN ITEMS vs ps)
     if(_stage STREQUAL "vs")
@@ -62,13 +72,13 @@ foreach(_stage IN ITEMS vs ps)
         set(_symbol kCachePs)
     endif()
     add_custom_command(OUTPUT "${_draw_cache_shaders}/draw_cache_${_stage}.h"
-        COMMAND "${_draw_cache_thirdparty}/dxc-bin/bin/x64/dxc.exe"
+        COMMAND ${BROKENBOND_DXC_ENV} "${BROKENBOND_DXC}"
             -T ${_stage}_6_0 -E ${_stage}_main -HV 2021 -spirv -fspv-target-env=vulkan1.2
             -fvk-use-dx-layout -fvk-stage-io-order=decl -fspv-entrypoint-name=main ${_invert}
             -Vn ${_symbol} -Fh "${_draw_cache_shaders}/draw_cache_${_stage}.h"
             "${CMAKE_CURRENT_SOURCE_DIR}/src/gpu/backend/vulkan/tests/draw_cache.hlsl"
         DEPENDS src/gpu/backend/vulkan/tests/draw_cache.hlsl
-                "${_draw_cache_thirdparty}/dxc-bin/bin/x64/dxc.exe" VERBATIM)
+                "${BROKENBOND_DXC}" VERBATIM)
     target_sources(native_engine_draw_cache_test PRIVATE "${_draw_cache_shaders}/draw_cache_${_stage}.h")
 endforeach()
 target_include_directories(native_engine_draw_cache_test PRIVATE "${_draw_cache_shaders}")
@@ -81,13 +91,13 @@ foreach(_stage IN ITEMS vs ps)
         set(_symbol kInstancePs)
     endif()
     add_custom_command(OUTPUT "${_draw_cache_shaders}/instancing_${_stage}.h"
-        COMMAND "${_draw_cache_thirdparty}/dxc-bin/bin/x64/dxc.exe"
+        COMMAND ${BROKENBOND_DXC_ENV} "${BROKENBOND_DXC}"
             -T ${_stage}_6_0 -E ${_stage}_main -HV 2021 -spirv -fspv-target-env=vulkan1.2
             -fvk-use-dx-layout -fvk-stage-io-order=decl -fspv-entrypoint-name=main ${_invert}
             -Vn ${_symbol} -Fh "${_draw_cache_shaders}/instancing_${_stage}.h"
             "${CMAKE_CURRENT_SOURCE_DIR}/src/gpu/backend/vulkan/tests/instancing.hlsl"
         DEPENDS src/gpu/backend/vulkan/tests/instancing.hlsl
-                "${_draw_cache_thirdparty}/dxc-bin/bin/x64/dxc.exe" VERBATIM)
+                "${BROKENBOND_DXC}" VERBATIM)
     target_sources(native_engine_instancing_test PRIVATE "${_draw_cache_shaders}/instancing_${_stage}.h")
 endforeach()
 target_include_directories(native_engine_instancing_test PRIVATE "${_draw_cache_shaders}")
@@ -98,12 +108,12 @@ if(BROKENBOND_NATIVE_D3D12)
     target_link_libraries(native_engine_bindings_test PRIVATE native_engine_test_units)
     foreach(_stage IN ITEMS vs ps)
         add_custom_command(OUTPUT "${_draw_cache_shaders}/bindings_${_stage}.h"
-            COMMAND "${_draw_cache_thirdparty}/dxc-bin/bin/x64/dxc.exe"
+            COMMAND ${BROKENBOND_DXC_ENV} "${BROKENBOND_DXC}"
                 -T ${_stage}_6_0 -E ${_stage}_main -HV 2021
                 -Vn kBindings_${_stage} -Fh "${_draw_cache_shaders}/bindings_${_stage}.h"
                 "${CMAKE_CURRENT_SOURCE_DIR}/src/gpu/backend/d3d12/tests/bindings.hlsl"
             DEPENDS src/gpu/backend/d3d12/tests/bindings.hlsl
-                    "${_draw_cache_thirdparty}/dxc-bin/bin/x64/dxc.exe" VERBATIM)
+                    "${BROKENBOND_DXC}" VERBATIM)
         target_sources(native_engine_bindings_test PRIVATE "${_draw_cache_shaders}/bindings_${_stage}.h")
     endforeach()
     target_include_directories(native_engine_bindings_test PRIVATE "${_draw_cache_shaders}")
@@ -127,7 +137,10 @@ target_link_libraries(native_shader_package_test PRIVATE broken_bond_smolv libzs
 target_compile_definitions(native_shader_package_test PRIVATE BROKENBOND_SHADER_CACHE_SPIRV=1 NOMINMAX
                            WIN32_LEAN_AND_MEAN)
 add_dependencies(native_shader_package_test broken_bond_native_shader_cache)
-set(native_tests latch lifetime failure translation resource depth_resolve depth_only reconfigure ui pool present_edge settings ui_layer menu completion shader_contract present draw_cache instancing)
+set(native_tests ${_broken_bond_engine_tests} ${_broken_bond_vulkan_tests})
+if(WIN32)
+    list(APPEND native_tests settings ui_layer menu)
+endif()
 if(BROKENBOND_NATIVE_D3D12)
     list(APPEND native_tests bindings)
 endif()
