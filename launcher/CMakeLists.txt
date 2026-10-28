@@ -30,6 +30,7 @@ add_executable(broken_bond_launcher WIN32
     src/game_files.cpp
     src/game_languages.cpp
     ../src/mods/translation_data.cpp
+    ../src/wine.cpp
     src/graphics_devices.cpp
     src/key_bindings.cpp
     src/key_names.cpp
@@ -71,9 +72,9 @@ add_dependencies(broken_bond_launcher broken_bond_launcher_assets)
 
 # Explicit regression target; excluded from ordinary game builds.
 add_executable(broken_bond_launcher_test EXCLUDE_FROM_ALL
-    tests/test_launcher.cpp src/config_manager.cpp src/game_files.cpp src/key_bindings.cpp)
+    tests/test_launcher.cpp src/config_manager.cpp src/game_files.cpp src/key_bindings.cpp ../src/wine.cpp)
 target_compile_features(broken_bond_launcher_test PRIVATE cxx_std_23)
-target_include_directories(broken_bond_launcher_test PRIVATE src)
+target_include_directories(broken_bond_launcher_test PRIVATE src ../src)
 target_link_libraries(broken_bond_launcher_test PRIVATE rex::tomlplusplus bcrypt shell32)
 if(MSVC)
     target_compile_options(broken_bond_launcher_test PRIVATE /utf-8)

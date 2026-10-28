@@ -24,6 +24,7 @@ set(BROKENBOND_SOURCES
     src/graphics_device.cpp
     src/intro_skip.cpp
     src/crash_report.cpp
+    src/wine.cpp
     src/mods/translation_data.cpp
     src/mods/translation_mod.cpp
 )

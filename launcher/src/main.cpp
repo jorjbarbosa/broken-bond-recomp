@@ -18,6 +18,7 @@
 #include "texture_loader.h"
 #include "ui.h"
 #include "theme.h"
+#include "wine.h"
 
 #include <filesystem>
 #include <iostream>
@@ -115,6 +116,7 @@ int main(int argc, char* argv[]) {
 
   GameConfig config;
   ConfigManager::Load(toml_path, config);
+  ConfigManager::UseVulkanUnderWine(config, broken_bond::WineVersion() != nullptr);
   Localization::SetLanguageCode(config.launcher_language);
 
   if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_EVENTS | SDL_INIT_GAMEPAD)) {

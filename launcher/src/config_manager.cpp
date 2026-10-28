@@ -13,6 +13,12 @@ void ConfigManager::NormalizeRenderer(GameConfig& config) {
   config.graphics_device.clear();
 }
 
+void ConfigManager::UseVulkanUnderWine(GameConfig& config, bool under_wine) {
+  if (!kNativeVulkanBuilt || !under_wine || config.native_backend == "vulkan") return;
+  config.native_backend = "vulkan";
+  config.graphics_device.clear();  // Device names are enumerated separately by each API.
+}
+
 bool ConfigManager::Load(const std::filesystem::path& toml_path, GameConfig& config) {
   try {
     std::ifstream input(toml_path);

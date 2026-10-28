@@ -84,6 +84,9 @@ struct GameConfig {
 class ConfigManager {
  public:
   static void NormalizeRenderer(GameConfig& config);
+  // Under Wine (Proton) the game runs the native renderer on Vulkan only
+  // (src/gpu/settings.cpp): a Vulkan build shows and saves Vulkan there.
+  static void UseVulkanUnderWine(GameConfig& config, bool under_wine);
   static bool Load(const std::filesystem::path& toml_path, GameConfig& config);
   static bool Save(const std::filesystem::path& toml_path, const GameConfig& config);
 };

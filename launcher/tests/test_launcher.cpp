@@ -2,6 +2,7 @@
 #include "game_files.h"
 #include "game_paths.h"
 #include "process_arguments.h"
+#include "wine.h"
 
 #include <windows.h>
 #include <shellapi.h>
@@ -148,6 +149,23 @@ int main(int argc, char** argv) {
     Require(toml::parse_file(path.string())["native_backend"].value<std::string>() ==
                 (kNativeVulkanBuilt ? "vulkan" : "d3d12"),
             "The saved Vulkan choice was not written back as the built API allows");
+
+    Require(broken_bond::WineVersion() == nullptr, "Wine detected on Windows");
+    GameConfig wine_config;
+    wine_config.native_backend = "d3d12";
+    wine_config.graphics_device = "D3D12 adapter";
+    ConfigManager::UseVulkanUnderWine(wine_config, false);
+    Require(wine_config.native_backend == "d3d12" && wine_config.graphics_device == "D3D12 adapter",
+            "The API changed without Wine");
+    ConfigManager::UseVulkanUnderWine(wine_config, true);
+    Require(wine_config.native_backend == (kNativeVulkanBuilt ? "vulkan" : "d3d12") &&
+                wine_config.graphics_device == (kNativeVulkanBuilt ? "" : "D3D12 adapter"),
+            "Under Wine the launcher did not select Vulkan or kept the D3D12 card");
+    if (kNativeVulkanBuilt) {
+      wine_config.graphics_device = "Vulkan adapter";
+      ConfigManager::UseVulkanUnderWine(wine_config, true);
+      Require(wine_config.graphics_device == "Vulkan adapter", "Under Wine a saved Vulkan card was cleared");
+    }
 
     const auto repo = root / "repository";
     const auto base = repo / "build" / "game";

@@ -13,6 +13,7 @@
 #include "pages/pages.h"
 #include "pages/settings_form.h"
 #include "widgets.h"
+#include "wine.h"
 
 namespace launcher_ui {
 namespace {
@@ -79,7 +80,11 @@ void RenderDisplayGroup(OptionList& list, PageContext& context) {
   if (kNativeRendererBuilt) {
     std::vector<const char*> renderers;
     std::vector<std::string> backends;
-    if (kNativeD3d12Built) { renderers.push_back("Native: Direct3D 12"); backends.emplace_back("d3d12"); }
+    // Under Wine the game runs on Vulkan only (wine.h).
+    if (kNativeD3d12Built && !(kNativeVulkanBuilt && broken_bond::WineVersion())) {
+      renderers.push_back("Native: Direct3D 12");
+      backends.emplace_back("d3d12");
+    }
     if (kNativeVulkanBuilt) { renderers.push_back("Native: Vulkan"); backends.emplace_back("vulkan"); }
     int renderer = 0;
     for (size_t i = 0; i < backends.size(); ++i)

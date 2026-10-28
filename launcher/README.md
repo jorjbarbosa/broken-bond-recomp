@@ -17,7 +17,7 @@ reuses the current Rise installation and update flow.
 | Interface languages | English, Portuguese, French, German, Spanish, Italian, Russian; English by default |
 | Game language | English, French, German, Spanish, Italian; custom codes are preserved |
 | Settings layout | Game, Display, Quality, Controls, Advanced; same description panel and recommended-settings action |
-| Graphics API | Native Direct3D 12 (default) or Vulkan, written as `native_backend` |
+| Graphics API | Native Direct3D 12 (default) or Vulkan, written as `native_backend`; only Vulkan under Wine |
 | Graphics card | Adapters enumerated through the selected API |
 | Graphics quality | Resolution 1x–4x, texture filtering, FXAA, CAS/FSR, VSync, fullscreen |
 | Native options | Fractional resolution, brightness, frame rate, MSAA, transparency AA, frame latency, triple buffering |
