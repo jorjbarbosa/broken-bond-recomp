@@ -68,7 +68,7 @@ Game files, extracted assets, and anything derived from them stay out of Git.
 ./scripts/build-sdk.ps1
 ```
 
-The script applies the patches in `patches/` to the `sdk` submodule, builds the SDK with Clang, and installs it in `build/sdk-install`. Patches that are already applied are detected and left as they are; a patch that neither applies nor is found applied stops the build without touching the SDK's local changes. Use `-Jobs` to limit parallelism and `-Configuration Debug` or `RelWithDebInfo` to install another configuration next to Release.
+The script applies the patches in `patches/` to the `sdk` submodule, in the order of `patches/series`, builds the SDK with Clang, and installs it in `build/sdk-install`. Patches that are already applied are detected and left as they are; a patch that neither applies nor is found applied stops the build without touching the SDK's local changes. Use `-Jobs` to limit parallelism and `-Configuration Debug` or `RelWithDebInfo` to install another configuration next to Release.
 
 | Patch | Purpose |
 | --- | --- |
@@ -81,8 +81,14 @@ The script applies the patches in `patches/` to the `sdk` submodule, builds the 
 | `rexglue-disc-image-game-root.patch` | Accepts a disc image as the game data root and mounts it in place, so the game reads an ISO without extracting it |
 | `rexglue-controls-v4.patch` | Stable device identities and the assignment of controllers and keyboard and mouse to the four players, in the SDL and XInput drivers |
 | `rexglue-sdl-initial-gamepads.patch` | The SDL driver also takes the controllers connected before it started, which the setup screen may have opened first |
+| `rexglue-content-package-path-case.patch` | Opens a content package or its header under the existing name that matches ignoring case, on case-sensitive file systems |
+| `rexglue-linux-procmap-query.patch` | On Linux, looks up the mapping of one address with `PROCMAP_QUERY` instead of reading all of `/proc/self/maps` in the write-fault handler |
+| `rexglue-native-window-handle-sdl.patch` | Outside Windows, the native window handle is the SDL window, whose properties give the X11 or Wayland handles |
+| `rexglue-present-effect-without-fidelityfx.patch` | Without FidelityFX, `present_effect` still accepts `cas` and `fsr` and their settings, which the native renderer draws itself |
+| `rexglue-query-committed-range-access.patch` | A guest memory range check that also requires every page to be committed |
+| `rexglue-posix-multiwait-sleep-precision.patch` | POSIX waits keep their sub-millisecond remainder instead of spinning on zero-time waits |
 
-Rebuild the SDK with this script after changing any patch.
+Rebuild the SDK with this script after changing any patch. On Linux, `scripts/build-sdk.sh` applies the same list and builds the SDK with the `linux-amd64` preset into the same folders.
 
 ## 5. Generate the C++
 

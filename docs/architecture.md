@@ -42,7 +42,7 @@ PowerPC code is translated ahead of time into C++. The ReXGlue runtime provides 
 | `packaging/` | The release ZIP, the bridge installer for 0.1.0-beta, and their tests |
 | `launcher/` | The retired launcher's sources and artwork, outside the build |
 | `sdk/` | The ReXGlue SDK submodule, pinned to a commit |
-| `patches/` | Local SDK changes, applied by `scripts/build-sdk.ps1` |
+| `patches/` | Local SDK changes, applied in the order of `patches/series` by `scripts/build-sdk.ps1` and `scripts/build-sdk.sh` |
 | `scripts/` | Extraction, SDK, game and native renderer builds; running; the pipeline list |
 | `tools/native-renderer/` | Native renderer build support: Plume integration, shader cache generation, and the pipeline list |
 | `tools/xenosrecomp/` | XenosRecomp fork that translates the game's shaders for the native renderer |
@@ -67,7 +67,7 @@ The build script records the hashes of the installed `rexglue.exe` and `rexrunti
 
 The XMA decoder patch ports fixes from Xenia Canary (the work loop's exit when it makes no progress, the drain of the current frame, output buffer invalidation, and two packet parsing fixes) and adds local ones for this game's streamed audio. The game feeds its voices and music one packet per buffer, and sends the next packet only while fewer than 2,400 of the samples it sent are still unplayed. The local fixes keep every frame that crosses a buffer boundary, its body or its header, and complete it from the next buffer, and queue each decoded block at once. Before them, a dropped frame left those samples unplayed forever, so the stream was never fed again: cutscenes waited for a voice line that never ended, and the music stopped. The patch header lists every change.
 
-`scripts/build-sdk.ps1` applies the patches in a fixed order and detects patches that are already applied. Rebuild the SDK after changing them.
+`scripts/build-sdk.ps1` (and `scripts/build-sdk.sh` on Linux) applies the patches in the order of `patches/series` and detects patches that are already applied. Rebuild the SDK after changing them. The other patches are listed in [Build and run](build-and-run.md#4-build-and-install-the-sdk).
 
 ## Native renderer
 
