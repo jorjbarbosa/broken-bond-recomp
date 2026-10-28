@@ -25,6 +25,7 @@ set(BROKENBOND_SOURCES
     src/intro_skip.cpp
     src/dlc_install.cpp
     src/crash_report.cpp
+    src/game_image.cpp
     src/wine.cpp
     src/mods/translation_data.cpp
     src/mods/translation_mod.cpp
@@ -244,6 +245,17 @@ if(BROKENBOND_NATIVE_RENDERER)
             "${CMAKE_CURRENT_BINARY_DIR}/test-data/menu-dlc" --reopened)
         set_tests_properties(menu_dlc PROPERTIES FIXTURES_SETUP menu_dlc_tree)
         set_tests_properties(menu_dlc_reopened PROPERTIES FIXTURES_REQUIRED menu_dlc_tree)
+        # The game data identification (src/game_image.h) on synthetic disc
+        # images and folders, and on the repository's game folder when present.
+        add_executable(broken_bond_game_image_test tests/game_image_test.cpp src/game_image.cpp)
+        target_include_directories(broken_bond_game_image_test PRIVATE src)
+        target_link_libraries(broken_bond_game_image_test PRIVATE rex::runtime)
+        set(_game_image_real)
+        if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/game/default.xex")
+            set(_game_image_real "ready=${CMAKE_CURRENT_SOURCE_DIR}/game")
+        endif()
+        add_test(NAME game_image COMMAND broken_bond_game_image_test
+            "${CMAKE_CURRENT_BINARY_DIR}/test-data/game-image" ${_game_image_real})
     endif()
 endif()
 
