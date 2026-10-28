@@ -1,6 +1,7 @@
 #include "config_manager.h"
 
 #include <windows.h>
+#include <algorithm>
 #include <cmath>
 #include <fstream>
 #include <toml++/toml.hpp>
@@ -19,7 +20,9 @@ void ConfigManager::UseVulkanUnderWine(GameConfig& config, bool under_wine) {
   config.graphics_device.clear();  // Device names are enumerated separately by each API.
 }
 
-bool ConfigManager::Load(const std::filesystem::path& toml_path, GameConfig& config) {
+bool ConfigManager::Load(const std::filesystem::path& toml_path, GameConfig& out) {
+  // Loaded as a whole: a refused or partial file keeps the last effective state.
+  GameConfig config = out;
   try {
     std::ifstream input(toml_path);
     if (!input) return false;
@@ -62,7 +65,37 @@ bool ConfigManager::Load(const std::filesystem::path& toml_path, GameConfig& con
     for (std::size_t i = 0; i < kKeyActionCount; ++i) {
       if (auto v = tbl[KeyActionOption(i)].value<std::string>()) config.key_binds[i] = *v;
     }
+    using namespace broken_bond::controls;
+    // Player one starts from the legacy keyboard and mouse settings.
+    config.controls = {};
+    config.controls.ports[0].keys = config.key_binds;
+    config.controls.ports[0].mouse = config.mnk_mouse;
+    config.controls.ports[0].sensitivity = std::clamp(config.mnk_sensitivity, .01, 10.0);
+    if (config.mnk_mouse) {
+      constexpr const char* motion[] = {"MouseUp","MouseDown","MouseLeft","MouseRight"};
+      for (int i = 0; i < 4; ++i) config.controls.ports[0].keys[16+i] += std::string(",") + motion[i];
+    }
+    if (auto* controls = tbl["controls"].as_table()) {
+      config.controls.version = (*controls)["version"].value_or(1);
+      for (size_t i = 0; i < kPorts; ++i) if (auto* port = (*controls)["player" + std::to_string(i+1)].as_table()) {
+        auto& p = config.controls.ports[i];
+        p.device = (*port)["device"].value_or(std::string{});
+        p.device_name = (*port)["device_name"].value_or(std::string{});
+        p.mouse = (*port)["mouse"].value_or(true);
+        p.deadzones = (*port)["deadzones"].value_or(true);
+        p.sensitivity = (*port)["sensitivity"].value_or(1.0);
+        for (size_t a = 0; a < kKeyActionCount; ++a) {
+          if (auto s = (*port)["pad"][KeyActionOption(a)].value<std::string>()) p.pad[a] = Decode(*s);
+          if (auto s = (*port)["keys"][KeyActionOption(a)].value<std::string>()) p.keys[a] = *s;
+        }
+        constexpr const char* axes[] = {"left_stick", "right_stick", "left_trigger", "right_trigger"};
+        for (size_t a = 0; a < 4; ++a) p.deadzone[a] = (*port)[axes[a]].value_or(p.deadzone[a]);
+        p.rumble[0] = (*port)["rumble_low"].value_or(1.0); p.rumble[1] = (*port)["rumble_high"].value_or(1.0);
+      }
+    }
+    if (!Valid(config.controls)) return false;
     NormalizeRenderer(config);
+    out = std::move(config);
     return true;
   } catch (const toml::parse_error&) {
     return false;
@@ -70,6 +103,8 @@ bool ConfigManager::Load(const std::filesystem::path& toml_path, GameConfig& con
 }
 
 bool ConfigManager::Save(const std::filesystem::path& toml_path, const GameConfig& requested) {
+  using namespace broken_bond::controls;
+  if (!Valid(requested.controls)) return false;
   auto config = requested;
   NormalizeRenderer(config);
   toml::table tbl;
@@ -81,6 +116,7 @@ bool ConfigManager::Save(const std::filesystem::path& toml_path, const GameConfi
       std::ifstream input(toml_path);
       if (!input) return false;
       tbl = toml::parse(input);
+      if (tbl["controls"]["version"].value_or(1) > 1) return false;  // A newer layout: keep it.
     } catch (...) {
       // Preserve unreadable or malformed user configuration for manual repair.
       return false;
@@ -125,6 +161,28 @@ bool ConfigManager::Save(const std::filesystem::path& toml_path, const GameConfi
   tbl.insert_or_assign("draw_resolution_scale_y", config.resolution_scale);
   for (std::size_t i = 0; i < kKeyActionCount; ++i) {
     tbl.insert_or_assign(KeyActionOption(i), config.key_binds[i]);
+  }
+  if (config.controls.version) {
+    if (!tbl["controls"].is_table()) tbl.insert_or_assign("controls", toml::table{});
+    auto& controls = *tbl["controls"].as_table();
+    controls.insert_or_assign("version", config.controls.version);
+    for (size_t i = 0; i < kPorts; ++i) {
+      const auto& p = config.controls.ports[i];
+      const auto name = "player" + std::to_string(i+1);
+      if (!controls[name].is_table()) controls.insert_or_assign(name, toml::table{});
+      auto& port = *controls[name].as_table();
+      port.insert_or_assign("device", p.device); port.insert_or_assign("device_name", p.device_name);
+      port.insert_or_assign("mouse", p.mouse); port.insert_or_assign("deadzones", p.deadzones);
+      port.insert_or_assign("sensitivity", p.sensitivity);
+      constexpr const char* axes[] = {"left_stick", "right_stick", "left_trigger", "right_trigger"};
+      for (size_t a = 0; a < 4; ++a) port.insert_or_assign(axes[a], p.deadzone[a]);
+      port.insert_or_assign("rumble_low", p.rumble[0]); port.insert_or_assign("rumble_high", p.rumble[1]);
+      for (const char* bank : {"pad", "keys"}) if (!port[bank].is_table()) port.insert_or_assign(bank, toml::table{});
+      for (size_t a = 0; a < kKeyActionCount; ++a) {
+        port["pad"].as_table()->insert_or_assign(KeyActionOption(a), Encode(p.pad[a]));
+        port["keys"].as_table()->insert_or_assign(KeyActionOption(a), p.keys[a]);
+      }
+    }
   }
   if (!config.custom_game_root.empty()) {
     tbl.insert_or_assign("custom_game_root", config.custom_game_root);

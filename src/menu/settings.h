@@ -17,7 +17,9 @@ class Settings {
   void SetUtilities(std::function<void()> shortcut, std::function<void()> updates) {
     shortcut_ = std::move(shortcut); updates_ = std::move(updates);
   }
-  void Initialize(std::filesystem::path directory);
+  // native_controls: the four players' profiles drive the input (controls/);
+  // off, the input keeps the cvars.
+  void Initialize(std::filesystem::path directory, bool native_controls = true);
   void Open(Ui& ui, int tab, bool in_game, std::function<void()> choose_game,
             std::function<void(const std::string&)> changed, std::function<void()> closed);
   void Reload();
@@ -48,6 +50,7 @@ class Settings {
   int group_ = 0;
   bool in_game_ = false;
   bool load_failed_ = false;
+  bool controls_enabled_ = true;
   std::function<void()> choose_game_, closed_;
   std::function<void(const std::string&)> changed_;
   std::function<uint64_t(const std::string&, const GameConfig&)> request_live_;

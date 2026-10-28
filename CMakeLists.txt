@@ -149,7 +149,9 @@ if(BROKENBOND_NATIVE_RENDERER)
         # The setup screen before the game: when it opens, the page, and the game data's identity.
         src/menu/setup_gate.cpp src/menu/setup_screen.cpp src/game_image.cpp
         # The setup screen's logo, read from the player's Naruto_clip.SRA.
-        src/menu/game_logo.cpp)
+        src/menu/game_logo.cpp
+        # The four players' controls: profiles, hardware, the drivers they configure.
+        src/controls/config.cpp src/controls/service.cpp src/controls/runtime.cpp src/controls/capture.cpp)
     # The files that menu/assets.cpp embeds (#embed): a change rebuilds it.
     file(GLOB_RECURSE BROKENBOND_UI_FILES CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/ui/*)
     set_source_files_properties(src/menu/assets.cpp PROPERTIES OBJECT_DEPENDS "${BROKENBOND_UI_FILES}")
@@ -286,6 +288,24 @@ if(BROKENBOND_NATIVE_RENDERER)
             ${_game_logo_real})
         set_tests_properties(game_logo_clean PROPERTIES FIXTURES_SETUP game_logo_dir)
         set_tests_properties(game_logo PROPERTIES FIXTURES_REQUIRED game_logo_dir)
+        # The four players' controls (src/controls): profiles and their file, key
+        # capture, the configured drivers, the hardware service on SDL's virtual
+        # gamepads (with the SDK's SDL driver beside it: one static SDL), and the
+        # recorded port assignment of the input replay.
+        foreach(_controls_test IN ITEMS config capture runtime service replay)
+            add_executable(broken_bond_controls_${_controls_test}_test tests/controls_${_controls_test}_test.cpp)
+            target_link_libraries(broken_bond_controls_${_controls_test}_test PRIVATE broken_bond_menu_components)
+        endforeach()
+        target_sources(broken_bond_controls_service_test PRIVATE sdk/src/input/sdl/sdl_input_driver.cpp)
+        target_sources(broken_bond_controls_replay_test PRIVATE src/input_replay.cpp)
+        target_compile_definitions(broken_bond_controls_replay_test PRIVATE BROKENBOND_NATIVE_RENDERER_BOOTSTRAP=1)
+        add_test(NAME controls_config COMMAND broken_bond_controls_config_test
+            "${CMAKE_CURRENT_BINARY_DIR}/test-data/controls-config")
+        add_test(NAME controls_capture COMMAND broken_bond_controls_capture_test)
+        add_test(NAME controls_runtime COMMAND broken_bond_controls_runtime_test)
+        add_test(NAME controls_service COMMAND broken_bond_controls_service_test)
+        add_test(NAME controls_replay COMMAND broken_bond_controls_replay_test
+            "${CMAKE_CURRENT_BINARY_DIR}/test-data/controls-replay")
     endif()
 endif()
 

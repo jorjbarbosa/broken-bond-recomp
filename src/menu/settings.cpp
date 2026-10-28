@@ -3,6 +3,7 @@
 #include "menu/ui.h"
 #include "menu/text.h"
 #include "wine.h"
+#include "controls/runtime.h"
 #include "../menu/game_languages.h"
 #include "../menu/graphics_devices.h"
 #include "../menu/key_names.h"
@@ -22,15 +23,26 @@ namespace {
 std::string Utf8(const std::filesystem::path& path) { const auto s = path.u8string(); return {s.begin(), s.end()}; }
 std::string Bool(bool value) { return Text(value ? "on" : "off"); }
 }
-void Settings::Initialize(std::filesystem::path directory) {
+void Settings::Initialize(std::filesystem::path directory, bool native_controls) {
   edited_flags_.clear();
+  controls_enabled_ = native_controls;
   directory_ = std::move(directory); Reload(); initial_ = config_;
+  const auto effective_backend=rex::cvar::GetFlagByName("input_backend");
+  controls::SetBackend(effective_backend.empty()?config_.input_backend:effective_backend);
+  if(!controls_enabled_){controls::Publish({});initial_menu_options_=menu_options_;return;}
+  controls::Hardware().Poll(controls::Backend(), true);
+  if (!config_.controls.version && !load_failed_) {
+    auto next = config_; next.controls = controls::Migrate(next.controls);
+    if (Save(next)) config_ = std::move(next);
+  }
+  controls::Publish(config_.controls);
   initial_menu_options_ = menu_options_;
 }
 void Settings::Reload() {
   const auto path=directory_ / "broken_bond.toml";
   const bool loaded=ConfigManager::Load(path, config_);
   load_failed_=std::filesystem::exists(path)&&!loaded;
+  if (controls_enabled_ && config_.controls.version) controls::Publish(config_.controls);
   Localization::SetLanguageCode(config_.launcher_language);
   try {
     std::ifstream input(directory_ / "broken_bond.toml", std::ios::binary);
@@ -61,6 +73,8 @@ bool Settings::ApplyBeforeGame() const {
         return false;
       }
     }
+    controls::SetBackend(rex::cvar::GetFlagByName("input_backend"));
+    controls::Publish(controls_enabled_?config_.controls:controls::Config{});
     return true;
   } catch (const std::exception& e) { REXLOG_WARN("[broken_bond] Settings could not be reloaded: {}", e.what()); }
   return false;

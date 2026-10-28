@@ -5,6 +5,7 @@
 #include <string>
 
 #include "key_bindings.h"
+#include "../controls/config.h"
 
 // Available graphics choices match the backends compiled into the game.
 inline constexpr bool kNativeRendererBuilt = true;
@@ -39,6 +40,9 @@ struct GameConfig {
   bool mnk_mouse = true;
   double mnk_sensitivity = 1.0;
   KeyBinds key_binds = DefaultKeyBinds();
+  // The four players' profiles (controls/config.h); version 0 until the first
+  // native start migrates the legacy keyboard and mouse settings into player one.
+  broken_bond::controls::Config controls;
 
   bool fullscreen = true;
   bool vsync = true;
