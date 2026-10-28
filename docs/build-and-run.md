@@ -87,6 +87,8 @@ The script applies the patches in `patches/` to the `sdk` submodule, in the orde
 | `rexglue-present-effect-without-fidelityfx.patch` | Without FidelityFX, `present_effect` still accepts `cas` and `fsr` and their settings, which the native renderer draws itself |
 | `rexglue-query-committed-range-access.patch` | A guest memory range check that also requires every page to be committed |
 | `rexglue-posix-multiwait-sleep-precision.patch` | POSIX waits keep their sub-millisecond remainder instead of spinning on zero-time waits |
+| `rexglue-data-log-directory.patch` | The application can name the folder of its sequential logs (`PathConfig::log_dir`); the logs, the `.toml` and its log levels are read and written under non-ASCII paths, with wide log file names on Windows |
+| `rexglue-data-achievements-unicode.patch` | The achievement metadata and unlock files are read and written under non-ASCII paths |
 
 Rebuild the SDK with this script after changing any patch. On Linux, `scripts/build-sdk.sh` applies the same list and builds the SDK with the `linux-amd64` preset into the same folders.
 

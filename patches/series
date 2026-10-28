@@ -14,3 +14,5 @@ rexglue-native-window-handle-sdl.patch
 rexglue-present-effect-without-fidelityfx.patch
 rexglue-query-committed-range-access.patch
 rexglue-posix-multiwait-sleep-precision.patch
+rexglue-data-log-directory.patch
+rexglue-data-achievements-unicode.patch

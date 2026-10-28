@@ -323,6 +323,22 @@ if(BROKENBOND_NATIVE_RENDERER)
             ${_game_logo_real})
         set_tests_properties(game_logo_clean PROPERTIES FIXTURES_SETUP game_logo_dir)
         set_tests_properties(game_logo PROPERTIES FIXTURES_REQUIRED game_logo_dir)
+        # The SDK's configuration, logs and achievements under non-ASCII paths
+        # (patches/rexglue-data-log-directory.patch, rexglue-data-achievements-unicode.patch),
+        # each scenario in a new folder.
+        add_executable(broken_bond_data_logging_test tests/data_logging_test.cpp)
+        target_link_libraries(broken_bond_data_logging_test PRIVATE rex::runtime)
+        add_executable(broken_bond_data_achievements_test tests/data_achievements_test.cpp)
+        target_link_libraries(broken_bond_data_achievements_test PRIVATE rex::runtime)
+        set(_data_storage "${CMAKE_CURRENT_BINARY_DIR}/test-data/data-storage")
+        add_test(NAME data_storage_clean COMMAND "${CMAKE_COMMAND}" -E rm -rf "${_data_storage}")
+        set_tests_properties(data_storage_clean PROPERTIES FIXTURES_SETUP data_storage_dir)
+        foreach(_mode IN ITEMS sequential explicit fallback)
+            add_test(NAME data_logging_${_mode} COMMAND broken_bond_data_logging_test "${_data_storage}/logging-${_mode}" ${_mode})
+            set_tests_properties(data_logging_${_mode} PROPERTIES FIXTURES_REQUIRED data_storage_dir)
+        endforeach()
+        add_test(NAME data_achievements COMMAND broken_bond_data_achievements_test "${_data_storage}/achievements")
+        set_tests_properties(data_achievements PROPERTIES FIXTURES_REQUIRED data_storage_dir)
         # The four players' controls (src/controls): profiles and their file, key
         # capture, the configured drivers, the hardware service on SDL's virtual
         # gamepads (with the SDK's SDL driver beside it: one static SDL), and the
