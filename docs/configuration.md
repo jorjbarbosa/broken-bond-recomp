@@ -99,6 +99,7 @@ RESTART apply at the next start. The menu adds these keys:
 | `game_menu_chord` | `"Back+Start"` | Controller buttons that open it: `Back+Start`, `LB+RB+Start` or `L3+R3` |
 | `show_shader_indicator` | `true` | Shows a notice while pipelines compile |
 | `check_for_updates` | `true` | Checks the project's latest release at start and notifies when it is newer; Settings > Advanced also checks on request |
+| `dlc_source_path` | `"dlc"` | Folder, relative to the executable, whose DLC packages the game installs at start; the game menu's **DLC** page stages packages there ([DLC](dlc.md)) |
 
 ### Native renderer options
 

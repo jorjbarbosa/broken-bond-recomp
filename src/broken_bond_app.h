@@ -17,6 +17,7 @@
 #include <rex/ui/window_listener.h>
 
 #include "crash_report.h"
+#include "dlc_install.h"
 #include "fps_overlay.h"
 #include "graphics_device.h"
 #include "input_replay.h"
@@ -26,6 +27,7 @@
 #include "gpu/host/app.h"
 #include "gpu/ui/immediate_drawer.h"
 #include "gpu/ui/layer.h"
+#include "menu/dlc.h"
 #include "menu/input_gate.h"
 #include "menu/settings.h"
 #include "menu/shortcut.h"
@@ -100,6 +102,10 @@ class BrokenBondApp : public rex::ReXApp {
                                  std::numeric_limits<size_t>::max());
     }
     RestoreXenosAdapter();
+    // Before the title enumerates its marketplace content.
+    broken_bond::dlc::InstallAtStart(
+        runtime() && runtime()->kernel_state() ? runtime()->kernel_state()->content_manager() : nullptr,
+        user_data_root());
 #ifdef BROKENBOND_NATIVE_RENDERER_BOOTSTRAP
     if (gpu::host::Enabled()) SetupUi();
 #endif
@@ -148,6 +154,7 @@ class BrokenBondApp : public rex::ReXApp {
       gpu::ui::UiLayer().SetFirstPresentCallback({});
       broken_bond::menu::input_blocked = true;
       app_context().CallInUIThreadDeferred([this] {
+        menu_dlc_.Wait();  // Finish the DLC page's copies before the process can exit.
         // The native renderer closes in order (guest threads joined, device
         // owner, resources and engine released) before OnClosing hard-exits.
         close_ready_ = gpu::host::CloseRequested();
@@ -212,8 +219,10 @@ class BrokenBondApp : public rex::ReXApp {
     std::snprintf(hint, sizeof(hint), broken_bond::menu::Text("shortcut-format"), options.key.c_str(), chord.c_str());
     shortcut_hint_ = hint;
   }
-  // On the UI thread with each menu frame: the shortcut hint and the shader indicator.
+  // On the UI thread with each menu frame: the DLC page's copies, the shortcut
+  // hint and the shader indicator.
   void ServiceMenu() {
+    menu_dlc_.Poll();
     if (shortcut_hint_pending_ && ui_.OverlayShown()) shortcut_hint_pending_ = false;
     if (shortcut_hint_pending_ && std::chrono::steady_clock::now() >= shortcut_hint_due_) {
       shortcut_hint_pending_ = false;
@@ -261,6 +270,16 @@ class BrokenBondApp : public rex::ReXApp {
       if (ui_.OverlayShown()) OpenGameMenu();
     });
   }
+  // The DLC page (menu/dlc.h): packages are staged into the folder the game
+  // installs from at the next start; extracted folders are copied at once.
+  void OpenDlc() {
+    auto staging = broken_bond::dlc::SourceFolder();
+    if (staging.empty()) staging = rex::filesystem::GetExecutableFolder() / "dlc";
+    menu_dlc_.Open(ui_, std::move(staging), user_data_root(), window() ? window()->GetNativeWindowHandle() : nullptr,
+        [this](std::function<void()> action) { app_context().CallInUIThreadDeferred(std::move(action)); }, [this] {
+          if (ui_.OverlayShown()) OpenGameMenu();
+        });
+  }
   void CreateDesktopShortcut() {
     const bool ok = broken_bond::menu::WriteShortcut(broken_bond::menu::DesktopShortcut(),
         rex::filesystem::GetExecutableFolder() / "broken_bond.exe", user_data_root());
@@ -284,7 +303,7 @@ class BrokenBondApp : public rex::ReXApp {
   }
   void OpenGameMenu() {
     using broken_bond::menu::Text;
-    ui_.ShowOverlay([this] { OpenSettings(); }, {}, [this] {
+    ui_.ShowOverlay([this] { OpenSettings(); }, [this] { OpenDlc(); }, [this] {
       ui_.ShowDialog(std::string(Text("exit-game")) + "?", Text("exit-confirm"), {
           {Text("exit-game"), [this] { app_context().CallInUIThreadDeferred([this] {
              if (window()) window()->RequestClose();
@@ -314,6 +333,7 @@ class BrokenBondApp : public rex::ReXApp {
   std::unique_ptr<rex::ui::ImmediateDrawer> native_drawer_;  // Before ui_: it outlives the Ui.
   broken_bond::menu::Ui ui_;
   broken_bond::menu::Settings menu_settings_;
+  broken_bond::menu::Dlc menu_dlc_;  // After ui_, so it is destroyed first.
   std::unique_ptr<launcher_updates::Checker> updates_;
   bool update_notified_ = false, manual_update_check_ = false, settings_restart_ = false;
   std::string shortcut_hint_;

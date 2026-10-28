@@ -104,6 +104,7 @@ The [build guide](docs/build-and-run.md) explains each step, the native renderer
 | [Build and run](docs/build-and-run.md) | Toolchain, SDK, game files, code generation, the native renderer, and running |
 | [Configuration](docs/configuration.md) | Launcher settings, the configuration file, renderer options, and user files |
 | [Translation mods](docs/translation-mods.md) | Translation packages, their format, validation, and limits |
+| [DLC](docs/dlc.md) | Installing marketplace packages, their folders, and diagnostics |
 | [Renderers](docs/renderers.md) | The native renderer, the frame rate, the pipeline list, and known issues |
 | [Architecture](docs/architecture.md) | Project structure, SDK patches, and areas to address |
 | [Troubleshooting](docs/troubleshooting.md) | Build failures, runtime issues, and diagnostics |

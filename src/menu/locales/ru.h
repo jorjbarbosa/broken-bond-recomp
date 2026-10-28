@@ -145,6 +145,13 @@ inline constexpr const char* kRu[] = {
     "ПКМ",  // MouseRightName
     "СКМ",  // MouseMiddleName
     "Не удалось сохранить. Проверьте файл настроек и права на запись в папку.",  // SaveFailed
+    "Установите загружаемый контент для Naruto: The Broken Bond.",  // DlcIntro
+    "DLC ещё не установлены.",  // DlcNoInstalled
+    "Выберите папку с DLC. Пакеты Xbox 360 (.live/.con/.pirs) устанавливаются при запуске игры; уже извлечённые папки копируются напрямую.",  // DlcInstallLooseHint
+    "DLC установлен.",  // DlcInstallSuccess
+    "Ошибка установки DLC:",  // DlcInstallFailed
+    "Пакеты DLC подготовлены. Они будут установлены при следующем запуске игры.",  // DlcStfsStaged
+    "Открыть папку DLC",  // DlcOpenContentFolder
 };
 
 }  // namespace localization_strings

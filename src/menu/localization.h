@@ -149,6 +149,14 @@ enum class TextId {
   MouseRightName,
   MouseMiddleName,
   SaveFailed,
+  // --- DLC ---
+  DlcIntro,
+  DlcNoInstalled,
+  DlcInstallLooseHint,
+  DlcInstallSuccess,
+  DlcInstallFailed,
+  DlcStfsStaged,
+  DlcOpenContentFolder,
   Count
 };
 

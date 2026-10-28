@@ -145,6 +145,13 @@ inline constexpr const char* kFr[] = {
     "Clic droit",  // MouseRightName
     "Clic milieu",  // MouseMiddleName
     "Enregistrement impossible. Vérifiez le fichier de configuration et les droits d’écriture du dossier.",  // SaveFailed
+    "Installez le contenu téléchargeable de Naruto: The Broken Bond.",  // DlcIntro
+    "Aucun DLC installé.",  // DlcNoInstalled
+    "Sélectionnez un dossier de DLC. Les paquets Xbox 360 (.live/.con/.pirs) seront installés au lancement du jeu ; les dossiers déjà extraits sont copiés directement.",  // DlcInstallLooseHint
+    "DLC installé.",  // DlcInstallSuccess
+    "Échec de l'installation du DLC :",  // DlcInstallFailed
+    "Paquets DLC prêts. Ils seront installés au prochain lancement du jeu.",  // DlcStfsStaged
+    "Ouvrir le dossier DLC",  // DlcOpenContentFolder
 };
 
 }  // namespace localization_strings

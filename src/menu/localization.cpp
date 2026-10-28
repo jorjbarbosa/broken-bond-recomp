@@ -168,6 +168,13 @@ const char* const kStringsEn[] = {
     "Right mouse",  // MouseRightName
     "Middle mouse",  // MouseMiddleName
     "Could not save settings. Check the configuration file and folder write permissions.",  // SaveFailed
+    "Install downloadable content for Naruto: The Broken Bond.",  // DlcIntro
+    "No DLC installed yet.",  // DlcNoInstalled
+    "Select a folder with DLC files. Xbox 360 packages (.live/.con/.pirs) are installed automatically by the game on launch; already-extracted folders are copied directly.",  // DlcInstallLooseHint
+    "DLC installed successfully.",  // DlcInstallSuccess
+    "Failed to install DLC:",  // DlcInstallFailed
+    "DLC package(s) staged. They will be installed automatically when you launch the game.",  // DlcStfsStaged
+    "Open DLC folder",  // DlcOpenContentFolder
 };
 
 // Portuguese string table (pt-BR)
@@ -316,6 +323,13 @@ const char* const kStringsPtBr[] = {
     "Mouse dir.",  // MouseRightName
     "Mouse meio",  // MouseMiddleName
     "Não foi possível salvar. Verifique o arquivo de configuração e a permissão de escrita na pasta.",  // SaveFailed
+    "Instale conteúdo para download de Naruto: The Broken Bond.",  // DlcIntro
+    "Nenhum DLC instalado ainda.",  // DlcNoInstalled
+    "Selecione uma pasta com arquivos de DLC. Pacotes do Xbox 360 (.live/.con/.pirs) são instalados automaticamente pelo jogo ao iniciar; pastas já extraídas são copiadas diretamente.",  // DlcInstallLooseHint
+    "DLC instalado com sucesso.",  // DlcInstallSuccess
+    "Falha ao instalar DLC:",  // DlcInstallFailed
+    "Pacote(s) de DLC preparado(s). Serão instalados automaticamente quando você iniciar o jogo.",  // DlcStfsStaged
+    "Abrir pasta de DLC",  // DlcOpenContentFolder
 };
 
 static_assert(std::size(kStringsEn) == static_cast<size_t>(TextId::Count));

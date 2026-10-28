@@ -23,6 +23,7 @@ set(BROKENBOND_SOURCES
     src/input_replay.cpp
     src/graphics_device.cpp
     src/intro_skip.cpp
+    src/dlc_install.cpp
     src/crash_report.cpp
     src/wine.cpp
     src/mods/translation_data.cpp
@@ -141,7 +142,9 @@ if(BROKENBOND_NATIVE_RENDERER)
         src/mods/translation_data.cpp src/wine.cpp
         # The menus: RmlUi over the SDK's immediate drawing, with the files of ui/ embedded.
         src/menu/text.cpp src/menu/panel.cpp src/menu/pad_input.cpp src/menu/input_gate.cpp
-        src/menu/render_interface.cpp src/menu/assets.cpp src/menu/ui.cpp src/menu/settings.cpp)
+        src/menu/render_interface.cpp src/menu/assets.cpp src/menu/ui.cpp src/menu/settings.cpp
+        # The DLC page: content folders, package staging and the folder picker.
+        src/menu/content_manager.cpp src/menu/dlc.cpp src/menu/game_choice.cpp)
     # The files that menu/assets.cpp embeds (#embed): a change rebuilds it.
     file(GLOB_RECURSE BROKENBOND_UI_FILES CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/ui/*)
     set_source_files_properties(src/menu/assets.cpp PROPERTIES OBJECT_DEPENDS "${BROKENBOND_UI_FILES}")
@@ -230,6 +233,17 @@ if(BROKENBOND_NATIVE_RENDERER)
         add_test(NAME menu_game_languages COMMAND broken_bond_menu_game_languages_test
             "${CMAKE_CURRENT_BINARY_DIR}/test-data/menu-game-languages")
         add_test(NAME menu_update_checker COMMAND broken_bond_menu_update_checker_test)
+        # The DLC content operations (src/menu/content_manager.h) in a scratch root.
+        add_executable(broken_bond_menu_dlc_test tests/dlc_test.cpp)
+        target_link_libraries(broken_bond_menu_dlc_test PRIVATE broken_bond_menu_components)
+        if(MSVC)
+            target_compile_options(broken_bond_menu_dlc_test PRIVATE /utf-8)
+        endif()
+        add_test(NAME menu_dlc COMMAND broken_bond_menu_dlc_test "${CMAKE_CURRENT_BINARY_DIR}/test-data/menu-dlc")
+        add_test(NAME menu_dlc_reopened COMMAND broken_bond_menu_dlc_test
+            "${CMAKE_CURRENT_BINARY_DIR}/test-data/menu-dlc" --reopened)
+        set_tests_properties(menu_dlc PROPERTIES FIXTURES_SETUP menu_dlc_tree)
+        set_tests_properties(menu_dlc_reopened PROPERTIES FIXTURES_REQUIRED menu_dlc_tree)
     endif()
 endif()
 

@@ -2,14 +2,16 @@
 // through a dispatcher as the Swaps deliver it. Over a green image: the frame
 // rate document and its hiding; the game menu bar with only Exit, Enter and
 // Esc; a dialog whose default is Cancel; a panel's arrows, tabs and Back; the
-// settings pages saving to broken_bond.toml; the menu strings in every
-// language; the controller's navigation and shortcut; and the release of the
-// UI's textures with the menus.
+// settings pages saving to broken_bond.toml; the DLC page; the menu strings in
+// every language; the controller's navigation and shortcut; and the release of
+// the UI's textures with the menus.
 #include "gpu/backend/dispatcher.h"
 #include "gpu/backend/tests/test_backend.h"
 #include "gpu/ui/immediate_drawer.h"
 #include "gpu/ui/layer.h"
 #include "menu/assets.h"
+#include "menu/content_manager.h"
+#include "menu/dlc.h"
 #include "menu/pad_input.h"
 #include "menu/settings.h"
 #include "menu/text.h"
@@ -24,6 +26,8 @@
 #include <fstream>
 #include <string>
 #include <vector>
+#include <rex/filesystem/devices/stfs_xbox.h>
+#include <rex/system/xam/content_manager.h>
 #include <rex/ui/presenter.h>
 #include <rex/ui/ui_event.h>
 #include <rex/ui/virtual_key.h>
@@ -249,6 +253,97 @@ int main(int argc, char** argv) {
           edited("aspect_ratio") && edited("brightness") && edited("show_fps_overlay"), "{}");
     key(rex::ui::VirtualKey::kEscape); frame("settings-closed", modal);
     check("settings-escape-closes", settings_closed == 1 && !menu.PanelShown(), "{}");
+
+    // The DLC page: a copy that finishes after its page closed changes no UI;
+    // a staged package shows its name, then shows once as installed.
+    const auto visible_document = [&](const char* id) -> Rml::ElementDocument* {
+      auto* context = Rml::GetContext("game");
+      for (int i = 0; i < context->GetNumDocuments(); ++i) {
+        auto* doc = context->GetDocument(i);
+        if (doc->IsVisible() && doc->GetElementById(id)) return doc;
+      }
+      return nullptr;
+    };
+    {
+      const auto source = settings_dir / "async-source";
+      const auto user = settings_dir / "async-user";
+      std::filesystem::remove_all(user);
+      std::filesystem::create_directories(source);
+      std::ofstream(source / "content.bin") << "late DLC content";
+      menu.ShowOverlay({}, {}, {}, {});
+      broken_bond::menu::Dlc dlc;
+      dlc.Open(menu, settings_dir / "async-product/dlc", user, nullptr, [](auto action) { action(); }, {});
+      dlc.InstallFolder(source);
+      menu.HideOverlay();
+      dlc.Wait(); dlc.Poll();
+      frame("async-dlc-finished-after-close", modal);
+      check("late-dlc-result-does-not-reopen-ui", !menu.OverlayShown() &&
+            !menu.PanelShown() && !visible_document("dialog-title"), "{}");
+      check("closed-menu-still-finishes-copy", std::filesystem::is_regular_file(
+            user / "0000000000000000/55530825/00000002/async-source/content.bin"), "{}");
+      menu.ShowOverlay({}, {}, {}, {});
+      dlc.Open(menu, settings_dir / "async-product/dlc", user, nullptr, [](auto action) { action(); }, {});
+      dlc.InstallFolder(source);
+      settings_model.Open(menu, 0, true, {}, {}, {});
+      dlc.Wait(); dlc.Poll();
+      frame("async-dlc-finished-on-another-page", modal);
+      check("late-dlc-result-does-not-replace-another-page", menu.PanelShown() &&
+            !visible_document("dialog-title"), "{}");
+      menu.HidePanel();
+      menu.HideOverlay();
+    }
+    {
+      const auto staging = settings_dir / "named-dlc-product/dlc";
+      const auto user = settings_dir / "named-dlc-user";
+      std::filesystem::remove_all(user);
+      const std::string package = "3D56F90400DE6FBCED7852DF085F04AD75728F8F55";
+      std::filesystem::create_directories(staging);
+      rex::filesystem::StfsHeader metadata{};
+      metadata.header.magic = rex::filesystem::XContentPackageType::kLive;
+      metadata.metadata.set_display_name(rex::system::XLanguage::kEnglish, u"Chunin outfit Sasuke & co");
+      std::ofstream(staging / package, std::ios::binary)
+          .write(reinterpret_cast<const char*>(&metadata), sizeof(metadata));
+      broken_bond::menu::Dlc dlc;
+      dlc.Open(menu, staging, user, nullptr, [](auto action) { action(); }, {});
+      frame("dlc-pending-name", modal);
+      auto* document = visible_document("options");
+      auto* pending = document ? document->GetElementById("staged-1") : nullptr;
+      check("dlc-pending-shows-package-name", pending &&
+            pending->GetInnerRML().find("Chunin outfit Sasuke &amp; co") != std::string::npos &&
+            pending->GetInnerRML().find(package) == std::string::npos, "{}");
+      menu.HidePanel();
+      // Reopen after the game has extracted the content and written its header.
+      const auto root = launcher_content::GetDlcRoot();
+      std::filesystem::create_directories(root / package);
+      std::ofstream(root / package / "content.bin") << "installed content";
+      std::filesystem::create_directories(root.parent_path() / "Headers/00000002");
+      rex::system::xam::XCONTENT_AGGREGATE_DATA header{};
+      header.content_type = rex::system::XContentType::kMarketplaceContent;
+      header.title_id = 0x55530825;
+      header.set_file_name(package); header.set_display_name(u"Chunin outfit Sasuke & co");
+      std::ofstream(root.parent_path() / "Headers/00000002" / (package + ".header"), std::ios::binary)
+          .write(reinterpret_cast<const char*>(&header), sizeof(header));
+      broken_bond::menu::Dlc reopened;
+      reopened.Open(menu, staging, user, nullptr, [](auto action) { action(); }, {});
+      frame("dlc-installed-name", modal);
+      document = visible_document("options");
+      auto* installed = document ? document->GetElementById("dlc-0") : nullptr;
+      check("dlc-installed-keeps-name-without-pending-duplicate", installed && installed->IsClassSet("good") &&
+            installed->GetInnerRML().find("Chunin outfit Sasuke &amp; co") != std::string::npos &&
+            !document->GetElementById("staged-1") && !document->GetElementById("dlc-empty"), "{}");
+      menu.HidePanel();
+    }
+    // The game menu bar shows DLC once it has an action.
+    {
+      int dlc_opened = 0;
+      menu.ShowOverlay([] {}, [&] { ++dlc_opened; }, [] {}, [&] { menu.HideOverlay(); });
+      frame("overlay-with-dlc", modal);
+      auto* bar = visible_document("overlay-dlc");
+      auto* entry = bar ? bar->GetElementById("overlay-dlc") : nullptr;
+      check("overlay-dlc-entry-shown", entry && entry->IsVisible(), "{}");
+      key(rex::ui::VirtualKey::kEscape);
+      frame("overlay-with-dlc-closed", modal);
+    }
 
     // The menu strings in each language.
     broken_bond::menu::TextSystem translations;
