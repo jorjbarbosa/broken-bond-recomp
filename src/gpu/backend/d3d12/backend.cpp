@@ -7,6 +7,7 @@
 #include "gpu/backend/lifecycle.h"
 #include "gpu/backend/pipeline_keys.h"
 #include "gpu/backend/pipeline_set.h"
+#include "gpu/backend/reconfigure.h"
 #include "gpu/backend/regions.h"
 #include "gpu/common/hash.h"
 #include "gpu/common/title_loading.h"
@@ -158,6 +159,7 @@ class Backend final : public gpu::Backend {
   bool DetachWindow(std::string& evidence) override;
   bool SetGammaRamp(const std::array<uint16_t, 768>& words, std::string& evidence) override;
   bool SetVsync(bool enabled, std::string& evidence) override;
+  bool Reconfigure(const RenderMode&, const PresentMode&, std::string& evidence) override;
   bool StageFront(uint32_t key, uint32_t& slot, std::string& evidence) override;
   bool Present(uint32_t slot, bool capture, std::vector<uint8_t>& bgra, uint32_t& width, uint32_t& height,
                std::string& evidence, bool& presented) override;
@@ -219,6 +221,7 @@ struct Backend::State {
     Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> view;  // RTV or DSV
     D3D12_RESOURCE_STATES state = D3D12_RESOURCE_STATE_COMMON;
     uint64_t last_use_fence = 0;  // Highest fence of submitted work using it.
+    SurfaceDesc guest;  // The description it was created from, for Reconfigure.
   };
   struct Submission {  // Retained until its fence completes.
     uint64_t fence = 0;
@@ -469,6 +472,11 @@ struct Backend::State {
   // Guest pixels and sample counts to those of the own surfaces and resolve
   // destinations (RenderMode::Host); a surface keeps its description in the latter.
   RenderMode render_mode;
+  // Pipeline warmup is free-threaded; the rest of render_mode is owner-only.
+  std::atomic<uint32_t> pipeline_msaa{0};
+  uint32_t PipelineSamples(uint32_t guest) const {
+    const uint32_t count = pipeline_msaa.load(); return guest > 1 && count ? count : guest;
+  }
   // Presentation: own swapchain on the window, the final pass and two
   // stage slots holding the front buffer copied at the Swap until its flip.
   static constexpr uint32_t kMaxSwapBuffers = 3, kStageSlots = 2;
@@ -800,6 +808,7 @@ bool Backend::Initialize(std::string& evidence, const RenderMode& mode) {
     return true;
   };
   state_->render_mode.msaa_samples = SupportedSamples(mode.msaa_samples, msaa_supported);
+  state_->pipeline_msaa.store(state_->render_mode.msaa_samples);
   state_->queue = state_->device->createCommandQueue(plume::RenderCommandListType::DIRECT);
   state_->fence = state_->device->createCommandFence();
   if (!state_->queue || !state_->fence) return fail("Plume-queue-fence");
@@ -1095,11 +1104,90 @@ bool Backend::CreateSurface(const SurfaceDesc& guest, std::string& evidence) {
   } else {
     device->d3d->CreateRenderTargetView(native->d3d, nullptr, view->GetCPUDescriptorHandleForHeapStart());
   }
-  State::Surface surface{desc, std::move(texture), std::move(view), native->resourceStates, 0};
+  State::Surface surface{desc, std::move(texture), std::move(view), native->resourceStates, 0, guest};
   state_->surfaces.emplace(desc.key, std::move(surface));
   evidence = fmt::format("{{\"created\":true,\"key\":{},\"width\":{},\"height\":{},\"guest_format\":{},"
       "\"host_format\":\"{}\",\"samples\":{},\"live_surfaces\":{}}}", desc.key, desc.width, desc.height,
       desc.guest_format, depth ? "D32_FLOAT_S8_UINT" : "R8G8B8A8_UNORM", desc.samples, state_->surfaces.size());
+  return true;
+}
+
+bool Backend::Reconfigure(const RenderMode& requested, const PresentMode& present, std::string& evidence) {
+  RenderMode render = requested;
+  auto& s = *state_;
+  auto fail = [&](const char* reason) {
+    evidence = fmt::format("{{\"applied\":false,\"reason\":\"{}\"}}", reason); return false;
+  };
+  if (!s.ready || s.owner_thread != GetCurrentThreadId() || s.operation_poisoned || s.unproved_execution)
+    return fail("native-reconfigure-owner-or-state");
+  if (!ValidLiveModes(s.render_mode, render, present)) return fail("native-reconfigure-mode");
+  auto* device = static_cast<plume::D3D12Device*>(s.device.get());
+  render.msaa_samples = SupportedSamples(requested.msaa_samples, [&](uint32_t samples) {
+    for (auto format : {DXGI_FORMAT_R8G8B8A8_UNORM, DXGI_FORMAT_D32_FLOAT_S8X24_UINT}) {
+      D3D12_FEATURE_DATA_MULTISAMPLE_QUALITY_LEVELS levels{format, samples};
+      if (FAILED(device->d3d->CheckFeatureSupport(D3D12_FEATURE_MULTISAMPLE_QUALITY_LEVELS, &levels, sizeof(levels))) ||
+          !levels.NumQualityLevels) return false;
+    }
+    return true;
+  });
+  const bool targets = render.scale.x != s.render_mode.scale.x || render.scale.y != s.render_mode.scale.y ||
+                       render.msaa_samples != s.render_mode.msaa_samples;
+  for (const auto& [key, surface] : s.surfaces) {
+    const auto desc = render.Host(surface.guest);
+    if (!desc.width || !desc.height || desc.width > 8192 || desc.height > 8192)
+      return fail("native-reconfigure-surface-size");
+  }
+  // Every submitted operation completes first: the surfaces are released at
+  // once, and WaitIdle closes the batch (its draw bindings start over).
+  if (!WaitIdle(evidence)) return false;
+  const auto old_render = s.render_mode;
+  const auto old_present = s.mode;
+  decltype(s.surfaces) old_surfaces;
+  if (targets) {
+    old_surfaces.swap(s.surfaces);
+    s.render_mode = render;
+    for (const auto& [key, surface] : old_surfaces) if (!CreateSurface(surface.guest, evidence)) {
+      s.surfaces.clear(); s.surfaces.swap(old_surfaces); s.render_mode = old_render;
+      return false;
+    }
+  }
+  const bool swap = s.swapchain && (present.buffers != old_present.buffers ||
+      present.max_frame_latency != old_present.max_frame_latency || present.allow_tearing != old_present.allow_tearing);
+  bool applied = true;
+  if (swap) {
+    void* window = s.window;
+    s.present_rtv.Reset(); s.swapchain.reset();
+    applied = AttachWindow(window, evidence, present);
+    if (!applied) {
+      const auto error = evidence;
+      std::string rollback;
+      if (!AttachWindow(window, rollback, old_present)) {
+        // A failed restore cannot leave the game submitting to a dead display.
+        s.operation_poisoned = true;
+      }
+      evidence = error;
+    }
+  } else {
+    s.mode = present; s.allow_tearing = present.allow_tearing;
+    s.swap_buffers = present.buffers; s.max_frame_latency = present.max_frame_latency;
+    // The brightness exponent, 1 / (1 + (brightness - 0.5) * 1.2), on the ramp.
+    s.brightness = std::fabs(present.brightness - 0.5f) > 0.001f;
+    const double exponent = 1.0 / std::clamp(1.0 + (double(present.brightness) - 0.5) * 1.2, 0.1, 4.0);
+    for (uint32_t i = 0; i < 1024; ++i)
+      s.brightness_ramp[i] = uint16_t(std::lround(1023.0 * std::pow(i / 1023.0, exponent)));
+    applied = SetVsync(present.vsync, evidence);
+  }
+  if (!applied) {
+    if (targets) { s.surfaces.clear(); s.surfaces.swap(old_surfaces); s.render_mode = old_render; }
+    return false;
+  }
+  s.render_mode = render;
+  s.pipeline_msaa.store(render.msaa_samples);
+  evidence = fmt::format("{{\"applied\":true,\"targets_rebuilt\":{},\"surfaces\":{},\"resolved_textures_retained\":{},"
+      "\"scale\":[{},{}],\"msaa_samples\":{},\"vsync\":{},\"brightness\":{},\"buffers\":{},\"latency\":{},"
+      "\"effect\":{},\"post_effect\":{}}}", targets, s.surfaces.size(), s.textures.size(), render.scale.x,
+      render.scale.y, render.msaa_samples, present.vsync, present.brightness, present.buffers, present.max_frame_latency,
+      uint32_t(present.effect), uint32_t(present.post_effect));
   return true;
 }
 
@@ -3577,7 +3665,7 @@ bool Backend::PrecompilePipeline(const PipelineDesc& d, bool& present, std::stri
   // The list holds the samples of the boots it came from; a multisampled
   // target has the sample count of the render mode, as in the key of the draw.
   std::array<uint32_t, 21> state = d.state;
-  state[8] = state_->render_mode.Samples(state[8]);
+  state[8] = state_->PipelineSamples(state[8]);
   const uint64_t key = PipelineKey(d.vs.key, d.ps.key, d.layout_id, state);
   PipelineDesc listed = d;
   listed.state = state;
@@ -3629,7 +3717,7 @@ bool Backend::PostPipeline(const PipelineDesc& d) {
   const bool depth_only = d.state[17];
   if (!DxilShaders(d.vs, d.ps, depth_only) || !d.elements || d.elements->empty()) return false;
   PipelineDesc listed = d;
-  listed.state[8] = state_->render_mode.Samples(listed.state[8]);
+  listed.state[8] = state_->PipelineSamples(listed.state[8]);
   const uint64_t key = PipelineKey(listed.vs.key, listed.ps.key, listed.layout_id, listed.state);
   return state_->pipeline_set.Post(key, std::move(listed), true, false);
 }

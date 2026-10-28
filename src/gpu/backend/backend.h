@@ -65,6 +65,9 @@ class Backend {
   virtual bool DetachWindow(std::string& evidence) = 0;
   virtual bool SetGammaRamp(const std::array<uint16_t, 768>& words, std::string& evidence) = 0;
   virtual bool SetVsync(bool enabled, std::string& evidence) = 0;
+  // Owner, after frame completion. Resolved textures and guest resources survive.
+  // Rebuilds transient render targets only when their dimensions/samples change.
+  virtual bool Reconfigure(const RenderMode&, const PresentMode&, std::string& evidence) = 0;
   virtual bool StageFront(uint32_t key, uint32_t& slot, std::string& evidence) = 0;
   virtual bool Present(uint32_t slot, bool capture, std::vector<uint8_t>& bgra, uint32_t& width, uint32_t& height,
                        std::string& evidence, bool& presented) = 0;

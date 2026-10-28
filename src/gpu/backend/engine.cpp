@@ -117,6 +117,10 @@ bool Engine::SetGammaRamp(const std::array<uint16_t, 768>& words, std::string& e
 bool Engine::SetVsync(bool enabled, std::string& evidence) {
   return backend_ ? backend_->SetVsync(enabled, evidence) : NoBackend(evidence);
 }
+bool Engine::Reconfigure(const RenderMode& render, const PresentMode& present, std::string& evidence) {
+  if (Refused(evidence)) return false;
+  return backend_ ? backend_->Reconfigure(render, present, evidence) : NoBackend(evidence);
+}
 bool Engine::StageFront(uint32_t key, uint32_t& slot, std::string& evidence) {
   if (Refused(evidence)) return false;
   return backend_ ? backend_->StageFront(key, slot, evidence) : NoBackend(evidence);

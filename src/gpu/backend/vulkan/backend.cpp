@@ -15,6 +15,7 @@
 #include "gpu/backend/backend.h"
 #include "gpu/backend/lifecycle.h"
 #include "gpu/backend/pipeline_set.h"
+#include "gpu/backend/reconfigure.h"
 #include "gpu/backend/regions.h"
 #include "gpu/backend/vulkan/completion.h"
 #include "gpu/backend/vulkan/formats.h"
@@ -314,6 +315,7 @@ class Backend final : public gpu::Backend {
   bool DetachWindow(std::string& evidence) override;
   bool SetGammaRamp(const std::array<uint16_t, 768>&, std::string& evidence) override;
   bool SetVsync(bool, std::string& evidence) override;
+  bool Reconfigure(const RenderMode&, const PresentMode&, std::string& evidence) override;
   bool StageFront(uint32_t, uint32_t& slot, std::string& evidence) override;
   bool Present(uint32_t, bool, std::vector<uint8_t>& bgra, uint32_t& width, uint32_t& height,
                std::string& evidence, bool& presented) override;
@@ -376,6 +378,11 @@ struct Backend::State {
   DWORD owner_thread = 0;
   uint64_t epoch = 0;
   RenderMode render_mode;
+  // Pipeline warmup is free-threaded; the rest of render_mode is owner-only.
+  std::atomic<uint32_t> pipeline_msaa{0};
+  uint32_t PipelineSamples(uint32_t guest) const {
+    const uint32_t count = pipeline_msaa.load(); return guest > 1 && count ? count : guest;
+  }
   void Observe(VkResult result) { device_lost = device_lost || result == VK_ERROR_DEVICE_LOST; }
 
   // Submits a recorded command buffer (none: only the fence, the readiness) as
@@ -482,6 +489,7 @@ struct Backend::State {
 
   struct Surface {
     SurfaceDesc desc;
+    SurfaceDesc guest;  // The description it was created from, for Reconfigure.
     std::unique_ptr<plume::RenderTexture> texture;
     std::unique_ptr<plume::RenderFramebuffer> framebuffer;  // The surface alone: its clears.
     SyncState state;
@@ -1103,6 +1111,7 @@ bool Backend::Initialize(std::string& evidence, const RenderMode& mode) {
     return true;
   };
   state_->render_mode.msaa_samples = SupportedSamples(mode.msaa_samples, msaa_supported);
+  state_->pipeline_msaa.store(state_->render_mode.msaa_samples);
   VkPhysicalDeviceTimelineSemaphoreFeatures timeline{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TIMELINE_SEMAPHORE_FEATURES};
   VkPhysicalDeviceFeatures2 features{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2, &timeline};
   VkPhysicalDeviceDriverProperties driver{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DRIVER_PROPERTIES};
@@ -1298,6 +1307,7 @@ bool Backend::CreateSurface(const SurfaceDesc& guest, std::string& evidence) {
       desc.samples == 2 ? plume::RenderSampleCount::COUNT_2 : plume::RenderSampleCount::COUNT_1);
   State::Surface surface;
   surface.desc = desc;
+  surface.guest = guest;
   surface.texture = state_->device->createTexture(depth ?
       plume::RenderTextureDesc::DepthTarget(desc.width, desc.height, plume::RenderFormat::D32_FLOAT_S8_UINT, samples) :
       plume::RenderTextureDesc::ColorTarget(desc.width, desc.height, plume::RenderFormat::R8G8B8A8_UNORM, samples));
@@ -1311,6 +1321,70 @@ bool Backend::CreateSurface(const SurfaceDesc& guest, std::string& evidence) {
   evidence = fmt::format("{{\"created\":true,\"key\":{},\"width\":{},\"height\":{},\"guest_format\":{},"
       "\"host_format\":\"{}\",\"samples\":{},\"live_surfaces\":{}}}", desc.key, desc.width, desc.height,
       desc.guest_format, depth ? "D32_SFLOAT_S8_UINT" : "R8G8B8A8_UNORM", desc.samples, state_->surfaces.size());
+  return true;
+}
+
+bool Backend::Reconfigure(const RenderMode& requested, const PresentMode& present, std::string& evidence) {
+  RenderMode render = requested;
+  auto& s = *state_;
+  if (!s.ready || s.owner_thread != GetCurrentThreadId() || s.operation_poisoned || s.unproved_execution)
+    return GraphicsError(evidence, "native-reconfigure-owner-or-state");
+  if (!ValidLiveModes(s.render_mode, render, present)) return GraphicsError(evidence, "native-reconfigure-mode");
+  render.msaa_samples = SupportedSamples(requested.msaa_samples, [&](uint32_t samples) {
+    for (const auto& [format, usage] : {
+      std::pair{VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT},
+      std::pair{VK_FORMAT_D32_SFLOAT_S8_UINT, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT}}) {
+    VkImageFormatProperties props{};
+    if (vkGetPhysicalDeviceImageFormatProperties(s.vulkan->physicalDevice, format, VK_IMAGE_TYPE_2D, VK_IMAGE_TILING_OPTIMAL,
+        usage | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT, 0, &props) != VK_SUCCESS ||
+        !(props.sampleCounts & samples)) return false;
+    }
+    return true;
+  });
+  const bool targets = render.scale.x != s.render_mode.scale.x || render.scale.y != s.render_mode.scale.y ||
+                       render.msaa_samples != s.render_mode.msaa_samples;
+  for (const auto& [key, surface] : s.surfaces) {
+    const auto desc = render.Host(surface.guest);
+    if (!desc.width || !desc.height || desc.width > 8192 || desc.height > 8192)
+      return GraphicsError(evidence, "native-reconfigure-surface-size");
+  }
+  // Every submitted operation completes first: the surfaces are released at once.
+  if (!WaitIdle(evidence)) return false;
+  const auto old_render = s.render_mode;
+  const auto old_present = s.present_mode;
+  decltype(s.surfaces) old_surfaces;
+  if (targets) {
+    old_surfaces.swap(s.surfaces); s.render_mode = render;
+    for (const auto& [key, surface] : old_surfaces) if (!CreateSurface(surface.guest, evidence)) {
+      s.surfaces.clear(); s.surfaces.swap(old_surfaces); s.render_mode = old_render;
+      return false;
+    }
+  }
+  // The frame latency stays 1 here (the present fences); VSync and tearing
+  // choose the present mode, so they rebuild the swap chain with the buffers.
+  const bool swap = present.vsync != old_present.vsync || present.allow_tearing != old_present.allow_tearing ||
+                    present.buffers != old_present.buffers;
+  s.present_mode = present;
+  if (swap && s.window) {
+    uint32_t width = 0, height = 0;
+    if (ClientSize(s.window, width, height)) {
+      if (!s.CreateSwapchain(width, height, evidence)) {
+        const auto error = evidence;
+        s.present_mode = old_present;
+        std::string rollback;
+        if (!s.CreateSwapchain(width, height, rollback)) s.operation_poisoned = true;
+        if (targets) { s.surfaces.clear(); s.surfaces.swap(old_surfaces); s.render_mode = old_render; }
+        evidence = error; return false;
+      }
+    } else s.recreate_swapchain = true;
+  }
+  s.render_mode = render;
+  s.pipeline_msaa.store(render.msaa_samples);
+  evidence = fmt::format("{{\"applied\":true,\"targets_rebuilt\":{},\"surfaces\":{},\"resolved_textures_retained\":{},"
+      "\"scale\":[{},{}],\"msaa_samples\":{},\"vsync\":{},\"brightness\":{},\"buffers\":{},\"effective_frame_latency\":1,"
+      "\"effect\":{},\"post_effect\":{}}}", targets, s.surfaces.size(), s.textures.size(), render.scale.x,
+      render.scale.y, render.msaa_samples, present.vsync, present.brightness, present.buffers,
+      uint32_t(present.effect), uint32_t(present.post_effect));
   return true;
 }
 
