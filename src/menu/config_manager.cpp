@@ -41,6 +41,7 @@ bool ConfigManager::Load(const std::filesystem::path& toml_path, GameConfig& con
     if (auto v = tbl["d3d12_allow_variable_refresh_rate_and_tearing"].value<bool>()) config.d3d12_allow_variable_refresh_rate_and_tearing = *v;
     if (auto v = tbl["present_dither"].value<bool>()) config.present_dither = *v;
     if (auto v = tbl["show_fps_overlay"].value<bool>()) config.show_fps_overlay = *v;
+    if (auto v = tbl["show_startup_menu"].value<bool>()) config.show_startup_menu = *v;
     if (auto v = tbl["mnk_sensitivity"].value<double>()) if (std::isfinite(*v)) config.mnk_sensitivity = *v;
     if (auto v = tbl["video_mode_refresh_rate"].value<double>()) if (std::isfinite(*v)) config.video_mode_refresh_rate = *v;
     if (auto v = tbl["aspect_ratio"].value<double>()) if (std::isfinite(*v)) config.aspect_ratio = *v;
@@ -102,6 +103,7 @@ bool ConfigManager::Save(const std::filesystem::path& toml_path, const GameConfi
   tbl.insert_or_assign("d3d12_allow_variable_refresh_rate_and_tearing", config.d3d12_allow_variable_refresh_rate_and_tearing);
   tbl.insert_or_assign("present_dither", config.present_dither);
   tbl.insert_or_assign("show_fps_overlay", config.show_fps_overlay);
+  tbl.insert_or_assign("show_startup_menu", config.show_startup_menu);
   tbl.insert_or_assign("mnk_sensitivity", config.mnk_sensitivity);
   tbl.insert_or_assign("video_mode_refresh_rate", config.video_mode_refresh_rate);
   tbl.insert_or_assign("anisotropic_override", config.anisotropic_override);

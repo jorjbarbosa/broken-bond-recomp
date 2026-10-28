@@ -27,8 +27,18 @@
 #include "fps_overlay.h"
 #include "game_image.h"
 #include "graphics_device.h"
+#include "launch_arguments.h"
 #include "input_replay.h"
 #include "mods/translation_mod.h"
+#ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#endif
+
+REXCVAR_DEFINE_UINT32(restart_wait_pid, 0, "broken_bond/Internal", "Wait for the previous process during a settings restart");
+
 #ifdef BROKENBOND_NATIVE_RENDERER_BOOTSTRAP
 #include "gpu/common/shader_activity.h"
 #include "gpu/host/app.h"
@@ -54,6 +64,8 @@
 
 REXCVAR_DEFINE_BOOL(setup, false, "broken_bond/UI",
                     "Open the setup screen before the game (also Shift held at the start)");
+REXCVAR_DEFINE_BOOL(show_startup_menu, true, "broken_bond/UI",
+                    "Show the initial menu before the game (Settings > Advanced)");
 REXCVAR_DEFINE_BOOL(check_for_updates, true, "broken_bond/UI", "Notify when a new release is available");
 #endif
 
@@ -107,6 +119,16 @@ class BrokenBondApp : public rex::ReXApp {
   // (game_image.h); the saves where the launcher keeps them. Logging starts
   // after this, so OnPostInitLogging reports the choice.
   void OnConfigurePaths(rex::PathConfig& paths) override {
+#ifdef _WIN32
+    // A restart for saved settings (RestartForSettings): the previous process
+    // closes first, so it neither holds the window's device nor writes the .toml.
+    if (const auto parent = REXCVAR_GET(restart_wait_pid); parent && parent != GetCurrentProcessId()) {
+      if (HANDLE process = OpenProcess(SYNCHRONIZE, FALSE, parent)) {
+        WaitForSingleObject(process, INFINITE);
+        CloseHandle(process);
+      }
+    }
+#endif
     const auto exe_dir = rex::filesystem::GetExecutableFolder();
     const auto utf8_path = [&](std::string_view text) {
       std::filesystem::path path(std::u8string_view(reinterpret_cast<const char8_t*>(text.data()), text.size()));
@@ -160,9 +182,9 @@ class BrokenBondApp : public rex::ReXApp {
   }
 
 #ifdef BROKENBOND_NATIVE_RENDERER_BOOTSTRAP
-  // The game boots straight away unless the setup screen is needed
-  // (menu/setup_gate.h); then the screen shows on the window before the
-  // runtime exists, and its Play resumes the boot. The native mode only: with
+  // The initial menu follows the saved startup preference and the recovery
+  // rules (menu/setup_gate.h); it shows on the window before the runtime
+  // exists, and its Play resumes the boot. The native mode only: with
   // Xenos the game boots as configured.
   std::optional<rex::PathConfig> OnFinalizePaths(const rex::PathConfig& defaults,
                                                  std::function<void(rex::PathConfig)> resume) override {
@@ -186,6 +208,7 @@ class BrokenBondApp : public rex::ReXApp {
     facts.status = game_identity_.status;
     facts.start_failed = start_failed_;
     facts.requested = REXCVAR_GET(setup) || menu::SetupKeyHeld();
+    facts.show_startup_menu = REXCVAR_GET(show_startup_menu);
     const menu::SetupReason reason = menu::SetupReasonFor(facts);
     if (reason == menu::SetupReason::kNone || !OpenSetupScreen(reason, defaults, std::move(resume))) {
       ArmFirstPresentation();
@@ -409,6 +432,8 @@ class BrokenBondApp : public rex::ReXApp {
         rex::cvar::SetFlagByName(key, config.fullscreen ? "true" : "false");
       } else if (key == "skip_intro_videos") {
         broken_bond::SetSkipIntroVideos(config.skip_intro_videos);
+      } else if (key == "native_backend" || key == "graphics_device") {
+        app_context().CallInUIThreadDeferred([this] { OfferSettingsRestart(); });
       } else if (key == "bind_game_menu" || key == "game_menu_chord") {
         UpdateMenuShortcut();
       } else if (!setup_resume_ && key != "launcher_language" && key != "show_shader_indicator" &&
@@ -540,7 +565,7 @@ class BrokenBondApp : public rex::ReXApp {
           // In game: the new game plays at the next start.
           menu_settings_.Reload();
           OpenSettings();
-          ui_.Notify(Text("changed"));
+          OfferSettingsRestart();
           return;
         }
         setup_paths_.game_data_root = result->root;
@@ -565,6 +590,49 @@ class BrokenBondApp : public rex::ReXApp {
       checking_game_ = true;
       ui_.ShowDialog(Text("checking"), Text("wait"));
     }
+  }
+  // The API and the card belong to the session: a restart starts a new
+  // process on the setup screen with the saved choice.
+  void OfferSettingsRestart() {
+    if (closing_.load()) return;
+    using broken_bond::menu::Text;
+    std::string message = Text("changed");
+    if (game_running_) message += std::string("\n\n") + Text("exit-confirm");
+    ui_.ShowDialog(Text("restart-required"), message, {
+        {Text("restart-now"), [this] {
+          app_context().CallInUIThreadDeferred([this] { RestartForSettings(); });
+        }},
+        {Text("later"), {}}});
+  }
+  void RestartForSettings() {
+#ifdef _WIN32
+    // A new process with the saved API and card, on the setup screen; this
+    // one closes in its normal order first (restart_wait_pid).
+    const auto executable = rex::filesystem::GetExecutableFolder() / L"broken_bond.exe";
+    if (menu_settings_.config().custom_game_root.empty() && !game_data_root().empty()) {
+      // The game in use (the command line's or the one found nearby) for the next start.
+      std::string error;
+      if (!broken_bond::menu::SaveGameRoot(executable.parent_path() / "broken_bond.toml", game_data_root(), error))
+        return;
+    }
+    const std::wstring command = broken_bond::launch::QuoteArgument(executable.wstring()) + L" --setup " +
+        broken_bond::launch::UserDataArgument(user_data_root()) + L" --restart_wait_pid=" +
+        std::to_wstring(GetCurrentProcessId());
+    STARTUPINFOW startup{sizeof(startup)};
+    PROCESS_INFORMATION process{};
+    auto writable = command;
+    if (CreateProcessW(executable.c_str(), writable.data(), nullptr, nullptr, FALSE, 0, nullptr,
+                       rex::filesystem::GetExecutableFolder().c_str(), &startup, &process)) {
+      REXLOG_INFO("[broken_bond] Restarting for saved settings: process {}", process.dwProcessId);
+      CloseHandle(process.hThread);
+      CloseHandle(process.hProcess);
+      RemoveLaunchMarker();
+      if (window()) window()->RequestClose();
+    } else {
+      ui_.ShowDialog(broken_bond::menu::Text("restart"), broken_bond::menu::Text("save-failed"),
+                     {{broken_bond::menu::Text("cancel"), {}}});
+    }
+#endif
   }
   void QuitFromSetup() {
     if (!setup_resume_) return;

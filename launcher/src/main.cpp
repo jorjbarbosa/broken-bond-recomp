@@ -258,6 +258,8 @@ int main(int argc, char* argv[]) {
         cmdline += L" --renderer=native --native_backend=" +
                    QuoteProcessArgument(game_paths::FromUtf8(config.native_backend).wstring());
         cmdline += L" --game_data_root=" + QuoteProcessArgument(game_data.wstring());
+        // The launcher is the menu before the game: the game boots straight.
+        cmdline += L" --show_startup_menu=false";
 
         std::vector<wchar_t> cmd_buf(cmdline.begin(), cmdline.end());
         cmd_buf.push_back(L'\0');
