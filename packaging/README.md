@@ -7,6 +7,9 @@ extracted copy. Hold Shift while opening, or pass `--setup`, to return to the
 setup screen. Press F1 or Back+Start during play for Settings, DLC and Exit
 game.
 
+On Linux the package is `broken-bond-recomp-linux-x86_64.AppImage`
+([below](#build-the-linux-appimage)). There is no Linux release yet.
+
 See [Build and run](../docs/build-and-run.md), [Configuration](../docs/configuration.md)
 and [DLC](../docs/dlc.md).
 
@@ -55,6 +58,51 @@ The ZIP has no launcher, setup helper, `extract-xiso` or installer. Game data,
 personal settings, saves, logs and mods are never copied into it. The game
 needs the Microsoft Visual C++ x64 runtime. `scripts/extract-game.ps1` remains
 a developer tool for the code generation inputs, outside the release.
+
+## Build the Linux AppImage
+
+On Linux, after the [Linux build](../docs/build-and-run.md#linux) of
+`build/linux` with `-DBROKENBOND_NATIVE_TESTS=ON`:
+
+```bash
+python3 packaging/package-linux-appimage.py
+# Another output folder, or a version other than packaging/version.iss:
+python3 packaging/package-linux-appimage.py --output-root dist/candidate --version 0.2.0-beta
+```
+
+The script requires a Release build of the native game on Vulkan with the host
+tests, since the image carries the POSIX wait check, and builds `broken_bond`
+and that check first. It downloads appimagetool 1.9.1 and the AppImage type2
+runtime once into `out/appimage-tools/` (`--tools-dir`), each pinned by
+SHA-256; a file that does not match stops the build. The runtime's URL is
+upstream's `continuous` release, which is republished from time to time: its
+pin is then checked and moved in the script. appimagetool is extracted for each
+build, so building needs no FUSE. `--jobs` limits the build's parallelism.
+
+Outputs, in `dist/` or `--output-root`: `broken-bond-recomp-linux-x86_64.AppImage`,
+its `README.txt` and `SHA256SUMS.txt`. Existing ones move to
+`previous-release-*`. The image is assembled in a unique staging folder.
+
+The image holds `broken_bond`, `librexruntime.so`, the wait check,
+`broken_bond.version`, the README, `defaults/broken_bond.toml` (the ZIP's
+defaults on Vulkan) and `licenses/` (the components of
+`third-party-licenses.psd1` without the Windows-only ones), with the
+`AppRun`, the desktop entry, the icon `ui/broken_bond.png` and
+`packaging-info.json` (the binaries' hashes, the build id, the commit, the glibc
+the binaries need and the host libraries they load). No system library is
+bundled: the script stops if the binaries need anything beyond glibc, the C++
+runtime, the X11 and xcb client libraries and the Wayland client. The binaries
+need the build system's glibc or newer (2.43 on Ubuntu 26.04).
+
+The game writes beside its executable, and the image is read only. So at each
+start the `AppRun` copies the binaries, the version, the README and the
+licenses into `$XDG_DATA_HOME/broken_bond` (`~/.local/share/broken_bond`) when
+the image's build differs from the copy's, seeds `broken_bond.toml` there on
+the first start, and runs the copy with the caller's arguments and working
+folder. The settings, the saves and caches (`user/`), the logs, mods and DLC
+stay in that folder across updates. The game finds a `game/` folder beside the
+AppImage by itself. `--test-posix-wait` runs the wait check from the image
+without copying anything.
 
 ## Bridge for 0.1.0-beta installations
 
@@ -115,6 +163,17 @@ $env:BROKENBOND_TEST_OLD_PACKAGE = "$PWD/dist/v0.1.0-beta/package/broken-bond-re
 $env:BROKENBOND_TEST_OUTPUT = "$PWD/build/bridge-tests"
 python -I packaging/tests/test_bridge.py -v
 ```
+
+On Linux, the AppImage:
+
+```bash
+python3 -I packaging/tests/test_appimage.py dist/broken-bond-recomp-linux-x86_64.AppImage
+```
+
+It runs the image's wait check extracted and, when the host has FUSE, mounted;
+extracts the image and checks its payload, notices and seed; and runs the
+`AppRun` over a stub game in a scratch home, for the copy, the seed, the
+arguments, the working folder and an update. It never starts the game.
 
 `BROKENBOND_TEST_OLD_PACKAGE` is the extracted v0.1.0-beta ZIP, from the
 project's release page.

@@ -245,12 +245,19 @@ cmake --build build/linux
 - The update check and the desktop shortcut are Windows-only.
 - Without the XDG desktop portal or zenity, the file dialog cannot open; choose the game with `--game_data_root` or `custom_game_root` in `broken_bond.toml`.
 - Holding Shift at start does not open the setup screen; pass `--setup`.
+- On a build without Direct3D 12 the game runs on Vulkan whatever `native_backend` says, and the log says so.
 
 ## Package
 
 ```powershell
 ./packaging/package-release.ps1          # the ZIP, from build/native
 ./packaging/package-bridge.ps1           # the bridge for 0.1.0-beta installations (Inno Setup 6.4+)
+```
+
+On Linux, from `build/linux` built with `-DBROKENBOND_NATIVE_TESTS=ON`:
+
+```bash
+python3 packaging/package-linux-appimage.py   # the AppImage
 ```
 
 See [Release packaging](../packaging/README.md).
