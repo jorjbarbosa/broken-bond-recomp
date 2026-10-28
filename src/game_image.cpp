@@ -158,16 +158,22 @@ Identity Identify(const std::filesystem::path& root) {
   return identity;
 }
 
-std::filesystem::path FindNearbyGame(const std::filesystem::path& executable_folder) {
-  std::vector<std::filesystem::path> candidates{executable_folder / "game"};
-  // A build in this repository (build/native or build/game) plays the
-  // repository's game folder, as the launcher does.
+std::filesystem::path RepositoryOf(const std::filesystem::path& executable_folder) {
   std::error_code ec;
   const auto build = executable_folder.parent_path();
   if ((executable_folder.filename() == "native" || executable_folder.filename() == "game") &&
       build.filename() == "build" &&
       std::filesystem::is_regular_file(build.parent_path() / "broken_bond_manifest.toml", ec))
-    candidates.push_back(build.parent_path() / "game");
+    return build.parent_path();
+  return {};
+}
+
+std::filesystem::path FindNearbyGame(const std::filesystem::path& executable_folder) {
+  std::vector<std::filesystem::path> candidates{executable_folder / "game"};
+  // A build in this repository plays the repository's game folder, as the launcher does.
+  if (const auto repository = RepositoryOf(executable_folder); !repository.empty())
+    candidates.push_back(repository / "game");
+  std::error_code ec;
   std::filesystem::path first;
   for (const auto& candidate : candidates) {
     if (!std::filesystem::is_directory(candidate, ec)) continue;

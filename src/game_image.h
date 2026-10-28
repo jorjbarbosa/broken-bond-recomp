@@ -33,6 +33,10 @@ struct Identity {
 // root: a disc image file, a folder with default.xex, or that default.xex.
 Identity Identify(const std::filesystem::path& root);
 
+// The repository a build inside it belongs to (build/native or build/game,
+// with broken_bond_manifest.toml two levels up), or empty.
+std::filesystem::path RepositoryOf(const std::filesystem::path& executable_folder);
+
 // The game folder next to the executable, or the repository's for a build in
 // it (the launcher's game_paths::Find); an unusable one is still returned so
 // the setup screen can name it.

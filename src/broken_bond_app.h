@@ -7,18 +7,25 @@
 #include <atomic>
 #include <chrono>
 #include <cstdio>
+#include <fstream>
 #include <limits>
+#include <optional>
+#include <string_view>
 
 #include <rex/rex_app.h>
 #include <rex/cvar.h>
 #include <rex/filesystem.h>
+#include <rex/logging.h>
+#include <rex/runtime.h>
 #include <rex/ui/keybinds.h>
 #include <rex/ui/window.h>
 #include <rex/ui/window_listener.h>
+#include <toml++/toml.hpp>
 
 #include "crash_report.h"
 #include "dlc_install.h"
 #include "fps_overlay.h"
+#include "game_image.h"
 #include "graphics_device.h"
 #include "input_replay.h"
 #include "mods/translation_mod.h"
@@ -86,6 +93,64 @@ class BrokenBondApp : public rex::ReXApp {
     broken_bond::menu::input_gate_enabled = gpu::host::Enabled();
 #endif
     if (!config.graphics) SelectXenosAdapter();
+  }
+
+  // The paths without the launcher, which passes --game_data_root and
+  // --user_data_root: the command line first; then the game folder or disc
+  // image of the .toml's custom_game_root, else the one beside the executable
+  // (game_image.h); the saves where the launcher keeps them. Logging starts
+  // after this, so OnPostInitLogging reports the choice.
+  void OnConfigurePaths(rex::PathConfig& paths) override {
+    const auto exe_dir = rex::filesystem::GetExecutableFolder();
+    const auto utf8_path = [&](std::string_view text) {
+      std::filesystem::path path(std::u8string_view(reinterpret_cast<const char8_t*>(text.data()), text.size()));
+      return path.is_relative() ? exe_dir / path : path;
+    };
+    std::optional<toml::table> config;
+    try {
+      std::error_code ec;
+      if (std::filesystem::is_regular_file(paths.config_path, ec)) {
+        std::ifstream input(paths.config_path, std::ios::binary);
+        config = toml::parse(input);
+      }
+    } catch (...) {
+    }
+    if (REXCVAR_GET(user_data_root).empty()) {
+      const auto configured = config ? (*config)["user_data_root"].value_or(std::string()) : std::string();
+      if (!configured.empty()) {
+        paths.user_data_root = utf8_path(configured);
+        user_root_source_ = "user_data_root";
+      } else {
+        const auto repository = broken_bond::game_image::RepositoryOf(exe_dir);
+        paths.user_data_root = repository.empty() ? exe_dir / "user" : repository / "build" / "user";
+        user_root_source_ = "default";
+      }
+      if (REXCVAR_GET(cache_root).empty()) paths.cache_root = paths.user_data_root / "cache";
+    }
+    command_line_root_ = !paths.game_data_root.empty();
+    if (command_line_root_) return;
+    const auto custom = config ? (*config)["custom_game_root"].value_or(std::string()) : std::string();
+    configured_root_ = !custom.empty();
+    if (configured_root_) {
+      std::error_code ec;
+      const auto root = utf8_path(custom);
+      if (std::filesystem::is_directory(root, ec) || std::filesystem::is_regular_file(root, ec)) {
+        paths.game_data_root = std::filesystem::canonical(root, ec);
+        game_root_source_ = "custom_game_root";
+      }
+    }
+    if (paths.game_data_root.empty()) {
+      paths.game_data_root = broken_bond::game_image::FindNearbyGame(exe_dir);
+      game_root_source_ = "nearby";
+    }
+  }
+
+  // Which game the data root holds, once the log exists: the recompiled code
+  // only runs with the default.xex it was generated from (game_image.h).
+  void OnPostInitLogging() override {
+    REXLOG_INFO("[broken_bond] Paths: game data {} ({}), user data {} ({})", game_data_root().string(),
+                game_root_source_, user_data_root().string(), user_root_source_);
+    if (!game_data_root().empty()) LogGameData(game_data_root());
   }
 
 #ifdef BROKENBOND_NATIVE_RENDERER_BOOTSTRAP
@@ -378,6 +443,24 @@ class BrokenBondApp : public rex::ReXApp {
   std::atomic<bool> closing_{false};
   bool close_ready_ = false;  // The ordered close finished: the window may close.
 #endif
+  void LogGameData(const std::filesystem::path& root) {
+    using broken_bond::game_image::Status;
+    game_identity_ = broken_bond::game_image::Identify(root);
+    const auto line = fmt::format("[broken_bond] Game data: {} ({}); Title ID {:08X}, default.xex {}: {}",
+                                  root.string(), game_identity_.disc_image ? "disc image" : "folder",
+                                  game_identity_.title_id, game_identity_.xex_digest,
+                                  broken_bond::game_image::StatusName(game_identity_.status));
+    if (game_identity_.status == Status::kReady)
+      REXLOG_INFO("{}", line);
+    else
+      REXLOG_WARN("{}", line);
+  }
+
+  // The game data and where its paths came from (OnConfigurePaths).
+  broken_bond::game_image::Identity game_identity_;
+  bool command_line_root_ = false, configured_root_ = false;
+  const char* game_root_source_ = "command line";
+  const char* user_root_source_ = "command line";
   FullscreenShortcuts fullscreen_shortcuts_;
   std::unique_ptr<FpsOverlayDialog> fps_overlay_;
 };
