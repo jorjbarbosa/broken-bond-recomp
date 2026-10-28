@@ -11,7 +11,9 @@
 #include "gpu/diagnostics/heap_watch.h"
 #include "wine.h"
 #include <cstdlib>
+#include <fmt/format.h>
 #include <rex/logging.h>
+#include <rex/string.h>
 #include <rex/system/interfaces/graphics.h>
 #include <rex/system/xmemory.h>
 
@@ -73,6 +75,11 @@ void Configure(rex::RuntimeConfig& config) {
 #endif
   if (!available) {
     REXLOG_ERROR("[broken_bond] Requested native_backend '{}' is unavailable in this build. No backend fallback.", backend);
+    rex::FlushLogging();
+    const auto message = rex::string::to_utf16(fmt::format("The graphics API '{}' is not available in this build.\n\n"
+        "Choose another one in the launcher's Display settings and start the game again.", backend));
+    MessageBoxW(nullptr, reinterpret_cast<const wchar_t*>(message.c_str()), L"broken_bond",
+                MB_OK | MB_ICONERROR | MB_TOPMOST | MB_SETFOREGROUND);
     std::_Exit(88);
   }
 #if defined(BROKENBOND_NATIVE_VULKAN)

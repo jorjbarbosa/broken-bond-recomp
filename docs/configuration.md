@@ -77,8 +77,10 @@ Other SDK options can be added to the file by hand; the launcher keeps the keys 
 The game draws with the native renderer: `renderer` is always `"native"`.
 `native_backend` selects its graphics API, `"d3d12"` (the default) or
 `"vulkan"`. Under Wine (Proton), the game uses Vulkan whatever `native_backend`
-says and logs it, and the launcher offers only Vulkan. Graphics cards are
-enumerated through the selected API. The frame rate and frame time are reported
+says and logs it, and the launcher offers only Vulkan. If the selected API
+cannot start on the graphics card or driver, the game tries the other one and
+logs the refusal. Graphics cards are enumerated through the selected API; a
+saved card that is no longer present falls back to the automatic choice. The frame rate and frame time are reported
 in the game window title.
 
 ### Native renderer options

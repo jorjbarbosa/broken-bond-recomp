@@ -121,7 +121,7 @@ void ReportProductStop(std::string_view name, int code, bool released, std::stri
   if (FAILED(HRESULT(removed)))
     message += fmt::format("\nThe graphics card stopped responding (0x{:08X}).", removed);
   message += "\n\nThe details are in the log, in the logs folder next to broken_bond.exe. "
-             "If this happens again, the Xenos renderer can be chosen in the launcher.";
+             "If this happens again, choose the other graphics API in the launcher's Display settings.";
   const auto wide = rex::string::to_utf16(message);
   MessageBoxW(nullptr, reinterpret_cast<const wchar_t*>(wide.c_str()), L"broken_bond",
               MB_OK | MB_ICONERROR | MB_TOPMOST | MB_SETFOREGROUND);
