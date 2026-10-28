@@ -75,8 +75,12 @@ The script applies the patches in `patches/` to the `sdk` submodule, builds the 
 | `rexglue-enable-usbcam.patch` | Enables the USB camera exports the game imports. The camera is reported as disconnected; capture is not implemented |
 | `rexglue-discovery.patch` | Discovers functions reached only through pointer tables without RTTI or through addresses built in code, and adds the guest return address to missing-function errors. See [Automatic function discovery](automatic-function-discovery.md) |
 | `rexglue-xma-decoder.patch` | XMA decoder fixes ported from Xenia Canary, plus local fixes for frames that cross a buffer boundary. The patch header lists each change |
-| `rexglue-mnk-modifiers.patch` | Makes standalone Shift/Control/Alt bindings work alongside movement, as required by the Rise launcher's key mapping defaults |
+| `rexglue-mnk-modifiers.patch` | The keyboard and mouse driver: standalone Shift/Control/Alt bindings work alongside movement, and the driver takes the bindings of the player it is assigned to |
 | `rexglue-d3d12-fence-check.patch` | Checks the queue signal and the fence event of the Xenos D3D12 command processor separately, so a successful signal no longer skips registering the event before the unbounded wait |
+| `rexglue-content-unread-header.patch` | Lists a content package only when its `.header` was read, so a save folder without one is no longer listed with an unread name |
+| `rexglue-disc-image-game-root.patch` | Accepts a disc image as the game data root and mounts it in place, so the game reads an ISO without extracting it |
+| `rexglue-controls-v4.patch` | Stable device identities and the assignment of controllers and keyboard and mouse to the four players, in the SDL and XInput drivers |
+| `rexglue-sdl-initial-gamepads.patch` | The SDL driver also takes the controllers connected before it started, which the setup screen may have opened first |
 
 Rebuild the SDK with this script after changing any patch.
 
@@ -92,7 +96,7 @@ Code generation runs again when the installed SDK changes, even if its version s
 
 ## 6. Native renderer
 
-The game, with its [native renderer](renderers.md) and launcher, is built into `build/native`. It reuses the code generated in the previous step.
+The game, with its [native renderer](renderers.md), setup screen and menus, is built into `build/native`. It reuses the code generated in the previous step.
 
 It needs:
 
@@ -116,7 +120,7 @@ foreach ($name in 'fmt', 'dxc-bin', 'smol-v', 'xxHash', 'zstd') {
 ./scripts/build-game-native.ps1 -PlumeSource out/plume -XenosRecompThirdparty tools/xenosrecomp/thirdparty
 ```
 
-The game is built with both graphics APIs, Direct3D 12 and Vulkan. Direct3D 12 is the default, and the launcher offers both. `-Backend d3d12` or `-Backend vulkan` builds only one of them, for development; packaging requires both.
+The game is built with both graphics APIs, Direct3D 12 and Vulkan. Direct3D 12 is the default; **Settings → Display → Graphics API** switches to the other one. `-Backend d3d12` or `-Backend vulkan` builds only one of them, for development; packaging requires both.
 
 The build translates the game's shaders with the XenosRecomp fork in `tools/xenosrecomp/`, compiles them with DXC to DXIL and to SPIR-V (checked by `spirv-val`), and embeds the result in `broken_bond.exe`, so no shader compiler runs during play. The first build translates every shader of `xeshader.sdb` and takes several minutes; `build/shader-store` keeps the results, and later builds reuse them while the game files, the fork, and DXC do not change. The shader cache derives from your game files and stays out of Git.
 
@@ -135,19 +139,15 @@ The script starts from the current list, so its entries and order are kept. `-So
 
 ## 7. Run
 
-### With the launcher
+### Directly
 
 ```powershell
-./build/native/broken_bond_launcher.exe
+./build/native/broken_bond.exe
 ```
 
-The launcher finds the repository's `game/` folder, or a folder selected under **Game Files**. **Play Game** verifies `default.xex`, saves settings, and starts the adjacent `broken_bond.exe`. Saves and caches use `build/user/`. See [Configuration](configuration.md) and [launcher parity](../launcher/README.md).
+A build in `build/native` finds the repository's `game/` folder and keeps saves and caches in `build/user/`. It opens on the setup screen: **Play** starts the game, **Settings** and **DLC** open those pages, and the game folder or an ISO can be chosen under **Settings → Game**. Without a supported game, the first entry chooses one instead of playing. The log goes to `build/native/logs/`. See [Configuration](configuration.md).
 
-To build only the launcher and run its regression tests, without generating the game code again:
-
-```powershell
-./scripts/build-launcher.ps1 -Test
-```
+The startup menu can be turned off under **Settings → Advanced**; hold Shift while opening, or pass `--setup`, to open it again.
 
 ### From the repository
 
@@ -156,24 +156,35 @@ To build only the launcher and run its regression tests, without generating the 
 ./scripts/run-game.ps1 -Keyboard          # with the SDK's keyboard controller emulation
 ```
 
-The script uses `game/` for the game files and `build/user/` for saves and caches, and writes the log to `build/logs/runtime-<date>.log`. `-LogLevel debug` or `trace` adds detail. It also writes the renderer's journal next to the log (`.native.jsonl`) and the run's pipelines to `build/pipeline-runs/<run>/`.
+The script uses `game/` for the game files and `build/user/` for saves and caches, and writes the log to `build/logs/runtime-<date>.log`. The startup menu shows first unless it is turned off. `-LogLevel debug` or `trace` adds detail. It also writes the renderer's journal next to the log (`.native.jsonl`) and the run's pipelines to `build/pipeline-runs/<run>/`.
 
 Keyboard defaults include Enter for Start, Space for A, Backspace for B, and WASD for the left stick.
 
-### Directly
+### With another game folder
 
 ```powershell
 ./build/native/broken_bond.exe --game_data_root="C:/path/to/game"
+./build/native/broken_bond.exe --game_data_root="C:/path/to/game.iso"
 ```
 
-Without `--user_data_root`, the SDK keeps saves and caches in its default user folder instead of `build/user/`.
+`--game_data_root` takes an extracted folder or an ISO. Without `--user_data_root`, saves and caches stay in `build/user/` for a build in `build/native`, and in `user/` beside the executable elsewhere.
 
 ## Tests
 
 | Command | What it checks |
 | --- | --- |
-| `./scripts/build-launcher.ps1 -Test` | Configuration, paths, argument quoting, localization, key mapping names, and the actual SDK input driver; no game files needed |
+| `./scripts/build-game-native.ps1 ... -BuildDirectory build/native-tests -Tests` | Builds a tree with the host tests and runs them all with `ctest`: the renderer engine on Vulkan, the menus, the configuration, the setup screen, the game data identity, DLC and the controls. A few need the extracted game in `game/` |
+| The packaging tests | The ZIP, the release gate and the bridge installer; see [Release packaging](../packaging/README.md#tests) |
 | `python -I tools/native-renderer/test_sdb_extraction.py` | The shader container extraction of the native renderer's build, with synthetic data |
 | The `[pointer_table]` and `[code_address]` SDK unit tests | The discovery patch; see [Automatic function discovery](automatic-function-discovery.md) for how to build and run them |
 
 A successful build or passing tests do not establish that the game runs; run it and check the log.
+
+## Package
+
+```powershell
+./packaging/package-release.ps1          # the ZIP, from build/native
+./packaging/package-bridge.ps1           # the bridge for 0.1.0-beta installations (Inno Setup 6.4+)
+```
+
+See [Release packaging](../packaging/README.md).

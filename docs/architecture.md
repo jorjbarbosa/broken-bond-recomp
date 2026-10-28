@@ -17,10 +17,10 @@ Xbox 360 files + manifest + codegen config
                   │
      broken_bond.exe + SDK runtime
                   │
-       Launcher → game execution
+  Setup screen → game execution
 ```
 
-PowerPC code is translated ahead of time into C++. The ReXGlue runtime provides the services the original game needs, including guest memory, kernel, content, audio, and input. The game draws with the native renderer in `src/gpu/`, which issues the game's Direct3D calls with Direct3D 12 through Plume. The launcher has its own Direct3D 11 window.
+PowerPC code is translated ahead of time into C++. The ReXGlue runtime provides the services the original game needs, including guest memory, kernel, content, audio, and input. The game draws with the native renderer in `src/gpu/`, which issues the game's Direct3D calls with Direct3D 12 or Vulkan through Plume. The setup screen and the game menu are RmlUi documents drawn by the same renderer.
 
 ## Structure
 
@@ -33,12 +33,17 @@ PowerPC code is translated ahead of time into C++. The ReXGlue runtime provides 
 | `src/input_replay.cpp` | Controller input recording and replay for repeatable test runs |
 | `src/gpu/` | Native renderer (built with `BROKENBOND_NATIVE_RENDERER=ON`); see [Native renderer](#native-renderer) |
 | `src/studies/` | Study hooks, inactive unless their environment variable is set; see [Studies](#studies) |
-| `launcher/src/` | SDL3/ImGui launcher: interface, configuration, and game file detection |
-| `launcher/assets/` | Launcher artwork, icon, and fonts |
-| `launcher/tests/` | Launcher regression tests |
+| `src/menu/` | The setup screen and the game menu over RmlUi, and the settings code: the configuration file, languages, graphics cards, DLC, the update check |
+| `src/controls/` | The four players' controls: profiles, devices, and the drivers they configure |
+| `src/game_image.cpp` | Identifies the game data in a folder or an ISO |
+| `ui/` | The menus' documents, styles and fonts, embedded in the executable, and the icon |
+| `tests/` | Host tests of the menus, the configuration, the game data and the controls |
+| `third_party/` | RmlUi, FreeType and nlohmann/json, pinned submodules |
+| `packaging/` | The release ZIP, the bridge installer for 0.1.0-beta, and their tests |
+| `launcher/` | The retired launcher's sources and artwork, outside the build |
 | `sdk/` | The ReXGlue SDK submodule, pinned to a commit |
 | `patches/` | Local SDK changes, applied by `scripts/build-sdk.ps1` |
-| `scripts/` | Extraction, SDK, game, native renderer, and launcher builds; running; the pipeline list |
+| `scripts/` | Extraction, SDK, game and native renderer builds; running; the pipeline list |
 | `tools/native-renderer/` | Native renderer build support: Plume integration, shader cache generation, and the pipeline list |
 | `tools/xenosrecomp/` | XenosRecomp fork that translates the game's shaders for the native renderer |
 | `game/` | Local game files, ignored by Git |
@@ -94,14 +99,14 @@ The shader cache is generated at build time from the local `xeshader.sdb` by `to
 | `REX_XMA_STREAM_TRACE` | The sample accounting of the game's XMA streams |
 | `REX_EXPORT_TRACE` | File reads and XMA voice calls (native renderer only) |
 
-## Launcher
+## Setup screen and menus
 
-The launcher comes from the Rise of a Ninja port's, with this game's name, files, and branding. It saves `broken_bond.toml` next to itself and starts `broken_bond.exe` from its folder, after checking `default.xex` against the supported SHA-256. ISO import belongs to the separate [Inno Setup installer](../packaging/README.md); the launcher selects extracted folders and has no DLC management. `scripts/extract-game.ps1` remains available for source builds.
+`broken_bond.exe` starts without a launcher. Before the runtime starts, `OnConfigurePaths` finds the game (the command line, `custom_game_root`, or a `game/` folder beside the executable or in the repository) and the saves folder, and `OnFinalizePaths` opens the setup screen when it is needed. The screen runs on a temporary engine of the native renderer and hands the window to the game on **Play**. An ISO is mounted in place by an SDK patch. In game, the menu draws over the frame through the renderer's UI layer, and graphics settings reach the renderer between frames. The [packaging](../packaging/README.md) builds the ZIP and the bridge for 0.1.0-beta installations, which used a launcher. `scripts/extract-game.ps1` remains available for source builds.
 
 ## Areas to address
 
 1. **Native renderer validation.** It has been played through the start of the story, Fight Mode and the open world on one graphics card, at 30 and 60 fps; broader gameplay and graphics-card coverage still require validation.
-2. **Native launcher compatibility.** Test new options against the matching game build.
+2. **Menu coverage.** The menus' host tests run on virtual devices; physical controllers, the bridge on users' installations and Wine need hand testing.
 3. **External dependencies.** Plume and XenosRecomp's dependencies are checkouts pinned by commit outside the submodules, and the build checks the commits of Plume and its allocator only.
 4. **Pipeline list.** It is generated from local play sessions and stays out of Git, so a clean clone builds without it.
 5. **One game revision.** Code generation and the native renderer's hooks use addresses of one executable revision; other revisions are refused.

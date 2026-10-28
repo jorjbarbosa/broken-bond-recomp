@@ -19,11 +19,11 @@ mods/
     textos.json
 ```
 
-Open the launcher and choose the demo in **Settings → Game → Game language**. Valid packages in `mods/` appear by their manifest name, without added labels. Copying a package makes it available; only selecting it activates it. The launcher refreshes the list when opened, when its window regains focus, and before launching the game.
+Open **Settings** on the setup screen, or in the game menu (F1 or Back + Start), and choose the demo in **Settings → Game → Game language**. Valid packages in `mods/` appear by their manifest name, without added labels. Copying a package makes it available; only selecting it activates it. The list is read each time the page opens.
 
-Selecting a translation automatically uses English as its base. Selecting any official language disables the translation. The launcher remembers the package selection on the next opening. If the selected package is missing or invalid, it disappears from the list and the launcher automatically selects English and clears the mod selection, without a warning. Restoring the package makes it available again but does not activate it. The launcher checks package structure and JSON, while engine tags and arguments are still checked by the game when it loads the table.
+Selecting a translation automatically uses English as its base. Selecting any official language disables the translation. The selection applies at the next start. If the selected package is missing or invalid, it is not listed and the menu shows English; the game keeps its original texts and logs why. Restoring the package makes it available again. The menus check the package structure and JSON, while engine tags and arguments are checked by the game when it loads the table.
 
-For manual configuration, close the game and launcher and set these keys in that executable's `broken_bond.toml`:
+For manual configuration, close the game and set these keys in that executable's `broken_bond.toml`:
 
 ```toml
 user_language = 1

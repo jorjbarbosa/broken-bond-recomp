@@ -6,7 +6,7 @@
 
 <p align="center">
   A static recompilation for PC powered by ReXGlue<br>
-  <strong>Native Direct3D 12 renderer • Windows launcher • Streamed audio fixes</strong>
+  <strong>Native Direct3D 12 and Vulkan renderer • Setup screen and in-game menus • Streamed audio fixes</strong>
 </p>
 
 <p align="center">
@@ -18,13 +18,13 @@
 </p>
 
 > [!WARNING]
-> This project is a work in progress. There are no prebuilt releases yet: you build the port from source with your own copy of the game. Expect bugs and crashes, keep a backup of your saves, and report problems on the [Issues page](https://github.com/jorjbarbosa/broken-bond-recomp/issues).
+> This project is a work in progress. You need your own copy of the game, either to build the port from source or to play a release. Expect bugs and crashes, keep a backup of your saves, and report problems on the [Issues page](https://github.com/jorjbarbosa/broken-bond-recomp/issues).
 
 ## About
 
 A PC recompilation of **Naruto: The Broken Bond**, released by Ubisoft for Xbox 360 in 2008. The project uses the [ReXGlue SDK](https://github.com/rexglue/rexglue-sdk) to translate the game's PowerPC code into C++ and compile it for native execution. The SDK runtime provides system services, audio, and input.
 
-This version ships the native **Direct3D 12** renderer in the launcher, installer and portable package. The native renderer is adapted from the [Naruto: Rise of a Ninja recomp](https://github.com/jorjbarbosa/naruto-rise-recomp).
+The game draws with a native renderer on **Direct3D 12** or **Vulkan**, starts on its own setup screen, and keeps its settings in in-game menus; there is no separate launcher. The native renderer, the setup screen and the menus are adapted from the [Naruto: Rise of a Ninja recomp](https://github.com/jorjbarbosa/naruto-rise-recomp).
 
 The build and run workflow targets **Windows x64**.
 
@@ -41,37 +41,40 @@ The Xbox Live features and most of the story have not been tested yet. Other gra
 
 **Graphics**
 
-- **Native Direct3D 12 renderer:** the game's Direct3D calls run on Direct3D 12, with the shaders translated when the port is built. See [Renderers](#renderers).
+- **Native renderer:** the game's Direct3D calls run on Direct3D 12 (the default) or Vulkan, with the shaders translated when the port is built. See [Renderers](#renderers).
 - **Internal resolution from 1× to 4×**, up to 16× anisotropic filtering, FXAA, FidelityFX CAS or FSR, fullscreen, and VSync.
-- **Native renderer options:** frame rates above the game's own (the frames between its logic steps are interpolated), MSAA (2×, 4×, 8×), transparency antialiasing, fractional internal resolution (such as 1.5×), brightness, frame latency, triple buffering, and graphics card selection.
+- **Native renderer options:** frame rates above the game's own (the frames between its logic steps are interpolated), MSAA (2×, 4×, 8×), transparency antialiasing, fractional internal resolution (such as 1.5×), brightness, frame latency, triple buffering, graphics card selection, and wide aspect ratios. Most graphics options apply while playing.
 
 **Audio**
 
 - **Streamed voices and music that play to the end.** Local fixes to the SDK's XMA decoder keep the frames that cross a buffer boundary, so cutscenes no longer wait forever for a voice line, the music no longer stops, and the crackles at buffer boundaries are gone.
 
-**Launcher and recompilation**
+**Menus, controls and distribution**
 
-- **Launcher** reused from the current Rise of a Ninja port, with the same settings layout, graphics card selection, keyboard and mouse mapping, seven interface languages, and game-folder verification, without DLC. See [launcher features and remaining gaps](launcher/README.md).
-- **Translation mods:** packages in `mods/` replace the game's English texts by ID without changing the game files, and the launcher lists them as game languages. See [Translation mods](docs/translation-mods.md).
-- **Windows installer** based on Rise's Inno Setup flow, with optional ISO import, supported-revision verification, updates and preservation of user data. See [packaging and installer](packaging/README.md).
+- **Setup screen:** the game opens on a screen with its own logo, where you play, choose your ISO (read in place, without extraction) or an extracted copy, and change settings. The supported revision is checked before the game starts. See [Configuration](docs/configuration.md).
+- **In-game menu:** F1 or Back + Start opens Settings, DLC and Exit game over the game, in seven interface languages.
+- **Four players' controls:** each player has a controller or keyboard and mouse, with its own bindings and dead zones. Controllers are assigned automatically.
+- **DLC:** the DLC page installs the game's marketplace packages. See [DLC](docs/dlc.md).
+- **Translation mods:** packages in `mods/` replace the game's English texts by ID without changing the game files, and the menus list them as game languages. See [Translation mods](docs/translation-mods.md).
+- **Portable ZIP:** the release is a ZIP to extract and run. Installations of 0.1.0-beta, which used a launcher and an installer, move to it with a bridge installer that keeps game files, saves and settings. See [Release packaging](packaging/README.md).
 - **Automatic function discovery:** a ReXGlue patch finds the functions the game reaches only through pointer tables or addresses built in code, so the port needs no hand-written function list. See [Automatic function discovery](docs/automatic-function-discovery.md).
 
 ## Renderers
 
-The game draws with the native Direct3D 12 renderer: it intercepts the game's
-Direct3D calls and issues them with Direct3D 12, with the shaders translated
-at build time and embedded in the executable. See [Renderers](docs/renderers.md)
+The game draws with the native renderer: it intercepts the game's Direct3D
+calls and issues them with Direct3D 12 (the default) or Vulkan, with the
+shaders translated at build time and embedded in the executable. See [Renderers](docs/renderers.md)
 for the frame rate option, validation limits and known issues.
 
 ## Requirements
 
 - Windows x64.
-- A GPU supporting Direct3D 12. The launcher uses Direct3D 11.
-- The files from your Xbox 360 copy of the game, in the supported revision below. The source tree does not include game data.
+- A GPU supporting Direct3D 12 or Vulkan 1.2.
+- Your Xbox 360 copy of the game, as an ISO or extracted files, in the supported revision below. The source tree and the releases do not include game data.
 - The build tools listed in the [build guide](docs/build-and-run.md#1-prerequisites).
 - An SDL-compatible controller is recommended. The SDK's keyboard emulation is also available.
 
-The port supports one executable revision; the build refuses any other:
+The port supports one executable revision; the build and the setup screen refuse any other:
 
 | Field | Value |
 | --- | --- |
@@ -92,20 +95,21 @@ git -c core.symlinks=true submodule update --init --recursive
 # Prepare pinned native dependencies as described in the build guide, then:
 ./scripts/build-game-native.ps1 -PlumeSource out/plume `
   -XenosRecompThirdparty tools/xenosrecomp/thirdparty
-./build/native/broken_bond_launcher.exe
+./build/native/broken_bond.exe
 ```
 
-The [build guide](docs/build-and-run.md) explains each step, the native renderer build, and running the game without the launcher.
+The [build guide](docs/build-and-run.md) explains each step, the native renderer build, and the ways to run the game.
 
 ## Documentation
 
 | Guide | Contents |
 | --- | --- |
 | [Build and run](docs/build-and-run.md) | Toolchain, SDK, game files, code generation, the native renderer, and running |
-| [Configuration](docs/configuration.md) | Launcher settings, the configuration file, renderer options, and user files |
+| [Configuration](docs/configuration.md) | The setup screen, the game menu's settings, the controls, the configuration file, and user files |
 | [Translation mods](docs/translation-mods.md) | Translation packages, their format, validation, and limits |
 | [DLC](docs/dlc.md) | Installing marketplace packages, their folders, and diagnostics |
 | [Renderers](docs/renderers.md) | The native renderer, the frame rate, the pipeline list, and known issues |
+| [Release packaging](packaging/README.md) | The ZIP, the bridge for 0.1.0-beta installations, and their tests |
 | [Architecture](docs/architecture.md) | Project structure, SDK patches, and areas to address |
 | [Troubleshooting](docs/troubleshooting.md) | Build failures, runtime issues, and diagnostics |
 | [Recompilation notes](docs/recompilation-notes.md) | Executable identity, function boundaries, and validation evidence |
@@ -121,7 +125,7 @@ Planned work, in no particular order:
 
 ## Contributing
 
-Read the [architecture notes](docs/architecture.md) before changing the runtime or code generation files. When reporting an issue, include reproduction steps, the commit you built, CPU, GPU, driver, the renderer you use, your configuration, and the log of the run (`build/logs/` with `run-game.ps1`, `build/native/logs/` with the launcher).
+Read the [architecture notes](docs/architecture.md) before changing the runtime or code generation files. When reporting an issue, include reproduction steps, the commit you built, CPU, GPU, driver, the renderer you use, your configuration, and the log of the run (`build/logs/` with `run-game.ps1`, otherwise `logs/` beside `broken_bond.exe`).
 
 Work happens on the `develop` branch; `main` is the primary branch. Keep game files, derived shader data, pipeline lists, and generated code out of commits. SDK changes go into reproducible patches in `patches/`. Code, comments, documentation, and commit messages are written in English, as [AGENTS.md](AGENTS.md) requires.
 
@@ -132,11 +136,11 @@ Work happens on the `develop` branch; `main` is the primary branch. Keep game fi
 - [ReXGlue](https://github.com/rexglue/rexglue-sdk), recompilation SDK and runtime.
 - [Xenia](https://github.com/xenia-project/xenia) and [XenonRecomp](https://github.com/hedge-dev/XenonRecomp), foundations and references for the Xbox 360 recompilation ecosystem. Several of the XMA decoder fixes are ports of [Xenia Canary](https://github.com/xenia-canary/xenia-canary) commits.
 - [XenosRecomp](https://github.com/hedge-dev/XenosRecomp), shader translation for the native renderer (forked in `tools/xenosrecomp/`), and [Plume](https://github.com/renderbag/plume) with [D3D12 Memory Allocator](https://github.com/GPUOpen-LibrariesAndSDKs/D3D12MemoryAllocator) for its Direct3D 12 backend, and [volk](https://github.com/zeux/volk), [Vulkan Memory Allocator](https://github.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator), [Vulkan Headers](https://github.com/KhronosGroup/Vulkan-Headers) and [SMOL-V](https://github.com/aras-p/smol-v) for its Vulkan backend.
-- [SDL](https://github.com/libsdl-org/SDL), [Dear ImGui](https://github.com/ocornut/imgui), [toml++](https://github.com/marzer/tomlplusplus), and [extract-xiso](https://github.com/XboxDev/extract-xiso).
+- [RmlUi](https://github.com/mikke89/RmlUi) and [FreeType](https://freetype.org) for the menus, and [SDL](https://github.com/libsdl-org/SDL), [Dear ImGui](https://github.com/ocornut/imgui), [toml++](https://github.com/marzer/tomlplusplus), and [extract-xiso](https://github.com/XboxDev/extract-xiso).
 
 **References**
 
-- [Naruto: Rise of a Ninja Recomp](https://github.com/jorjbarbosa/naruto-rise-recomp), source of the native renderer and the launcher.
+- [Naruto: Rise of a Ninja Recomp](https://github.com/jorjbarbosa/naruto-rise-recomp), source of the native renderer, the setup screen and the menus.
 - [Unleashed Recompiled](https://github.com/hedge-dev/UnleashedRecomp), the model for the native renderer's design and its pipeline handling.
 - Ubisoft Montreal, for the original game. [Logo source](docs/assets/README.md).
 
@@ -144,6 +148,6 @@ Work happens on the `develop` branch; `main` is the primary branch. Keep game fi
 
 Copyright (C) 2026 Jorge Barbosa. The source code of this port is licensed under version 3 of the [GNU General Public License](LICENSE) (GPL-3.0-only).
 
-Third-party code keeps its own license: the ReXGlue SDK (`sdk/`, BSD-3-Clause) and its dependencies, the XenosRecomp fork (`tools/xenosrecomp/`, MIT), Plume, D3D12 Memory Allocator, volk and Vulkan Memory Allocator (MIT), SMOL-V (MIT and Apache-2.0) and the Vulkan Headers (Apache-2.0), built into the executable with the native renderer, and the Lato fonts (`launcher/assets/fonts/`, OFL-1.1).
+Third-party code keeps its own license: the ReXGlue SDK (`sdk/`, BSD-3-Clause) and its dependencies, the XenosRecomp fork (`tools/xenosrecomp/`, MIT), Plume, D3D12 Memory Allocator, volk and Vulkan Memory Allocator (MIT), SMOL-V (MIT and Apache-2.0) and the Vulkan Headers (Apache-2.0), built into the executable with the native renderer, RmlUi (MIT) and FreeType (FTL), built into it for the menus, and the Roboto fonts (`ui/fonts/`, OFL-1.1). The retired launcher's Lato fonts (`launcher/assets/fonts/`) are OFL-1.1.
 
-Naruto: The Broken Bond, its content, and its artwork and trademarks, including the artwork in `launcher/assets/` and `docs/assets/`, belong to their respective owners and are not covered by this license. The license does not cover the original game executable, its assets, or the code translated from it. No game data is distributed with this project.
+Naruto: The Broken Bond, its content, and its artwork and trademarks, including the icon in `ui/` and the artwork in `launcher/assets/` and `docs/assets/`, belong to their respective owners and are not covered by this license. The license does not cover the original game executable, its assets, or the code translated from it. No game data is distributed with this project.

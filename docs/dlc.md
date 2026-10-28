@@ -28,7 +28,7 @@ Copy the packages, or a download that keeps the Xbox 360 layout (`55530825/00000
 └── dlc/                          # dlc_source_path
     └── <your packages>
 
-<user data folder>/               # user_data_root (build/user with the launcher)
+<user data folder>/               # user_data_root (build/user in a repository build)
 └── 0000000000000000/
     └── 55530825/
         ├── 00000002/

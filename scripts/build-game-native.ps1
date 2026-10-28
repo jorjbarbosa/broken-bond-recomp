@@ -57,9 +57,10 @@ try {
     & cmake --build $BuildDirectory --target broken_bond --parallel $Jobs
     if ($LASTEXITCODE -ne 0) { throw 'Native renderer build failed.' }
     if ($Tests) {
-        & cmake --build $BuildDirectory --target broken_bond_native_tests broken_bond_config_manager_test --parallel $Jobs
+        # Every test of the tree: the engine, the menus, the setup screen and the controls.
+        & cmake --build $BuildDirectory --parallel $Jobs
         if ($LASTEXITCODE -ne 0) { throw 'Native renderer test build failed.' }
-        & ctest --test-dir $BuildDirectory --output-on-failure -R '^(native_|menu_|config_manager)'
+        & ctest --test-dir $BuildDirectory --output-on-failure
         if ($LASTEXITCODE -ne 0) { throw 'Native renderer tests failed.' }
     }
 } finally {

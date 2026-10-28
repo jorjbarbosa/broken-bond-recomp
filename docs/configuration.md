@@ -4,33 +4,41 @@
 
 ## Where to configure settings
 
-Use the launcher whenever possible. It reads and saves `broken_bond.toml` **next to its executable** (`build/native/broken_bond.toml` in a repository build) when you play or close it. The game reads the same file when it starts from that folder, also without the launcher. Close both the game and the launcher before editing the file by hand.
+Use the setup screen or the game menu. Both save `broken_bond.toml` **next to the executable** (`build/native/broken_bond.toml` in a repository build) at each change. Close the game before editing the file by hand.
 
-The native executable and matching launcher live in `build/native/` and read `build/native/broken_bond.toml`. Build that launcher with `scripts/build-launcher.ps1 -NativeRenderer`, or together with the game using `scripts/build-game-native.ps1`.
+Every option can also be set as an environment variable named `REX_` plus the key in capitals (such as `REX_MSAA_SAMPLES=4`), or on the command line (`--msaa_samples 4`; a boolean needs `=`, as in `--fullscreen=false`). The command line takes precedence over environment variables, and both over the file.
 
-Every option can also be set as an environment variable named `REX_` plus the key in capitals (such as `REX_MSAA_SAMPLES=4`), or on the command line (`--msaa_samples 4`). The command line takes precedence over environment variables, and both over the file.
+## Setup screen
 
-## Launcher
+The game opens on the setup screen, with the game's logo read from your game files, or a text title when they have none. **Play** starts the game; **Settings** and **DLC** open those pages; **Quit** closes it. When no supported game is found, the first entry chooses one: an ISO, read in place, or the `default.xex` of a complete extracted copy. The choice is checked against the supported revision and saved as `custom_game_root`; your original files are never moved or changed.
 
-The launcher has three tabs: **Play**, **Settings**, and **Game Files**. **Play Game** checks `default.xex` against the supported SHA-256, saves the settings, and starts `broken_bond.exe` from the launcher's folder.
+The screen also opens when the last start failed before its first frame, or when the chosen game is missing or unsupported. **Settings → Advanced → Startup menu** turns off the screen for normal starts; holding Shift while opening, or `--setup`, brings it back. Changing the graphics API or card offers to restart the game.
 
-The interface matches the current Rise launcher, with its DLC tab removed. The language selector supports English (default), Portuguese, French, German, Spanish, Italian, and Russian. **Settings** has five groups and a description panel for the selected or hovered option. **Reset to Recommended** restores graphics and input-backend recommendations while preserving paths, languages, renderer selection, and key mappings.
+## Game menu
 
-| Group | Options |
+In game, F1 or Back + Start opens the game menu over the native renderer: **Settings**, **DLC** and **Exit game**. The game keeps running, but its controller, keyboard and mouse input stay neutral while the menu shows; Esc or B closes it. Both shortcuts can be changed under **Settings → Controls**. With `show_fps_overlay = true` the frame rate also shows in a corner of the screen.
+
+**Settings** has five pages, in seven interface languages: English (default), Brazilian Portuguese, French, German, Spanish, Italian and Russian.
+
+| Page | Options |
 | --- | --- |
-| Game | Game language and Ubisoft boot-logo skip |
-| Display | Graphics card, resolution, aspect ratio, fullscreen, VSync, brightness and frame rate |
-| Quality | Texture filtering, FXAA, post-processing, MSAA and transparency AA |
-| Controls | SDL/XInput, connected controller, keyboard and mouse mode, mouse camera, sensitivity, key mapping |
-| Advanced | Frame latency and triple buffering |
+| Game | Game folder (on the setup screen), game language, Ubisoft boot-logo skip, menu language |
+| Display | Graphics API, graphics card, resolution, aspect ratio, brightness, frame rate, VSync, fullscreen |
+| Quality | MSAA, FXAA, post-processing, texture filtering, transparency AA |
+| Controls | Configure controls, SDL or XInput, the menu's keyboard key and controller buttons |
+| Advanced | Startup menu, frame latency, triple buffering, FPS overlay, pipeline notice, update check, desktop shortcut |
 
-**Map keys** opens the Rise mapping screen: 24 controller actions with two editable key or mouse-button alternatives each. Click a slot and press a key within five seconds; right-click clears it. Assigning an existing key moves it from the other action. F1, F3, F4, F7, F11, and Backtick remain reserved. Mouse movement emulates the right stick; Rise's direct exploration-camera script hook has not been validated for Broken Bond. See the [feature ledger](launcher-game-features.md).
+In game, resolution, brightness, frame rate, VSync, MSAA, FXAA, post-processing, texture filtering, transparency AA, frame latency, triple buffering and the boot-logo skip apply at once. The menu waits for the renderer to accept each change and restores the previous value if it is refused. Resolution and MSAA changes can pause the image briefly. Options marked RESTART apply at the next start.
 
-The **Game Files** tab detects the repository's `game/` folder, or a `game/` folder next to the launcher, and lets you select another folder that contains `default.xex`. Your original files are never moved or deleted. A selected folder that no longer exists is reported; the launcher does not fall back to another location.
+## Controls
+
+**Settings → Controls → Configure controls** sets up four players. Each player has a device (automatic by default, or a chosen controller or the keyboard and mouse), the game commands mapped to keys and mouse buttons and to controller inputs, the mouse sensitivity, dead zones, and vibration with a motor test. Controllers are assigned to the players as they connect. Changes are saved at once in the `[controls]` table of `broken_bond.toml`.
+
+On the first start, the older single-player keys (`mnk_mode`, `mnk_mouse`, `mnk_sensitivity` and `keybind_*`) are moved into player 1; they stay in the file. Mouse movement emulates the right stick; there is no direct mouse camera.
 
 ## Game language
 
-Open **Settings → Game → Game language**. The selection is applied on the next launch. Text and voice availability depends on the language assets in your game files.
+Open **Settings → Game → Game language**. The selection is applied on the next start. Text and voice availability depends on the language assets in your game files.
 
 | Language | `user_language` |
 | --- | --- |
@@ -48,50 +56,41 @@ The voices (English or Japanese) are chosen in the game's own options menu.
 
 ## Main settings
 
-Defaults written by the launcher:
+Defaults of a new configuration (`packaging/broken_bond.toml` and the game's own):
 
 | Key | Default | Effect |
 | --- | --- | --- |
 | `user_language` | `1` | Game language; see the codes above |
 | `translation_mod` | `""` | Translation package folder under `mods/`, applied over English; empty disables it. See [Translation mods](translation-mods.md) |
 | `resolution_scale` | `1` | Internal resolution: 1 (1280×720, the original) to 4 (5120×2880) |
-| `draw_resolution_scale_x`, `draw_resolution_scale_y` | `1`, `1` | Draw scales, kept equal to `resolution_scale` by the launcher |
+| `draw_resolution_scale_x`, `draw_resolution_scale_y` | `1`, `1` | Draw scales, kept equal to `resolution_scale` by the menus |
 | `anisotropic_override` | `5` | Texture filtering in the SDK's encoding: `-1` the game's, `0` off, `1` to `5` for 1× to 16×; `5` is 16× |
 | `swap_post_effect` | `"fxaa"` | `"none"`, `"fxaa"`, or `"fxaa_extreme"` for edge smoothing |
 | `present_effect` | `"cas"` | `"bilinear"`, `"cas"` (sharpen), or `"fsr"` (upscale) when presenting |
 | `fullscreen` | `true` | Fullscreen mode; Alt+Enter or F11 switches between borderless fullscreen and a window while playing |
 | `vsync` | `true` | Synchronize presentation with the display |
 | `input_backend` | `"sdl"` | `"sdl"` for Xbox and PlayStation controllers through SDL, `"xinput"` for XInput only |
-| `mnk_mode` | `false` | Keyboard controller emulation; enables the mapping screen's bindings |
-| `mnk_mouse`, `mnk_sensitivity` | `true`, `1.0` | Mouse-to-right-stick camera and sensitivity (100%); active with `mnk_mode` |
-| `keybind_*` | Rise layout | Space = A, E/Backspace = B, mouse buttons = X/Y, WASD = left stick, Shift/Ctrl = triggers; editable in **Map keys** |
+| `[controls]` | Automatic devices | The four players' devices, bindings, dead zones and vibration; see [Controls](#controls) |
 | `graphics_device` | `""` | Graphics adapter name; empty keeps automatic selection |
 | `skip_intro_videos` | `true` | Skip only the Ubisoft boot logo; story and attract videos use their original open path |
-| `launcher_language` | `"en"` | Interface language, independent of game language |
-| `custom_game_root` | `""` | The game folder selected in **Game Files**; empty uses the detected one |
+| `launcher_language` | `"en"` | The menus' language, independent of the game language |
+| `custom_game_root` | `""` | The game chosen on the setup screen, a folder or an ISO; empty uses a `game/` folder beside the executable, or the repository's |
+| `show_startup_menu` | `true` | Opens the setup screen before the game |
 
-Other SDK options can be added to the file by hand; the launcher keeps the keys it does not know when it saves. `log_level = "debug"` adds detail to the log.
+Other SDK options can be added to the file by hand; the menus keep the keys they do not know when they save. `log_level = "debug"` adds detail to the log.
 
 ## Renderer
 
 The game draws with the native renderer: `renderer` is always `"native"`.
 `native_backend` selects its graphics API, `"d3d12"` (the default) or
 `"vulkan"`. Under Wine (Proton), the game uses Vulkan whatever `native_backend`
-says and logs it, and the launcher offers only Vulkan. If the selected API
+says and logs it, and the menus offer only Vulkan. If the selected API
 cannot start on the graphics card or driver, the game tries the other one and
 logs the refusal. Graphics cards are enumerated through the selected API; a
 saved card that is no longer present falls back to the automatic choice. The frame rate and frame time are reported
 in the game window title.
 
-In game, F1 or Back + Start opens the game menu over the native renderer. The
-game keeps running, but its controller, keyboard and mouse input stay neutral
-while the menu shows; Esc or B closes it. With `show_fps_overlay = true` the
-frame rate also shows in a corner of the screen.
-
-**Settings** in the game menu has the launcher's options under the same keys,
-saved to `broken_bond.toml` at each change. The frame rate overlay, fullscreen,
-the menu language and the menu shortcuts apply at once; the options marked
-RESTART apply at the next start. The menu adds these keys:
+The menus also use these keys:
 
 | Key | Default | Effect |
 | --- | --- | --- |
@@ -103,7 +102,7 @@ RESTART apply at the next start. The menu adds these keys:
 
 ### Native renderer options
 
-These keys exist only in native renderer builds. Each takes effect on the next launch.
+These keys exist only in native renderer builds. Set in the menus, most apply at once (see [Game menu](#game-menu)); edited by hand, they take effect on the next start.
 
 | Key | Default | Effect |
 | --- | --- | --- |
@@ -142,8 +141,8 @@ Full-screen effects such as fades and the pause dim cover the whole screen. HUD 
 
 | Started with | Game files | Saves and caches | Logs |
 | --- | --- | --- | --- |
-| The launcher, in `build/native/` | `game/`, or the folder selected in **Game Files** | `build/user/` | `logs/` beside the executable |
+| `build/native/broken_bond.exe` | `custom_game_root`, else the repository's `game/` | `build/user/` | `build/native/logs/` |
 | `scripts/run-game.ps1` | `game/` | `build/user/` | `build/logs/runtime-<date>.log` |
-| The launcher copied elsewhere | A `game/` folder next to it, or the selected folder | A `user/` folder next to it | `logs/` next to it |
+| A copy elsewhere, such as the ZIP | `custom_game_root` (a folder or an ISO), else a `game/` folder next to it | A `user/` folder next to it | `logs/` next to it |
 
-The launcher and `run-game.ps1` share `build/user/`, so saves carry over between them. Native runs started by `run-game.ps1` also write the renderer's journal next to the log (`.native.jsonl`) and the pipelines they created to `build/pipeline-runs/<run>/`.
+`user_data_root` in the file, or `--user_data_root`, changes the saves folder in every case. A build in `build/native` and `run-game.ps1` share `build/user/`, so saves carry over between them. Installations of 0.1.0-beta kept their saves in `user/` beside the launcher, the same folder the game uses now. Native runs started by `run-game.ps1` also write the renderer's journal next to the log (`.native.jsonl`) and the pipelines they created to `build/pipeline-runs/<run>/`.

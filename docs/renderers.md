@@ -14,7 +14,7 @@ Without an emulation layer, it offers options the console did not have: frame ra
 
 ## Starting the game
 
-Build the game and its launcher ([Build and run](build-and-run.md#6-native-renderer)), then start it with the launcher (`build/native/broken_bond_launcher.exe`) or from the repository:
+Build the game ([Build and run](build-and-run.md#6-native-renderer)), then start `build/native/broken_bond.exe`, or start it from the repository:
 
 ```powershell
 ./scripts/run-game.ps1

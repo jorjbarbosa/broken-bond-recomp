@@ -29,13 +29,17 @@
 
 ## Runtime issues
 
-### The launcher cannot find the game
+### The setup screen cannot find the game
 
-Select the folder that directly contains `default.xex` under **Game Files**. A folder that only contains another folder with the game is not the game folder. You can also set `custom_game_root` in `broken_bond.toml`, or start the game with `--game_data_root`.
+Choose your ISO, or the `default.xex` of the extracted copy, with the setup screen's first entry or under **Settings → Game**. In an extracted copy, `default.xex` must sit directly in the chosen folder. The screen names what is wrong with a game it refuses, such as another revision or missing files. You can also set `custom_game_root` in `broken_bond.toml`, or start the game with `--game_data_root`.
 
-### The launcher reports "PC port not found"
+### The setup screen opens at every start
 
-The launcher starts `broken_bond.exe` from its own folder. Build the game with `scripts/build-game-native.ps1`, and keep the launcher in `build/native/` or next to a copy of the game executable and its DLLs.
+It is the startup menu: turn it off under **Settings → Advanced**. The screen also opens on its own after a start that failed before its first frame, which often means the graphics API or card cannot start; pick the other API under **Settings → Display**.
+
+### A copy of 0.1.0-beta still opens the old launcher
+
+Update it with the bridge installer, `BrokenBondInstaller.exe`, which removes the launcher and points the shortcuts at `broken_bond.exe`, or replace the files with those of the ZIP and start `broken_bond.exe`. See [Release packaging](../packaging/README.md#bridge-for-010-beta-installations).
 
 ### The game closes at startup or during play
 
@@ -58,7 +62,7 @@ Expected: the game picks Konoha's time of day at random each time the title load
 | Symptom | What to check |
 | --- | --- |
 | Short pauses in a new area | Pipelines compile the first time they appear on your driver; later visits do not pause. See [Pipelines](renderers.md#pipelines) |
-| A native option has no effect | The options are read at startup: close the game and the launcher, edit `build/native/broken_bond.toml`, and start again; see [Native renderer options](configuration.md#native-renderer-options) |
+| A native option has no effect | Set it in the game menu, where most options apply at once. Edited by hand, options are read at startup: close the game, edit `broken_bond.toml` next to the executable, and start again; see [Native renderer options](configuration.md#native-renderer-options) |
 | The game stops during startup with `REX_NATIVE_DIAGNOSTICS=1` | Known; leave the variable unset |
 
 ## Collecting diagnostics
@@ -66,7 +70,7 @@ Expected: the game picks Konoha's time of day at random each time the title load
 | Started with | Log |
 | --- | --- |
 | `scripts/run-game.ps1` | `build/logs/runtime-<date>.log`, and the native renderer's journal next to it (`.native.jsonl`) |
-| The launcher | `build/native/logs/` |
+| `broken_bond.exe` directly | `logs/` next to the executable (`build/native/logs/` in a repository build) |
 
 For more detail, use `run-game.ps1 -LogLevel debug`, or set `log_level = "debug"` in `broken_bond.toml` and restore `"info"` afterwards.
 
