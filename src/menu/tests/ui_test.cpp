@@ -3,13 +3,15 @@
 // rate document and its hiding; the game menu bar with only Exit, Enter and
 // Esc; a dialog whose default is Cancel; a panel's arrows, tabs and Back; the
 // settings pages saving to broken_bond.toml and their live rows waiting for
-// the renderer's result; the DLC page; the menu strings in
+// the renderer's result; the DLC page; the setup screen, its own engine and
+// the hand-over to the game's; the menu strings in
 // every language; the controller's navigation and shortcut; and the release of
 // the UI's textures with the menus.
 #include "gpu/backend/dispatcher.h"
 #include "gpu/backend/tests/test_backend.h"
 #include "gpu/ui/immediate_drawer.h"
 #include "gpu/ui/layer.h"
+#include "gpu/ui/screen.h"
 #include "menu/assets.h"
 #include "menu/content_manager.h"
 #include "menu/dlc.h"
@@ -20,6 +22,7 @@
 #include <windows.h>
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <chrono>
 #include <cmath>
 #include <cstdlib>
@@ -398,6 +401,116 @@ int main(int argc, char** argv) {
       check("overlay-dlc-entry-shown", entry && entry->IsVisible(), "{}");
       key(rex::ui::VirtualKey::kEscape);
       frame("overlay-with-dlc-closed", modal);
+    }
+
+    // The setup screen (setup_screen.h) at 1280 x 720 (one dp a pixel; the
+    // window grows for it): the text title, the focus, its keys and mouse, the
+    // frame rate hidden under it. Then the game's engine goes, the screen's own
+    // engine on the window asks for frames as the Swaps do, and once it closes
+    // a new game engine gets the setup document back.
+    {
+      constexpr uint32_t kSetupWidth = 1280, kSetupHeight = 720;
+      SetWindowPos(window, nullptr, 0, 0, int(kSetupWidth), int(kSetupHeight), SWP_NOZORDER | SWP_NOACTIVATE);
+      rex::ui::AppUIDrawContext setup_context(kSetupWidth, kSetupHeight);
+      const auto at = [](const std::vector<uint8_t>& bgra, uint32_t x, uint32_t y) {
+        const uint8_t* p = bgra.data() + (size_t(y) * kSetupWidth + x) * 4;
+        return std::array<int, 3>{p[2], p[1], p[0]};
+      };
+      const auto setup_frame = [&](const std::string& kind, std::vector<uint8_t>& pixels) {
+        menu.Draw(setup_context);
+        check(kind + "-deliver", layer.Deliver(*engine), "{}");
+        uint32_t w = 0, h = 0;
+        return check(kind + "-present", engine->Run([&](Engine& e, std::string& out) {
+          uint32_t slot = 0;
+          return e.StageFront(kSurface, slot, out) && e.Present(slot, true, pixels, w, h, out);
+        }, evidence) && w == kSetupWidth && h == kSetupHeight, evidence);
+      };
+      int played = 0, quits = 0, dlcs = 0;
+      broken_bond::menu::SetupScreen::State state;
+      state.reason = broken_bond::menu::SetupReason::kRequested;
+      state.game.status = broken_bond::game_image::Status::kReady;
+      state.game.disc_image = true;
+      state.version = "0.0.0-test";
+      broken_bond::menu::SetupScreen::Actions actions;
+      actions.play = [&] { ++played; };
+      actions.quit = [&] { ++quits; };
+      actions.dlc = [&] { ++dlcs; };
+      const std::array<int, 3> lit{245, 138, 53}, night{8, 15, 27};
+      menu.SetFpsVisible(true);
+      check("setup-show", menu.ShowSetup(state, actions) && menu.Shown() && menu.SetupShown(), "{}");
+      std::vector<uint8_t> shown;
+      if (setup_frame("setup", shown)) {
+        const auto background = at(shown, 20, 20), fps = at(shown, 6, 25), play = at(shown, 500, 353),
+                   settings = at(shown, 500, 407);
+        check("setup-background", Near(background, night, 4), Json(background));
+        check("setup-hides-fps", Near(fps, night, 6), Json(fps));
+        check("setup-focus", Near(play, lit, 4), Json(play));
+        check("setup-unfocused", !Near(settings, lit, 40), Json(settings));
+        uint32_t title = 0;
+        for (uint32_t y = 120; y < 225; ++y)
+          for (uint32_t x = 450; x < 830; ++x) {
+            const auto p = at(shown, x, y);
+            title += p[0] > 150 && p[1] > 150 && p[2] > 150;
+          }
+        check("setup-text-title", title > 500, "{\"pixels\":" + std::to_string(title) + "}");
+      }
+      // Down moves the focus to Settings; Enter on Quit runs it.
+      check("setup-key-taken", key(rex::ui::VirtualKey::kDown), "{}");
+      std::vector<uint8_t> moved;
+      if (setup_frame("setup-down", moved)) {
+        const auto play = at(moved, 500, 353), settings = at(moved, 500, 407);
+        check("setup-down-focus", Near(settings, lit, 4) && !Near(play, lit, 40),
+              "{\"play\":" + Json(play) + ",\"settings\":" + Json(settings) + "}");
+      }
+      key(rex::ui::VirtualKey::kDown);
+      key(rex::ui::VirtualKey::kDown);
+      key(rex::ui::VirtualKey::kReturn);
+      check("setup-quit", quits == 1 && played == 0, "{\"quits\":" + std::to_string(quits) + "}");
+      // The mouse over DLC focuses it; a click runs it.
+      rex::ui::MouseEvent move(nullptr, rex::ui::MouseEvent::Button::kNone, 500, 455);
+      rex::ui::MouseEvent press(nullptr, rex::ui::MouseEvent::Button::kLeft, 500, 455);
+      menu.OnMouseMove(move);
+      menu.OnMouseDown(press);
+      menu.OnMouseUp(press);
+      check("setup-click", dlcs == 1 && move.is_handled(), "{\"dlcs\":" + std::to_string(dlcs) + "}");
+
+      check("first-release", engine->Run([](Engine& e, std::string& out) {
+        return e.ReleaseRemaining(out) && e.DetachWindow(out);
+      }, evidence), evidence);
+      check("first-shutdown", engine->Shutdown(evidence), evidence);
+      engine.reset();
+      std::atomic<int> requests{0};
+      layer.SetFrameRequest([&] { ++requests; });
+      {
+        ui::Screen screen(layer);
+        std::string opened;
+        if (check("screen-open", screen.Open(window, TestRenderMode(), opened), opened.empty() ? "{}" : opened)) {
+          for (int i = 0; i < 50 && requests < 10; ++i) Sleep(20);
+          check("screen-frames", requests >= 10, "{\"requests\":" + std::to_string(requests.load()) + "}");
+          screen.Close();
+          check("screen-closed", !screen.IsOpen(), "{}");
+        }
+      }
+      layer.SetFrameRequest({});
+      engine = std::make_unique<Dispatcher>(true);
+      check("second-initialize", engine->Initialize(evidence, TestRenderMode()), evidence);
+      check("second-attach", engine->Run([&](Engine& e, std::string& out) {
+        return e.AttachWindow(window, out, present) && e.CreateSurface(SurfaceDesc{kSurface, kWidth, kHeight}, out);
+      }, evidence), evidence);
+      check("second-green", engine->Run([&](Engine& e, std::string& out) {
+        uint64_t fence = 0;
+        return e.ClearSurfaces(clear, fence, out);
+      }, evidence), evidence);
+      std::vector<uint8_t> back;
+      if (setup_frame("setup-handover", back)) {
+        const auto dlc = at(back, 500, 455), art = at(back, 20, 20);
+        check("setup-handover-ui", Near(dlc, lit, 4) && Near(art, night, 4),
+              "{\"dlc\":" + Json(dlc) + ",\"art\":" + Json(art) + "}");
+      }
+      menu.HideSetup();
+      menu.SetFpsVisible(false);
+      check("setup-hidden", !menu.Shown() && !menu.SetupShown(), "{}");
+      SetWindowPos(window, nullptr, 0, 0, int(kWidth), int(kHeight), SWP_NOZORDER | SWP_NOACTIVATE);
     }
 
     // The menu strings in each language.

@@ -5,12 +5,13 @@
 // shown; with the Xenos renderer it is the SDK's, and the presenter draws the
 // Ui (its UIDrawer) while a document is shown. Sizes are in dp, one dp a pixel
 // at 720 lines and more above. The documents: the frame rate, the notices, the
-// game menu bar, its panels and dialogs, which take the keyboard and the mouse
-// of the window while they show.
+// setup screen before the game, the game menu bar, its panels and dialogs,
+// which take the keyboard and the mouse of the window while they show.
 #pragma once
 
 #include "menu/panel.h"
 #include "menu/pad_input.h"
+#include "menu/setup_screen.h"
 #include "menu/text.h"
 #include <atomic>
 #include <chrono>
@@ -47,9 +48,14 @@ class Ui final : public rex::ui::UIDrawer, public rex::ui::WindowInputListener {
   // source gives the rate (fps, ms) itself (the Xenos guest rate).
   void SetRateSource(std::function<bool(double& fps, double& ms)> source) { rate_source_ = std::move(source); }
   void CountFrame() { frames_.fetch_add(1, std::memory_order_relaxed); }  // Any thread.
-  // The frame rate document (UI thread). It hides while a panel or dialog shows.
+  // The frame rate document (UI thread). It hides while the setup screen, a panel or a dialog shows.
   void SetFpsVisible(bool visible);
   bool FpsVisible() const { return fps_visible_.load(); }
+  // The setup screen before the game (setup_screen.h), UI thread.
+  bool ShowSetup(const SetupScreen::State& state, SetupScreen::Actions actions);
+  void RefreshSetup(const SetupScreen::State& state);
+  void HideSetup();
+  bool SetupShown() const { return setup_shown_.load(); }
   // Modal actions run after the document event. Cancel is focused by default.
   void ShowDialog(const std::string& title, const std::string& message,
                   std::vector<std::pair<std::string, std::function<void()>>> actions = {});
@@ -78,7 +84,7 @@ class Ui final : public rex::ui::UIDrawer, public rex::ui::WindowInputListener {
   bool HintShown() const { return hint_shown_; }
   void SetShadersVisible(bool visible, uint32_t pending = 0, float progress = -1);
   // A document is shown (any thread): the native mode draws frames then.
-  bool Shown() const { return fps_visible_.load() || panel_shown_.load() || overlay_shown_.load() ||
+  bool Shown() const { return fps_visible_.load() || setup_shown_.load() || panel_shown_.load() || overlay_shown_.load() ||
                               status_shown_.load(); }
   // A frame of the UI, on the UI thread: the app's call in the native mode,
   // the presenter's with Xenos.
@@ -95,7 +101,7 @@ class Ui final : public rex::ui::UIDrawer, public rex::ui::WindowInputListener {
  private:
   void UpdateDocuments();
   void UpdateRate();
-  bool TakesInput() const { return context_ && (panel_.Shown() || dialog_ || overlay_); }
+  bool TakesInput() const { return context_ && (setup_.Shown() || panel_.Shown() || dialog_ || overlay_); }
   struct MenuEvents;
   std::unique_ptr<MenuEvents> overlay_events_, status_events_;
   Rml::ElementDocument* overlay_ = nullptr;
@@ -134,7 +140,8 @@ class Ui final : public rex::ui::UIDrawer, public rex::ui::WindowInputListener {
   PadInput pad_;
   TextSystem text_;
   std::atomic<bool> panel_shown_{false};
-  std::atomic<bool> fps_visible_{false};
+  SetupScreen setup_;
+  std::atomic<bool> fps_visible_{false}, setup_shown_{false};
   bool initialized_ = false;
   uint64_t view_revision_ = 0;
   int width_ = 0, height_ = 0;

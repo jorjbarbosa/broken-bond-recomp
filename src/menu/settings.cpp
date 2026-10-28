@@ -41,6 +41,30 @@ void Settings::Reload() {
     if (rex::ui::ParseVirtualKey(menu_options_.key) == rex::ui::VirtualKey::kNone) menu_options_.key = "F1";
   } catch (...) {}
 }
+bool Settings::ApplyBeforeGame() const {
+  try {
+    std::ifstream input(directory_ / "broken_bond.toml", std::ios::binary);
+    const auto table = toml::parse(input);
+    // The SDK already loaded the initial configuration with CLI/environment
+    // precedence. Only explicit menu edits may override those session values.
+    for (const auto& name : edited_flags_) {
+      if (!rex::cvar::GetFlagInfo(name)) continue;
+      const auto node = table[name];
+      std::string value;
+      if (node.is_string()) value = node.value<std::string>().value();
+      else if (node.is_boolean()) value = node.value<bool>().value() ? "true" : "false";
+      else if (node.is_integer()) value = std::to_string(node.value<int64_t>().value());
+      else if (node.is_floating_point()) value = std::to_string(node.value<double>().value());
+      else continue;
+      if (!rex::cvar::SetFlagByName(name, value)) {
+        REXLOG_ERROR("[broken_bond] Edited setting could not be applied: {}", name);
+        return false;
+      }
+    }
+    return true;
+  } catch (const std::exception& e) { REXLOG_WARN("[broken_bond] Settings could not be reloaded: {}", e.what()); }
+  return false;
+}
 bool Settings::Save(const GameConfig& config) {
   const auto path = directory_ / "broken_bond.toml";
   auto temporary = path; temporary += ".settings.tmp";

@@ -145,7 +145,9 @@ if(BROKENBOND_NATIVE_RENDERER)
         src/menu/text.cpp src/menu/panel.cpp src/menu/pad_input.cpp src/menu/input_gate.cpp
         src/menu/render_interface.cpp src/menu/assets.cpp src/menu/ui.cpp src/menu/settings.cpp
         # The DLC page: content folders, package staging and the folder picker.
-        src/menu/content_manager.cpp src/menu/dlc.cpp src/menu/game_choice.cpp)
+        src/menu/content_manager.cpp src/menu/dlc.cpp src/menu/game_choice.cpp
+        # The setup screen before the game: when it opens, the page, and the game data's identity.
+        src/menu/setup_gate.cpp src/menu/setup_screen.cpp src/game_image.cpp)
     # The files that menu/assets.cpp embeds (#embed): a change rebuilds it.
     file(GLOB_RECURSE BROKENBOND_UI_FILES CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/ui/*)
     set_source_files_properties(src/menu/assets.cpp PROPERTIES OBJECT_DEPENDS "${BROKENBOND_UI_FILES}")
@@ -256,6 +258,17 @@ if(BROKENBOND_NATIVE_RENDERER)
         endif()
         add_test(NAME game_image COMMAND broken_bond_game_image_test
             "${CMAKE_CURRENT_BINARY_DIR}/test-data/game-image" ${_game_image_real})
+        # When the setup screen opens (src/menu/setup_gate.h), and the game chosen
+        # on it: saved to the .toml and identified on a worker (menu/game_choice.h).
+        add_executable(broken_bond_setup_gate_test tests/setup_gate_test.cpp src/menu/setup_gate.cpp)
+        target_include_directories(broken_bond_setup_gate_test PRIVATE src)
+        add_test(NAME setup_gate COMMAND broken_bond_setup_gate_test)
+        if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/game/default.xex")
+            add_executable(broken_bond_game_choice_test tests/game_choice_test.cpp)
+            target_link_libraries(broken_bond_game_choice_test PRIVATE broken_bond_menu_components)
+            add_test(NAME game_choice COMMAND broken_bond_game_choice_test
+                "${CMAKE_CURRENT_BINARY_DIR}/test-data/game-choice" "${CMAKE_CURRENT_SOURCE_DIR}/game")
+        endif()
     endif()
 endif()
 

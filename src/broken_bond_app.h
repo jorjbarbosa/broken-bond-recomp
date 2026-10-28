@@ -35,19 +35,25 @@
 #include "gpu/settings.h"
 #include "gpu/ui/immediate_drawer.h"
 #include "gpu/ui/layer.h"
+#include "gpu/ui/screen.h"
 #include "intro_skip.h"
 #include "menu/dlc.h"
+#include "menu/game_choice.h"
 #include "menu/input_gate.h"
 #include "menu/settings.h"
+#include "menu/setup_gate.h"
 #include "menu/shortcut.h"
 #include "menu/text.h"
 #include "menu/ui.h"
 #include "menu/update_checker.h"
 #include "port_version.h"
+#include "wine.h"
 #include <SDL3/SDL_misc.h>
 #include <rex/logging.h>
 #include <rex/ui/presenter.h>
 
+REXCVAR_DEFINE_BOOL(setup, false, "broken_bond/UI",
+                    "Open the setup screen before the game (also Shift held at the start)");
 REXCVAR_DEFINE_BOOL(check_for_updates, true, "broken_bond/UI", "Notify when a new release is available");
 #endif
 
@@ -141,7 +147,7 @@ class BrokenBondApp : public rex::ReXApp {
     }
     if (paths.game_data_root.empty()) {
       paths.game_data_root = broken_bond::game_image::FindNearbyGame(exe_dir);
-      game_root_source_ = "nearby";
+      game_root_source_ = paths.game_data_root.empty() ? "none" : "nearby";
     }
   }
 
@@ -154,6 +160,40 @@ class BrokenBondApp : public rex::ReXApp {
   }
 
 #ifdef BROKENBOND_NATIVE_RENDERER_BOOTSTRAP
+  // The game boots straight away unless the setup screen is needed
+  // (menu/setup_gate.h); then the screen shows on the window before the
+  // runtime exists, and its Play resumes the boot. The native mode only: with
+  // Xenos the game boots as configured.
+  std::optional<rex::PathConfig> OnFinalizePaths(const rex::PathConfig& defaults,
+                                                 std::function<void(rex::PathConfig)> resume) override {
+    if (!gpu::host::Enabled()) return defaults;
+    SetupUi();
+    // The launch marker: there from here until the game's first frame, so a
+    // start that dies before it (the engine of a card or API that fails) opens
+    // the setup screen next time. The boots that name their game have none.
+    if (!command_line_root_ && !user_data_root().empty()) {
+      launch_marker_ = user_data_root() / "launch.marker";
+      std::error_code ec;
+      start_failed_ = std::filesystem::exists(launch_marker_, ec);
+      std::filesystem::create_directories(user_data_root(), ec);
+      std::ofstream(launch_marker_) << "started\n";
+    }
+    namespace menu = broken_bond::menu;
+    menu::SetupFacts facts;
+    facts.command_line_root = command_line_root_;
+    facts.configured = configured_root_;
+    facts.found = !defaults.game_data_root.empty();
+    facts.status = game_identity_.status;
+    facts.start_failed = start_failed_;
+    facts.requested = REXCVAR_GET(setup) || menu::SetupKeyHeld();
+    const menu::SetupReason reason = menu::SetupReasonFor(facts);
+    if (reason == menu::SetupReason::kNone || !OpenSetupScreen(reason, defaults, std::move(resume))) {
+      ArmFirstPresentation();
+      return defaults;
+    }
+    return std::nullopt;
+  }
+
   void OnPostLoadXexImage() override {
     // The camera ratio of the aspect_ratio option, before the title runs.
     if (gpu::host::Enabled() && runtime()) gpu::host::ApplyAspectRatio(runtime()->virtual_membase());
@@ -174,7 +214,14 @@ class BrokenBondApp : public rex::ReXApp {
         runtime() && runtime()->kernel_state() ? runtime()->kernel_state()->content_manager() : nullptr,
         user_data_root());
 #ifdef BROKENBOND_NATIVE_RENDERER_BOOTSTRAP
-    if (gpu::host::Enabled()) SetupUi();
+    // The menus came up before the runtime (OnFinalizePaths); the game menu's
+    // shortcuts belong to the running game.
+    if (gpu::host::Enabled()) {
+      game_running_ = true;
+      UpdateMenuShortcut();
+      REXLOG_INFO("[broken_bond] Game menu: {} or {}", menu_settings_.menu_options().key,
+                  menu_settings_.menu_options().chord);
+    }
 #endif
   }
 
@@ -198,7 +245,9 @@ class BrokenBondApp : public rex::ReXApp {
 
   void OnShutdown() override {
 #ifdef BROKENBOND_NATIVE_RENDERER_BOOTSTRAP
+    game_running_ = false;
     broken_bond::menu::input_blocked = false;
+    CloseSetupScreen();
     if (window()) window()->RemoveInputListener(&ui_);
     gpu::ui::UiLayer().SetFrameRequest({});  // No Swap asks for a UI frame from here on.
     gpu::ui::UiLayer().SetFirstPresentCallback({});
@@ -222,6 +271,12 @@ class BrokenBondApp : public rex::ReXApp {
       broken_bond::menu::input_blocked = true;
       app_context().CallInUIThreadDeferred([this] {
         menu_dlc_.Wait();  // Finish the DLC page's copies before the process can exit.
+        // Closed on the setup screen: the start ends cleanly there.
+        if (setup_resume_) {
+          setup_resume_ = nullptr;
+          CloseSetupScreen();
+          RemoveLaunchMarker();
+        }
         // The native renderer closes in order (guest threads joined, device
         // owner, resources and engine released) before OnClosing hard-exits.
         close_ready_ = gpu::host::CloseRequested();
@@ -234,9 +289,11 @@ class BrokenBondApp : public rex::ReXApp {
 
  private:
 #ifdef BROKENBOND_NATIVE_RENDERER_BOOTSTRAP
-  // The menus (menu/ui.h) through the UI layer of the native Present: each
-  // Swap asks the UI thread for the next frame while a document is shown, and
-  // polls the menu shortcuts otherwise. F1 or Back+Start opens the game menu.
+  // The menus (menu/ui.h) through the UI layer of the native Present, from
+  // before the runtime on (the setup screen): each Swap, or each Present of the
+  // setup screen, asks the UI thread for the next frame while a document is
+  // shown, and polls the menu shortcuts otherwise. F1 or Back+Start opens the
+  // game menu once the game runs.
   void SetupUi() {
     menu_settings_.Initialize(rex::filesystem::GetExecutableFolder());
     native_drawer_ = std::make_unique<gpu::ui::ImmediateDrawer>(gpu::ui::UiLayer());
@@ -263,18 +320,7 @@ class BrokenBondApp : public rex::ReXApp {
     menu_settings_.SetUtilities([this] { CreateDesktopShortcut(); }, [this] { CheckUpdates(); });
     if (REXCVAR_GET(check_for_updates))
       updates_ = std::make_unique<launcher_updates::Checker>(broken_bond::PortVersion(), user_data_root() / "menu-updates.json");
-    UpdateMenuShortcut();
     ui_.SetFpsVisible(rex::cvar::Query<bool>("show_fps_overlay"));
-    // The hint shows a few seconds after the game's first frame reaches the screen.
-    gpu::ui::UiLayer().SetFirstPresentCallback([this] {  // Engine owner.
-      if (closing_.load()) return;
-      app_context().CallInUIThread([this] {
-        if (closing_.load()) return;
-        shortcut_hint_pending_ = true;
-        shortcut_hint_due_ = std::chrono::steady_clock::now() + std::chrono::seconds(4);
-      });
-    });
-    REXLOG_INFO("[broken_bond] Game menu: {} or {}", menu_settings_.menu_options().key, menu_settings_.menu_options().chord);
   }
   // The menu key and controller chord of the settings, and the hint that names them.
   void UpdateMenuShortcut() {
@@ -286,9 +332,11 @@ class BrokenBondApp : public rex::ReXApp {
     std::snprintf(hint, sizeof(hint), broken_bond::menu::Text("shortcut-format"), options.key.c_str(), chord.c_str());
     shortcut_hint_ = hint;
   }
-  // On the UI thread with each menu frame: the DLC page's copies, the live
-  // settings' results, the shortcut hint and the shader indicator.
+  // On the UI thread with each menu frame: the game chosen on the setup
+  // screen, the DLC page's copies, the live settings' results, the shortcut
+  // hint and the shader indicator.
   void ServiceMenu() {
+    PollGameChoice();
     menu_dlc_.Poll();
     menu_settings_.PollLive();
     if (shortcut_hint_pending_ && ui_.OverlayShown()) shortcut_hint_pending_ = false;
@@ -320,7 +368,8 @@ class BrokenBondApp : public rex::ReXApp {
   // to the renderer, which applies them between frames, and keep their old
   // value until it confirms; the intro videos, fullscreen, the FPS overlay, the
   // menu language and the menu shortcuts apply at once; the options marked
-  // RESTART apply at the next start, which a notice recalls when the pages close.
+  // RESTART apply at the next start, which a notice recalls when the pages
+  // close. Opened from the setup screen, everything applies when the game starts.
   void OpenSettings() {
     menu_settings_.SetLiveSettings([](const std::string& key, const GameConfig& config) -> uint64_t {
       auto next = gpu::RequestedSettings();
@@ -349,7 +398,9 @@ class BrokenBondApp : public rex::ReXApp {
       const auto result = gpu::LastSettingsResult();
       return broken_bond::menu::Settings::LiveResult{result.revision, result.applied};
     });
-    menu_settings_.Open(ui_, 0, true, {}, [this](const std::string& key) {
+    menu_settings_.Open(ui_, 0, !setup_resume_, [this] {
+      app_context().CallInUIThreadDeferred([this] { ChooseGame(); });
+    }, [this](const std::string& key) {
       const auto& config = menu_settings_.config();
       if (key == "show_fps_overlay") {
         rex::cvar::SetFlagByName(key, config.show_fps_overlay ? "true" : "false");
@@ -360,14 +411,15 @@ class BrokenBondApp : public rex::ReXApp {
         broken_bond::SetSkipIntroVideos(config.skip_intro_videos);
       } else if (key == "bind_game_menu" || key == "game_menu_chord") {
         UpdateMenuShortcut();
-      } else if (key != "launcher_language" && key != "show_shader_indicator" &&
+      } else if (!setup_resume_ && key != "launcher_language" && key != "show_shader_indicator" &&
                  !broken_bond::menu::Settings::Live(key)) {
         settings_restart_ = true;
       }
     }, [this] {
       if (settings_restart_) ui_.Notify(broken_bond::menu::Text("changed"));
       settings_restart_ = false;
-      if (ui_.OverlayShown()) OpenGameMenu();
+      if (setup_resume_) RefreshSetup();
+      else if (ui_.OverlayShown()) OpenGameMenu();
     });
   }
   // The DLC page (menu/dlc.h): packages are staged into the folder the game
@@ -377,8 +429,168 @@ class BrokenBondApp : public rex::ReXApp {
     if (staging.empty()) staging = rex::filesystem::GetExecutableFolder() / "dlc";
     menu_dlc_.Open(ui_, std::move(staging), user_data_root(), window() ? window()->GetNativeWindowHandle() : nullptr,
         [this](std::function<void()> action) { app_context().CallInUIThreadDeferred(std::move(action)); }, [this] {
-          if (ui_.OverlayShown()) OpenGameMenu();
+          if (setup_resume_) RefreshSetup();
+          else if (ui_.OverlayShown()) OpenGameMenu();
         });
+  }
+  // The setup screen (menu/setup_screen.h) for reason, on the window, which a
+  // temporary engine presents. Play resumes the boot with paths; false when it
+  // cannot show.
+  bool OpenSetupScreen(broken_bond::menu::SetupReason reason, const rex::PathConfig& paths,
+                       std::function<void(rex::PathConfig)> resume) {
+    REXLOG_INFO("[broken_bond] Setup screen: {}", broken_bond::menu::SetupReasonName(reason));
+    if (!OpenNativeScreen()) return false;
+    // The choices run inside RmlUi's event handling; the screen closes after it
+    // (deferred: CallInUIThread runs at once on the UI thread).
+    const auto later = [this](void (BrokenBondApp::*step)()) {
+      return [this, step] { app_context().CallInUIThreadDeferred([this, step] { (this->*step)(); }); };
+    };
+    broken_bond::menu::SetupScreen::State state{reason, game_identity_, broken_bond::PortVersion(),
+                                                paths.game_data_root};
+    broken_bond::menu::SetupScreen::Actions actions;
+    actions.play = later(&BrokenBondApp::FinishSetup);
+    actions.quit = later(&BrokenBondApp::QuitFromSetup);
+    actions.choose_game = later(&BrokenBondApp::ChooseGame);
+    actions.settings = later(&BrokenBondApp::OpenSettings);
+    actions.dlc = later(&BrokenBondApp::OpenDlc);
+    if (!ui_.ShowSetup(state, std::move(actions))) {
+      REXLOG_WARN("[broken_bond] Setup screen unavailable; the game boots as configured");
+      CloseSetupScreen();
+      return false;
+    }
+    setup_paths_ = paths;
+    setup_reason_ = reason;
+    setup_resume_ = std::move(resume);
+    return true;
+  }
+  void RefreshSetup() {
+    ui_.RefreshSetup({setup_reason_, game_identity_, broken_bond::PortVersion(), setup_paths_.game_data_root});
+  }
+  // The temporary engine of the setup screen: the configured API and card, or
+  // the other API when they fail (the screen is where they change). Under Wine
+  // the native renderer runs on Vulkan only.
+  bool OpenNativeScreen() {
+    const auto& settings = gpu::CurrentSettings();
+    gpu::RenderMode mode;
+    mode.device = settings.graphics_device;
+    mode.api = settings.native_backend == "vulkan" ? gpu::GraphicsApi::kVulkan : gpu::GraphicsApi::kD3D12;
+    void* hwnd = window() ? window()->GetNativeWindowHandle() : nullptr;
+    std::string evidence;
+    if (hwnd && setup_screen_.Open(hwnd, mode, evidence)) return true;
+    REXLOG_WARN("[broken_bond] Setup screen: the {} engine did not start: {}", settings.native_backend, evidence);
+    if (!hwnd || (mode.api == gpu::GraphicsApi::kVulkan && broken_bond::WineVersion())) return false;
+    mode.api = mode.api == gpu::GraphicsApi::kVulkan ? gpu::GraphicsApi::kD3D12 : gpu::GraphicsApi::kVulkan;
+    mode.device.clear();
+    if (setup_screen_.Open(hwnd, mode, evidence)) return true;
+    REXLOG_WARN("[broken_bond] Setup screen: the other engine did not start either: {}", evidence);
+    return false;
+  }
+  // The screen's engine goes before the game's; the UI layer keeps the frame
+  // of what still shows (the frame rate) for it.
+  void CloseSetupScreen() {
+    ui_.HideSetup();
+    if (!setup_screen_.IsOpen()) return;
+    if (native_drawer_) DrawNativeUi();
+    setup_screen_.Close();
+  }
+  void FinishSetup() {
+    if (!setup_resume_ || game_choice_.Busy() || game_identity_.status != broken_bond::game_image::Status::kReady) return;
+    if (!menu_settings_.ApplyBeforeGame()) {
+      ui_.ShowDialog(broken_bond::menu::Text("settings"), broken_bond::menu::Text("save-failed"),
+                     {{broken_bond::menu::Text("cancel"), {}}});
+      return;
+    }
+    auto resume = std::exchange(setup_resume_, nullptr);
+    CloseSetupScreen();
+    gpu::LoadSettings();  // The edits of the setup screen's settings.
+    if (setup_paths_.game_data_root != game_data_root()) LogGameData(setup_paths_.game_data_root);
+    ArmFirstPresentation();
+    resume(setup_paths_);
+  }
+  // The system picker for a disc image or default.xex; the choice is identified
+  // on a worker (PollGameChoice). From the setup screen or the game's settings.
+  void ChooseGame() {
+    if ((!setup_resume_ && !ui_.OverlayShown()) || game_choice_.Busy()) return;
+    const auto selected = broken_bond::menu::ChooseFile(window() ? window()->GetNativeWindowHandle() : nullptr);
+    if (!selected.error.empty()) {
+      ui_.ShowDialog(broken_bond::menu::Text("picker-failed"), selected.error, {{broken_bond::menu::Text("cancel"), {}}});
+    } else if (!selected.path.empty()) {
+      if (!setup_resume_ && !ui_.OverlayShown()) return;
+      game_choice_.Start(selected.path);
+      game_choice_view_ = ui_.ViewRevision();
+      checking_game_ = false;
+    }
+  }
+  void PollGameChoice() {
+    if (!game_choice_.Busy()) return;
+    using broken_bond::menu::Text;
+    if (auto result = game_choice_.Poll()) {
+      if (game_choice_view_ != ui_.ViewRevision()) { checking_game_ = false; return; }
+      ui_.HideDialog();
+      checking_game_ = false;
+      using broken_bond::game_image::Status;
+      if (result->game.status == Status::kReady) {
+        std::string error;
+        if (!broken_bond::menu::SaveGameRoot(rex::filesystem::GetExecutableFolder() / "broken_bond.toml", result->root,
+                                             error)) {
+          ui_.ShowDialog(Text("save-failed"), error, {{Text("cancel"), {}}});
+          return;
+        }
+        if (!setup_resume_) {
+          // In game: the new game plays at the next start.
+          menu_settings_.Reload();
+          OpenSettings();
+          ui_.Notify(Text("changed"));
+          return;
+        }
+        setup_paths_.game_data_root = result->root;
+        game_identity_ = result->game;
+        configured_root_ = true;
+        setup_reason_ = broken_bond::menu::SetupReason::kRequested;
+        ui_.HidePanel();
+        // Reuse the current callbacks and refresh the ready state without
+        // replacing the screen's engine or its resume continuation.
+        RefreshSetup();
+        REXLOG_INFO("[broken_bond] Game selected: {}", result->root.string());
+      } else {
+        const char* title = Text(result->game.status == Status::kOtherVersion ? "unsupported" :
+                            result->game.status == Status::kIncomplete ? "incomplete" :
+                            result->game.status == Status::kUnreadable ? "unreadable" : "unrecognized");
+        ui_.ShowDialog(title, Text(result->game.status == Status::kOtherVersion ? "unsupported-detail" :
+                                  result->game.status == Status::kIncomplete ? "incomplete-detail" : "game-hint"),
+            {{Text("choose-another"), [this] { app_context().CallInUIThreadDeferred([this] { ChooseGame(); }); }},
+             {Text("cancel"), {}}});
+      }
+    } else if (!checking_game_ && game_choice_.Slow() && game_choice_view_ == ui_.ViewRevision()) {
+      checking_game_ = true;
+      ui_.ShowDialog(Text("checking"), Text("wait"));
+    }
+  }
+  void QuitFromSetup() {
+    if (!setup_resume_) return;
+    setup_resume_ = nullptr;
+    CloseSetupScreen();
+    RemoveLaunchMarker();
+    if (window()) window()->RequestClose();
+  }
+  void RemoveLaunchMarker() {
+    std::error_code ec;
+    if (!launch_marker_.empty()) std::filesystem::remove(launch_marker_, ec);
+  }
+  // The game's first frame on the screen: the start succeeded (the launch
+  // marker goes), and the menu's shortcut hint shows a few seconds later.
+  void ArmFirstPresentation() {
+    gpu::ui::UiLayer().SetFirstPresentCallback([this] {  // Engine owner, after a game Present.
+      if (closing_.load()) return;
+      app_context().CallInUIThread([this] {
+        if (closing_.load()) return;
+        RemoveLaunchMarker();
+        if (game_running_) {
+          shortcut_hint_pending_ = true;
+          shortcut_hint_due_ = std::chrono::steady_clock::now() + std::chrono::seconds(4);
+        }
+      });
+    });
   }
   void CreateDesktopShortcut() {
     const bool ok = broken_bond::menu::WriteShortcut(broken_bond::menu::DesktopShortcut(),
@@ -442,6 +654,17 @@ class BrokenBondApp : public rex::ReXApp {
   std::atomic<bool> ui_draw_pending_{false};
   std::atomic<bool> closing_{false};
   bool close_ready_ = false;  // The ordered close finished: the window may close.
+  bool game_running_ = false;
+  // The setup screen (menu/setup_gate.h) and its temporary engine.
+  gpu::ui::Screen setup_screen_{gpu::ui::UiLayer()};
+  bool start_failed_ = false;
+  std::filesystem::path launch_marker_;
+  rex::PathConfig setup_paths_;
+  broken_bond::menu::SetupReason setup_reason_ = broken_bond::menu::SetupReason::kNone;
+  std::function<void(rex::PathConfig)> setup_resume_;  // While the setup screen shows.
+  broken_bond::menu::GameChoice game_choice_;
+  uint64_t game_choice_view_ = 0;
+  bool checking_game_ = false;
 #endif
   void LogGameData(const std::filesystem::path& root) {
     using broken_bond::game_image::Status;

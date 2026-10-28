@@ -1,6 +1,8 @@
-// The Windows picker belongs to the game window.
+// The Windows picker belongs to the game window; only the XEX is hashed.
 #include "menu/game_choice.h"
 #include "menu/text.h"
+#include <fstream>
+#include <toml++/toml.hpp>
 #ifdef _WIN32
 #include <windows.h>
 #include <shobjidl.h>
@@ -44,5 +46,57 @@ FileChoice ChooseFile(void* owner, bool folder) {
 #else
   return {{}, "The system file picker is unavailable on this platform"};
 #endif
+}
+
+bool SaveGameRoot(const std::filesystem::path& config, const std::filesystem::path& root, std::string& error) {
+  auto temporary = config;
+  temporary += ".tmp";
+  try {
+    toml::table table;
+    if (std::filesystem::exists(config)) {
+      std::ifstream input(config, std::ios::binary);
+      table = toml::parse(input);
+    }
+    const auto utf8 = root.u8string();
+    table.insert_or_assign("custom_game_root", std::string(reinterpret_cast<const char*>(utf8.data()), utf8.size()));
+    std::ofstream output(temporary, std::ios::binary | std::ios::trunc);
+    output << table;
+    output.close();
+    if (!output) throw std::runtime_error("Could not write the configuration");
+#ifdef _WIN32
+    if (!MoveFileExW(temporary.c_str(), config.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH))
+      throw std::runtime_error("Could not replace the configuration");
+#else
+    std::filesystem::rename(temporary, config);
+#endif
+    return true;
+  } catch (const std::exception& e) {
+    error = e.what();
+    std::error_code ignored;
+    std::filesystem::remove(temporary, ignored);
+    return false;
+  }
+}
+
+bool GameChoice::Start(const std::filesystem::path& path) {
+  if (Busy()) return false;
+  started_ = std::chrono::steady_clock::now();
+  result_ = std::async(std::launch::async, [path] {
+    Result result{path, game_image::Identify(path)};
+    if (result.game.status == game_image::Status::kReady) {
+      std::error_code ec;
+      if (!result.game.disc_image && !std::filesystem::is_directory(path, ec)) result.root = path.parent_path();
+      result.root = std::filesystem::weakly_canonical(result.root);
+    }
+    return result;
+  });
+  return true;
+}
+bool GameChoice::Slow() const {
+  return Busy() && std::chrono::steady_clock::now() - started_ >= std::chrono::milliseconds(250);
+}
+std::optional<GameChoice::Result> GameChoice::Poll() {
+  if (!Busy() || result_.wait_for(std::chrono::seconds(0)) != std::future_status::ready) return {};
+  try { return result_.get(); } catch (...) { return Result{}; }
 }
 }  // namespace broken_bond::menu

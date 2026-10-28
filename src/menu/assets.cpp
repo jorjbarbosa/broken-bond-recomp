@@ -54,6 +54,12 @@ constexpr uint8_t kStatus[] = {
 constexpr uint8_t kStatusStyle[] = {
 #embed "../../ui/status.rcss"
 };
+constexpr uint8_t kSetup[] = {
+#embed "../../ui/setup.rml"
+};
+constexpr uint8_t kSetupStyle[] = {
+#embed "../../ui/setup.rcss"
+};
 #pragma clang diagnostic pop
 
 struct Entry {
@@ -75,6 +81,8 @@ constexpr std::array kAssets{
     Entry{"overlay.rcss", kOverlayStyle},
     Entry{"status.rml", kStatus},
     Entry{"status.rcss", kStatusStyle},
+    Entry{"setup.rml", kSetup},
+    Entry{"setup.rcss", kSetupStyle},
 };
 }  // namespace
 

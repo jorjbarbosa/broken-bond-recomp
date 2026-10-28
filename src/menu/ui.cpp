@@ -147,6 +147,8 @@ void Ui::Shutdown() {
   HideDialog();
   panel_.Hide();
   panel_shown_ = false;
+  setup_.Hide();
+  setup_shown_ = false;
   pad_.Shutdown();
   tick_ = {};
   fps_visible_ = false;
@@ -165,6 +167,27 @@ void Ui::SetFpsVisible(bool visible) {
   UpdateDocuments();
 }
 
+bool Ui::ShowSetup(const SetupScreen::State& state, SetupScreen::Actions actions) {
+  if (context_) context_->ProcessMouseMove(-1, -1, 0);
+  if (!context_ || !setup_.Show(*context_, state, std::move(actions))) return false;
+  setup_shown_ = true;
+  setup_.SetGamepadHints(gamepad_input_);
+  ++view_revision_;
+  UpdateDocuments();
+  return true;
+}
+void Ui::RefreshSetup(const SetupScreen::State& state) {
+  if (context_) { context_->ProcessMouseMove(-1, -1, 0); setup_.Refresh(*context_, state); }
+}
+void Ui::HideSetup() {
+  CancelKeyCapture();
+  HideDialog();
+  HidePanel();
+  setup_.Hide();
+  setup_shown_ = false;
+  UpdateDocuments();
+}
+
 void Ui::CaptureKey(std::function<void(std::string)> captured) {
   key_capture_ = std::move(captured); pending_key_.clear(); capture_started_ = std::chrono::steady_clock::now();
 }
@@ -174,7 +197,7 @@ void Ui::ShowPanel(std::string title, std::vector<std::string> tabs, int tab, st
   ++view_revision_;
   context_->ProcessMouseMove(-1, -1, 0);
   panel_shown_ = panel_.Show(*context_, std::move(title), std::move(tabs), tab, std::move(rows),
-                              std::move(select_tab), std::move(close), std::move(focus), false);
+                              std::move(select_tab), std::move(close), std::move(focus), setup_.Shown());
   panel_.SetGamepadHints(gamepad_input_);
   UpdateDocuments();
 }
@@ -220,6 +243,7 @@ void Ui::HideOverlay() {
 void Ui::UseGamepad(bool gamepad) {
   if (gamepad_input_ == gamepad) return;
   gamepad_input_ = gamepad; panel_.SetGamepadHints(gamepad);
+  setup_.SetGamepadHints(gamepad);
   if (overlay_) overlay_->GetElementById("overlay-close-hint")->SetInnerRML(Text(gamepad ? "close-pad" : "close-key"));
 }
 void Ui::Notify(std::string message, std::string action_label, std::function<void()> action, std::string title) {
@@ -319,7 +343,7 @@ void Ui::ShowDialog(const std::string& title, const std::string& message,
   UpdateDocuments();
 }
 
-// The frame rate shows unless a panel or dialog does; the presenter draws the
+// The frame rate shows unless the setup screen, a panel or a dialog does; the presenter draws the
 // Ui while something shows.
 void Ui::UpdateDocuments() {
   UpdateStatus();
@@ -332,7 +356,7 @@ void Ui::UpdateDocuments() {
   }
   if (fps_) fps_->SetClass("menu-open", overlay_shown_.load());
   if (fps_) {
-    const bool fps = fps_visible_.load() && !panel_.Shown() && !dialog_;
+    const bool fps = fps_visible_.load() && !setup_shown_.load() && !panel_.Shown() && !dialog_;
     if (fps && !fps_->IsVisible()) {
       rate_frames_ = frames_.load(std::memory_order_relaxed);
       rate_time_ = std::chrono::steady_clock::now();

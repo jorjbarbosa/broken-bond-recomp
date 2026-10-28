@@ -21,6 +21,9 @@ class Settings {
   void Open(Ui& ui, int tab, bool in_game, std::function<void()> choose_game,
             std::function<void(const std::string&)> changed, std::function<void()> closed);
   void Reload();
+  // The edits made on the setup screen, into the session's cvars before the
+  // game starts (the SDK loaded the .toml before the screen showed).
+  bool ApplyBeforeGame() const;
   const GameConfig& config() const { return config_; }
   struct LiveResult { uint64_t revision = 0; bool applied = false; };
   void SetLiveSettings(std::function<uint64_t(const std::string&, const GameConfig&)> request,
