@@ -25,8 +25,10 @@
 #ifdef BROKENBOND_NATIVE_RENDERER_BOOTSTRAP
 #include "gpu/common/shader_activity.h"
 #include "gpu/host/app.h"
+#include "gpu/settings.h"
 #include "gpu/ui/immediate_drawer.h"
 #include "gpu/ui/layer.h"
+#include "intro_skip.h"
 #include "menu/dlc.h"
 #include "menu/input_gate.h"
 #include "menu/settings.h"
@@ -219,10 +221,11 @@ class BrokenBondApp : public rex::ReXApp {
     std::snprintf(hint, sizeof(hint), broken_bond::menu::Text("shortcut-format"), options.key.c_str(), chord.c_str());
     shortcut_hint_ = hint;
   }
-  // On the UI thread with each menu frame: the DLC page's copies, the shortcut
-  // hint and the shader indicator.
+  // On the UI thread with each menu frame: the DLC page's copies, the live
+  // settings' results, the shortcut hint and the shader indicator.
   void ServiceMenu() {
     menu_dlc_.Poll();
+    menu_settings_.PollLive();
     if (shortcut_hint_pending_ && ui_.OverlayShown()) shortcut_hint_pending_ = false;
     if (shortcut_hint_pending_ && std::chrono::steady_clock::now() >= shortcut_hint_due_) {
       shortcut_hint_pending_ = false;
@@ -248,10 +251,39 @@ class BrokenBondApp : public rex::ReXApp {
         ui_.Notify(Text(updates_->status() == launcher_updates::Status::Current ? "updates-current" : "updates-failed"));
     }
   }
-  // The settings pages (menu/settings.h). The frame rate, fullscreen, the menu
-  // language and the menu shortcuts apply at once; the options marked RESTART
-  // apply at the next start, which a notice recalls when the pages close.
+  // The settings pages (menu/settings.h). The graphics rows without RESTART go
+  // to the renderer, which applies them between frames, and keep their old
+  // value until it confirms; the intro videos, fullscreen, the FPS overlay, the
+  // menu language and the menu shortcuts apply at once; the options marked
+  // RESTART apply at the next start, which a notice recalls when the pages close.
   void OpenSettings() {
+    menu_settings_.SetLiveSettings([](const std::string& key, const GameConfig& config) -> uint64_t {
+      auto next = gpu::RequestedSettings();
+      if (key == "vsync") next.vsync = config.vsync;
+      else if (key == "brightness") next.brightness = float(config.brightness);
+      else if (key == "frame_rate") next.frame_rate = uint32_t(config.frame_rate);
+      else if (key == "resolution_scale") {
+        // The renderer widens one axis at the session's aspect ratio.
+        const float scale = float(config.internal_resolution_scale > 0 ? config.internal_resolution_scale
+                                                                         : config.resolution_scale);
+        next.resolution_scale = {scale, scale};
+      } else if (key == "msaa_samples") next.msaa_samples = uint32_t(config.msaa_samples);
+      else if (key == "anisotropic_override") next.anisotropic_override = config.anisotropic_override;
+      else if (key == "transparency_antialiasing") next.transparency_antialiasing = config.transparency_antialiasing;
+      else if (key == "max_frame_latency") next.max_frame_latency = uint32_t(config.max_frame_latency);
+      else if (key == "triple_buffering") next.triple_buffering = config.triple_buffering;
+      else if (key == "swap_post_effect") next.swap_post_effect = config.swap_post_effect == "fxaa_extreme"
+          ? gpu::SwapPostEffect::kFxaaExtreme : config.swap_post_effect == "fxaa" ? gpu::SwapPostEffect::kFxaa
+          : gpu::SwapPostEffect::kNone;
+      else if (key == "present_effect") next.present_effect = config.present_effect == "fsr"
+          ? gpu::PresentEffect::kFsr : config.present_effect == "cas" ? gpu::PresentEffect::kCas
+          : gpu::PresentEffect::kBilinear;
+      else return 0;
+      return gpu::RequestSettings(std::move(next));
+    }, [] {
+      const auto result = gpu::LastSettingsResult();
+      return broken_bond::menu::Settings::LiveResult{result.revision, result.applied};
+    });
     menu_settings_.Open(ui_, 0, true, {}, [this](const std::string& key) {
       const auto& config = menu_settings_.config();
       if (key == "show_fps_overlay") {
@@ -259,9 +291,12 @@ class BrokenBondApp : public rex::ReXApp {
         ui_.SetFpsVisible(config.show_fps_overlay);
       } else if (key == "fullscreen") {
         rex::cvar::SetFlagByName(key, config.fullscreen ? "true" : "false");
+      } else if (key == "skip_intro_videos") {
+        broken_bond::SetSkipIntroVideos(config.skip_intro_videos);
       } else if (key == "bind_game_menu" || key == "game_menu_chord") {
         UpdateMenuShortcut();
-      } else if (key != "launcher_language" && key != "show_shader_indicator") {
+      } else if (key != "launcher_language" && key != "show_shader_indicator" &&
+                 !broken_bond::menu::Settings::Live(key)) {
         settings_restart_ = true;
       }
     }, [this] {

@@ -2,7 +2,8 @@
 // through a dispatcher as the Swaps deliver it. Over a green image: the frame
 // rate document and its hiding; the game menu bar with only Exit, Enter and
 // Esc; a dialog whose default is Cancel; a panel's arrows, tabs and Back; the
-// settings pages saving to broken_bond.toml; the DLC page; the menu strings in
+// settings pages saving to broken_bond.toml and their live rows waiting for
+// the renderer's result; the DLC page; the menu strings in
 // every language; the controller's navigation and shortcut; and the release of
 // the UI's textures with the menus.
 #include "gpu/backend/dispatcher.h"
@@ -264,6 +265,60 @@ int main(int argc, char** argv) {
       }
       return nullptr;
     };
+    const auto focus_id = [&](const char* id) {
+      auto* context = Rml::GetContext("game");
+      for (int i = 0; i < context->GetNumDocuments(); ++i) {
+        auto* doc = context->GetDocument(i);
+        if (!doc->IsVisible()) continue;
+        if (auto* element = doc->GetElementById(id)) { element->Focus(); return true; }
+      }
+      return false;
+    };
+
+    // The live settings: the live rows lose RESTART; an edit is saved but waits
+    // for the renderer's result; a confirmation commits it with the focus kept;
+    // a refusal restores the saved value; a late result reopens nothing.
+    {
+      const auto live_dir = settings_dir / "live";
+      std::filesystem::create_directories(live_dir);
+      const auto live_path = live_dir / "broken_bond.toml";
+      std::ofstream(live_path) << "brightness = 0.5\n";
+      broken_bond::menu::Settings live;
+      live.Initialize(live_dir);
+      broken_bond::menu::Settings::LiveResult result;
+      uint64_t ticket = 0;
+      int changes = 0;
+      live.SetLiveSettings([&](const std::string& key, const GameConfig&) { return key == "brightness" ? ++ticket : 0; },
+                           [&] { return result; });
+      live.Open(menu, 1, true, {}, [&](const std::string&) { ++changes; }, [] {});
+      frame("live-settings-open", modal);
+      auto* panel = visible_document("panel-title");
+      auto* brightness = panel ? panel->GetElementById("brightness") : nullptr;
+      auto* backend = panel ? panel->GetElementById("native_backend") : nullptr;
+      check("live-restart-labels", brightness && backend &&
+            brightness->GetInnerRML().find("restart") == std::string::npos &&
+            backend->GetInnerRML().find("restart") != std::string::npos, "{}");
+      const auto saved_brightness = [&] { return toml::parse_file(live_path.string())["brightness"].value_or(0.0); };
+      focus_id("brightness"); key(rex::ui::VirtualKey::kRight); frame("live-settings-pending", modal);
+      check("live-value-waits-for-renderer", ticket == 1 && changes == 0 && live.config().brightness == .5 &&
+            saved_brightness() > .5, "{}");
+      focus_id("frame_rate"); result = {ticket, true}; live.PollLive(); frame("live-settings-confirmed", modal);
+      check("live-confirmation-keeps-focus", changes == 1 && std::abs(live.config().brightness - .51) < .0001 &&
+            menu.PanelFocus() == "frame_rate", "{\"focus\":\"" + menu.PanelFocus() + "\"}");
+      focus_id("brightness"); key(rex::ui::VirtualKey::kRight); frame("live-settings-refused-pending", modal);
+      result = {ticket, false}; live.PollLive(); frame("live-settings-refused", modal);
+      check("live-refusal-restores-saved-value", changes == 1 && std::abs(live.config().brightness - .51) < .0001 &&
+            std::abs(saved_brightness() - .51) < .0001 && visible_document("dialog-title"), "{}");
+      menu.HideDialog();
+      live.Open(menu, 1, true, {}, [&](const std::string&) { ++changes; }, [] {});
+      frame("live-settings-reopen", modal);
+      focus_id("brightness"); key(rex::ui::VirtualKey::kRight); frame("live-settings-close-pending", modal);
+      menu.HidePanel();
+      const auto closed_revision = menu.ViewRevision();
+      result = {ticket, true}; live.PollLive(); frame("live-settings-completed-after-close", modal);
+      check("late-live-result-does-not-reopen-panel", !menu.PanelShown() && menu.ViewRevision() == closed_revision &&
+            changes == 2, "{}");
+    }
     {
       const auto source = settings_dir / "async-source";
       const auto user = settings_dir / "async-user";

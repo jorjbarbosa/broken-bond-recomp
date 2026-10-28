@@ -112,6 +112,12 @@ void Settings::CommitChange(const std::string& key, GameConfig next, std::string
   if (changed_) changed_(key);
   if (ui_ && panel_revision_ == ui_->ViewRevision()) Redraw(focus.empty() ? key : std::move(focus));
 }
+bool Settings::Live(const std::string& key) {
+  return key == "resolution_scale" || key == "brightness" || key == "frame_rate" || key == "vsync" ||
+      key == "msaa_samples" || key == "swap_post_effect" || key == "present_effect" ||
+      key == "anisotropic_override" || key == "transparency_antialiasing" || key == "max_frame_latency" ||
+      key == "triple_buffering" || key == "skip_intro_videos";
+}
 void Settings::PollLive() {
   if (!pending_config_ || !result_live_) return;
   const auto result = result_live_();
@@ -307,10 +313,7 @@ std::vector<PanelRow> Settings::Rows(int group) {
     if (shortcut_) rows.push_back({"shortcut", Text("shortcut"), "", Text("shortcut"), false, false, {}, 0, {}, shortcut_});
   }
   for (auto& row : rows) {
-    if (request_live_ && (row.id == "resolution_scale" || row.id == "brightness" ||
-        row.id == "frame_rate" || row.id == "vsync" || row.id == "msaa_samples" || row.id == "swap_post_effect" ||
-        row.id == "present_effect" || row.id == "anisotropic_override" || row.id == "transparency_antialiasing" ||
-        row.id == "max_frame_latency" || row.id == "triple_buffering" || row.id == "skip_intro_videos")) row.restart = false;
+    if (request_live_ && Live(row.id)) row.restart = false;
     if (pending_config_ && row.id == pending_key_) { row.value += " …"; row.description = Text("applying-settings"); }
     row.inline_adjust = row.id == "brightness" || row.id == "mnk_sensitivity";
     if (row.id == "controller") {

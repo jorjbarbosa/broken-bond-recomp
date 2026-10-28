@@ -26,6 +26,9 @@ class Settings {
   void SetLiveSettings(std::function<uint64_t(const std::string&, const GameConfig&)> request,
                        std::function<LiveResult()> result) { request_live_ = std::move(request); result_live_ = std::move(result); }
   void PollLive();
+  // The rows that apply while the game runs once SetLiveSettings is set; the
+  // others keep RESTART.
+  static bool Live(const std::string& key);
  private:
   std::vector<PanelRow> Rows(int group);
   void Change(const std::string& key, std::function<void(GameConfig&)> change);
