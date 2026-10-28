@@ -69,7 +69,7 @@ The default installation directory remains `C:\Games\Naruto The Broken Bond`.
 See [native launcher validation](native-launcher-validation.md) for UI,
 configuration migration and bounded game startup checks.
 
-## Current Direct3D 12-only package — 2026-10-20
+## Direct3D 12-only package — 2026-10-20
 
 This version excludes Vulkan from both the game and launcher. Packaging requires
 `BROKENBOND_NATIVE_D3D12=ON` and `BROKENBOND_NATIVE_VULKAN=OFF`; the default native
@@ -89,3 +89,22 @@ The current installer is 59,180,810 bytes, version `0.1.0`, SHA-256
 The default destination remains `C:\Games\Naruto The Broken Bond`.
 The bounded game boot exited with code 0 but reported incomplete resource
 cleanup; see [native launcher validation](native-launcher-validation.md).
+
+## Direct3D 12 and Vulkan package — 2026-10-27
+
+Vulkan is built again by default. Packaging requires both
+`BROKENBOND_NATIVE_D3D12=ON` and `BROKENBOND_NATIVE_VULKAN=ON`, checks that the
+build produced the SPIR-V package, and adds the volk, Vulkan Memory Allocator,
+Vulkan Headers and SMOL-V notices. The launcher offers Direct3D 12 and Vulkan
+and keeps a saved Vulkan choice with its graphics card.
+
+`build/native` was reconfigured with both APIs and packaged into an ignored
+scratch folder (`-OutputRootDir build/s2-package`), not `dist/`. The portable
+folder has 47 files. The launcher CTest suite passed 5/5; the setup helper tests
+passed 12/12; the Inno integration suite passed 16 tests against the package,
+with the optional full-disc import skipped (146.764 seconds). Bounded 40-second
+Vulkan and 30-second default boots of the same executable reported the Vulkan
+and Direct3D 12 backends, with no skipped draws, and exited with code 0.
+
+This is a development package. It is not a release, and it does not validate
+gameplay on Vulkan.

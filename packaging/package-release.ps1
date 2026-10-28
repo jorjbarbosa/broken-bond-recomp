@@ -38,16 +38,14 @@ if (-not $NoSetup) {
 }
 $buildRoot = Join-Path $projectRoot 'build/native'
 $cachePath = Join-Path $buildRoot 'CMakeCache.txt'
-if (-not (Test-Path -LiteralPath $cachePath)) { throw 'Run scripts/build-game-native.ps1 -Backend d3d12 first.' }
+if (-not (Test-Path -LiteralPath $cachePath)) { throw 'Run scripts/build-game-native.ps1 first.' }
 $cache = Get-Content -LiteralPath $cachePath -Raw
 if ($cache -notmatch '(?m)^CMAKE_BUILD_TYPE:STRING=Release\s*$') { throw 'Packaging requires a Release build.' }
-foreach ($option in @('BROKENBOND_NATIVE_RENDERER', 'BROKENBOND_NATIVE_D3D12')) {
+# The release ships both graphics APIs; Direct3D 12 stays the default.
+foreach ($option in @('BROKENBOND_NATIVE_RENDERER', 'BROKENBOND_NATIVE_D3D12', 'BROKENBOND_NATIVE_VULKAN')) {
     if ($cache -notmatch "(?m)^${option}:BOOL=(ON|TRUE|YES|1)\s*$") {
-        throw "Packaging requires $option=ON. Configure scripts/build-game-native.ps1 -Backend d3d12."
+        throw "Packaging requires $option=ON. Configure scripts/build-game-native.ps1 -Backend both."
     }
-}
-if ($cache -notmatch '(?m)^BROKENBOND_NATIVE_VULKAN:BOOL=OFF\s*$') {
-    throw 'This release excludes Vulkan. Configure scripts/build-game-native.ps1 -Backend d3d12 before packaging.'
 }
 if ($env:VSCMD_ARG_TGT_ARCH -ne 'x64') {
     $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio/Installer/vswhere.exe'
@@ -57,6 +55,11 @@ if ($env:VSCMD_ARG_TGT_ARCH -ne 'x64') {
 }
 & cmake --build $buildRoot --target broken_bond broken_bond_launcher --parallel $Jobs
 if ($LASTEXITCODE -ne 0) { throw 'Port build failed; previous packages were not changed.' }
+# The Vulkan backend reads the SPIR-V package embedded in the game executable.
+$spirvPackage = Join-Path $buildRoot 'shader_cache/shader_cache_spirv.bin'
+if (-not (Test-Path -LiteralPath $spirvPackage -PathType Leaf) -or (Get-Item -LiteralPath $spirvPackage).Length -eq 0) {
+    throw "Missing SPIR-V shader package: $spirvPackage"
+}
 $extractor = & (Join-Path $projectRoot 'scripts/get-extract-xiso.ps1')
 $helper = Join-Path $projectRoot 'build/setup-helper/broken_bond_setup_helper.exe'
 if (-not $NoSetup) { & (Join-Path $projectRoot 'scripts/build-setup-helper.ps1') -Jobs $Jobs }
@@ -78,8 +81,12 @@ foreach ($path in $peFiles) {
     if (($imports -match 'Name:\s+amd_fidelityfx_dx12\.dll') -and
         ($binaries -notcontains 'amd_fidelityfx_dx12.dll')) { throw 'Missing FidelityFX runtime DLL.' }
 }
+$releaseParts = @{
+    FidelityFX = $binaries -contains 'amd_fidelityfx_dx12.dll'
+    NativeVulkan = $true
+}
 $components = @((Import-PowerShellDataFile (Join-Path $PSScriptRoot 'third-party-licenses.psd1')).Components |
-    Where-Object { -not $_.Condition -or ($_.Condition -eq 'FidelityFX' -and $binaries -contains 'amd_fidelityfx_dx12.dll') })
+    Where-Object { -not $_.Condition -or $releaseParts[$_.Condition] })
 foreach ($component in $components) {
     if (-not (Test-Path -LiteralPath (Join-Path $projectRoot $component.File))) {
         throw "Missing license for $($component.Name): $($component.File)"
@@ -121,8 +128,9 @@ in game/ beside the launcher. Setup can also import your original Xbox 360 ISO.
 Supported Title ID: 55530825. The launcher and Setup verify default.xex SHA-256:
 8f70e79443e36b38e44b6a105dad51fb8909fb615d982753cabaac9b15f0d576
 
-Requires Windows x64, a Direct3D 12 GPU and the Microsoft Visual C++ x64 runtime.
-This release includes Native Direct3D 12 only. No original game data is included.
+Requires Windows x64, a Direct3D 12 or Vulkan 1.2 GPU and the Microsoft Visual
+C++ x64 runtime. The native renderer runs on Direct3D 12 by default; Vulkan can
+be selected in the launcher. No original game data is included.
 Settings: broken_bond.toml. Saves/cache: user/ unless user_data_root is configured.
 Updates and uninstall preserve configuration, game data and personal files.
 See licenses/README.txt for third-party notices and source revisions.

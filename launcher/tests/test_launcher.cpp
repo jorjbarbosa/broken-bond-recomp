@@ -141,13 +141,13 @@ int main(int argc, char** argv) {
                 "user_language = 4\nuser_data_root = 'my saves'\n");
     Require(ConfigManager::Load(path, migrated), "Previous native configuration failed to load");
     Require(migrated.native_backend == (kNativeVulkanBuilt ? "vulkan" : "d3d12") &&
-                (kNativeVulkanBuilt || migrated.graphics_device.empty()) &&
+                migrated.graphics_device == (kNativeVulkanBuilt ? "Vulkan adapter" : "") &&
                 migrated.user_language == 4 && migrated.user_data_root == "my saves",
-            "Removing Vulkan failed to migrate the API or preserve user preferences");
-    Require(ConfigManager::Save(path, migrated), "Migrated Vulkan settings failed to save");
+            "A saved Vulkan choice was not kept, or migrated, with the user preferences");
+    Require(ConfigManager::Save(path, migrated), "Saved Vulkan settings failed to save");
     Require(toml::parse_file(path.string())["native_backend"].value<std::string>() ==
                 (kNativeVulkanBuilt ? "vulkan" : "d3d12"),
-            "Removed Vulkan selection was written back to the configuration");
+            "The saved Vulkan choice was not written back as the built API allows");
 
     const auto repo = root / "repository";
     const auto base = repo / "build" / "game";

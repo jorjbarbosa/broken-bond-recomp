@@ -7,7 +7,7 @@ param(
     [string]$SdkPrefix,
     [string]$BuildDirectory,
     [ValidateSet('d3d12', 'vulkan', 'both')]
-    [string]$Backend = 'd3d12',
+    [string]$Backend = 'both',
     [string]$SpirvVal,
     [switch]$Tests,
     [ValidateRange(1, 128)]
@@ -15,8 +15,8 @@ param(
 )
 
 # Builds the native game and matching launcher in a separate build directory.
-# This release defaults to Direct3D 12; Vulkan remains opt-in for development.
-# No Xenos plugin is staged.
+# Both graphics APIs are built by default (Direct3D 12 stays the game's default
+# API); -Backend d3d12 or vulkan builds one. No Xenos plugin is staged.
 $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path -Parent $PSScriptRoot
 if (-not $SdkPrefix) { $SdkPrefix = Join-Path $projectRoot 'build/sdk-install' }

@@ -74,10 +74,10 @@ Other SDK options can be added to the file by hand; the launcher keeps the keys 
 
 ## Renderer
 
-The game draws with the native Direct3D 12 renderer: `renderer` is always
-`"native"` and `native_backend` is `"d3d12"`. Graphics cards are enumerated
-through Direct3D 12. The frame rate and frame time are reported in the game
-window title.
+The game draws with the native renderer: `renderer` is always `"native"`.
+`native_backend` selects its graphics API, `"d3d12"` (the default) or
+`"vulkan"`. Graphics cards are enumerated through the selected API. The frame
+rate and frame time are reported in the game window title.
 
 ### Native renderer options
 
@@ -89,7 +89,7 @@ These keys exist only in native renderer builds. Each takes effect on the next l
 | `transparency_antialiasing` | `false` | In multisampled targets, alpha-tested draws use alpha to coverage instead of the alpha test, smoothing the edges of cut-out surfaces |
 | `internal_resolution_scale` | `0.0` | Internal resolution from 1 to 4 with fractions (`1.5` turns 1280×720 into 1920×1080); `0` uses `resolution_scale` |
 | `brightness` | `0.5` | Output brightness from 0 to 1; `0.5` is the game's own |
-| `max_frame_latency` | `1` | Frames queued ahead of the display, 1 to 3; 1 has the lowest latency |
+| `max_frame_latency` | `1` | Frames queued ahead of the display, 1 to 3; 1 has the lowest latency. Vulkan always uses 1 |
 | `triple_buffering` | `false` | Three swapchain buffers instead of two |
 | `graphics_device` | `""` | The graphics card, by the selected API's name; empty is automatic. The native log names both the backend and card |
 | `frame_rate` | `30` | Frame rate from 30 to 240. `30` keeps the game's own; above 30 the renderer draws frames between the game's logic steps. See [Renderers](renderers.md#frame-rate) |

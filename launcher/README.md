@@ -17,7 +17,8 @@ reuses the current Rise installation and update flow.
 | Interface languages | English, Portuguese, French, German, Spanish, Italian, Russian; English by default |
 | Game language | English, French, German, Spanish, Italian; custom codes are preserved |
 | Settings layout | Game, Display, Quality, Controls, Advanced; same description panel and recommended-settings action |
-| Graphics card | Adapters enumerated through Direct3D 12 |
+| Graphics API | Native Direct3D 12 (default) or Vulkan, written as `native_backend` |
+| Graphics card | Adapters enumerated through the selected API |
 | Graphics quality | Resolution 1x–4x, texture filtering, FXAA, CAS/FSR, VSync, fullscreen |
 | Native options | Fractional resolution, brightness, frame rate, MSAA, transparency AA, frame latency, triple buffering |
 | Controllers | SDL/XInput switch and connected-controller name |
@@ -30,7 +31,7 @@ reuses the current Rise installation and update flow.
 | Aspect ratio | Automatic (default), 16:9, 16:10, 21:9, 32:9, written as `aspect_ratio`; native renderer only |
 | Direct exploration mouse camera | SDK stick emulation works; Rise's separate script-module camera hook is not ported |
 
-The launcher starts the native Direct3D 12 game. Settings of earlier builds
+The launcher starts the native game on the selected API. Settings of earlier builds
 are migrated on save, and other user settings are retained. Native frame rate
 starts at the game's original 30 fps. Other recommended graphics defaults match
 Rise: original resolution, 16x filtering, FXAA, and CAS. Existing choices load

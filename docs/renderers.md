@@ -6,7 +6,7 @@ This page explains the native renderer, its frame rate option, how it handles pi
 
 ## The native renderer
 
-The game draws with the native Direct3D 12 renderer. Instead of emulating the Xbox 360 GPU, it intercepts the game's Direct3D calls (device, resources, render states, draws, and presents) and issues them with Direct3D 12 through [Plume](https://github.com/renderbag/plume). The game's shaders are translated ahead of time by the XenosRecomp fork in `tools/xenosrecomp/`, compiled when the port is built, and embedded in `broken_bond.exe`, so no shader compiler runs during play.
+The game draws with the native renderer. Instead of emulating the Xbox 360 GPU, it intercepts the game's Direct3D calls (device, resources, render states, draws, and presents) and issues them with Direct3D 12 (the default) or Vulkan through [Plume](https://github.com/renderbag/plume). The graphics API is chosen in the launcher (`native_backend`, see [Configuration](configuration.md#renderer)). The game's shaders are translated ahead of time by the XenosRecomp fork in `tools/xenosrecomp/`, compiled when the port is built, and embedded in `broken_bond.exe`, so no shader compiler runs during play.
 
 It is the renderer of the [Naruto: Rise of a Ninja recomp](https://github.com/jorjbarbosa/naruto-rise-recomp), the first game's port, adapted to this game: the hooks follow this game's addresses, and the parts specific to this game, such as its instanced draws in the open world, are its own. It has been played through the menus, the start of Story Mode with its first fights and cutscenes, Fight Mode, and the open world, at the game's 30 fps and at 60 fps, without missing draws.
 
@@ -53,7 +53,7 @@ Where the step is not well below the frame time, the frames follow the step inst
 
 ## Pipelines
 
-A pipeline is the combination of shaders, vertex layout, and render states a draw needs. Direct3D 12 compiles it before the draw can run. The native renderer never skips a draw for a missing pipeline: the draw waits for it instead.
+A pipeline is the combination of shaders, vertex layout, and render states a draw needs. The graphics API compiles it before the draw can run. The native renderer never skips a draw for a missing pipeline: the draw waits for it instead.
 
 - **Startup list.** Builds that carry a list of the pipelines seen in play (`src/gpu/shaders/pipeline_cache.inc`, see [Build and run](build-and-run.md#pipeline-list)) compile it in the background at startup.
 - **Ahead of each batch.** The pipelines a batch of draws lacks compile in parallel before its draws run.

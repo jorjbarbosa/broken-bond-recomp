@@ -11,7 +11,7 @@ not part of this port.
 
 Use PowerShell 7, the existing Windows C++/LLVM build tools, and Inno Setup 6.4
 or later. First configure/build the native port using
-`scripts/build-game-native.ps1 -Backend d3d12` (see the [build guide](../docs/build-and-run.md#6-native-renderer)). Then:
+`scripts/build-game-native.ps1`, which builds both graphics APIs (see the [build guide](../docs/build-and-run.md#6-native-renderer)). Then:
 
 ```powershell
 ./packaging/package-release.ps1
@@ -26,10 +26,11 @@ show it in their window title and under the cover, read from the packaged
 
 Packaging refreshes the game and launcher targets in `build/native`, builds the
 standalone setup helper, verifies the pinned extract-xiso archive, and checks
-PE imports for debug CRT dependencies. This version requires a Release build with native Direct3D 12 enabled and
-Vulkan disabled. Packaging rejects a Vulkan-enabled build. DXIL shaders are
-embedded in the game executable; SPIR-V and Vulkan dependency notices are not
-packaged. The SDK submodule revision is unchanged.
+PE imports for debug CRT dependencies. It requires a Release build with both
+native Direct3D 12 and Vulkan enabled, and rejects a build without either.
+The DXIL shaders and the SPIR-V package are embedded in the game executable;
+packaging checks that the build produced the SPIR-V package and includes the
+Vulkan dependency notices. The SDK submodule revision is unchanged.
 
 Output in ignored `dist/`:
 
@@ -69,9 +70,9 @@ inherit its interface language; the game's language stays independent.
 Setup preserves existing `broken_bond.toml` byte for byte. On the next launcher
 load, a legacy Xenos selection migrates to native; other user preferences remain.
 Updates remove the retired `rexgpu-xenos.dll`. New packages do not contain it.
-Direct3D 12 is the only launcher choice in this version. Saved Vulkan choices
-are migrated to Direct3D 12 on launcher load; adapter selections from Vulkan
-are cleared while other preferences are preserved.
+The launcher offers Direct3D 12 (the default) and Vulkan. A saved choice of
+either API is kept with its graphics card; an unknown API becomes Direct3D 12
+and its card selection is cleared, while other preferences are preserved.
 
 The setup helper verifies Title ID `55530825` and the supported `default.xex`
 SHA-256 before extracting anything. Hash verification is shared with the

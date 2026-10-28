@@ -96,15 +96,16 @@ The game, with its [native renderer](renderers.md) and launcher, is built into `
 
 It needs:
 
-- a clean [Plume](https://github.com/renderbag/plume) checkout at commit `d72379344dacd3dbf9f810f92ddc87e6de1845b1`, with its `contrib/D3D12MemoryAllocator` submodule at `9ef66bc14edd10dee0de3a545b98578363552f66`. Configuration stops if either one is at another commit or has local changes;
+- a clean [Plume](https://github.com/renderbag/plume) checkout at commit `d72379344dacd3dbf9f810f92ddc87e6de1845b1`, with its `contrib/D3D12MemoryAllocator`, `contrib/volk`, `contrib/Vulkan-Headers`, and `contrib/VulkanMemoryAllocator` submodules at the revisions in [`tools/native-renderer/dependencies.json`](../tools/native-renderer/dependencies.json). Configuration stops if one of them is at another commit or has local changes;
 - XenosRecomp's dependencies (`fmt`, `dxc-bin`, `smol-v`, `xxHash`, and `zstd`) at the revisions in [`tools/native-renderer/dependencies.json`](../tools/native-renderer/dependencies.json), cloned into `tools/xenosrecomp/thirdparty/`, where Git ignores them;
 - `game/xeshader.sdb`, from the extracted game files;
-- Python 3 on `PATH`.
+- Python 3 on `PATH`;
+- `spirv-val` from [SPIRV-Tools](https://github.com/KhronosGroup/SPIRV-Tools) (the Vulkan SDK's, or a local build) on `PATH`, or given with `-SpirvVal <path>`.
 
 ```powershell
 git clone https://github.com/renderbag/plume.git out/plume
 git -C out/plume checkout d72379344dacd3dbf9f810f92ddc87e6de1845b1
-git -C out/plume submodule update --init contrib/D3D12MemoryAllocator
+git -C out/plume submodule update --init contrib/D3D12MemoryAllocator contrib/volk contrib/Vulkan-Headers contrib/VulkanMemoryAllocator
 
 $deps = (Get-Content tools/native-renderer/dependencies.json -Raw | ConvertFrom-Json).xenosrecomp_thirdparty
 foreach ($name in 'fmt', 'dxc-bin', 'smol-v', 'xxHash', 'zstd') {
@@ -112,10 +113,12 @@ foreach ($name in 'fmt', 'dxc-bin', 'smol-v', 'xxHash', 'zstd') {
   git -C "tools/xenosrecomp/thirdparty/$name" checkout $deps.$name.revision
 }
 
-./scripts/build-game-native.ps1 -PlumeSource out/plume -XenosRecompThirdparty tools/xenosrecomp/thirdparty -Backend d3d12
+./scripts/build-game-native.ps1 -PlumeSource out/plume -XenosRecompThirdparty tools/xenosrecomp/thirdparty
 ```
 
-The build translates the game's shaders with the XenosRecomp fork in `tools/xenosrecomp/`, compiles them with DXC, and embeds the result in `broken_bond.exe`, so no shader compiler runs during play. The first build translates every shader of `xeshader.sdb` and takes several minutes; `build/shader-store` keeps the results, and later builds reuse them while the game files, the fork, and DXC do not change. The shader cache derives from your game files and stays out of Git.
+The game is built with both graphics APIs, Direct3D 12 and Vulkan. Direct3D 12 is the default, and the launcher offers both. `-Backend d3d12` or `-Backend vulkan` builds only one of them, for development; packaging requires both.
+
+The build translates the game's shaders with the XenosRecomp fork in `tools/xenosrecomp/`, compiles them with DXC to DXIL and to SPIR-V (checked by `spirv-val`), and embeds the result in `broken_bond.exe`, so no shader compiler runs during play. The first build translates every shader of `xeshader.sdb` and takes several minutes; `build/shader-store` keeps the results, and later builds reuse them while the game files, the fork, and DXC do not change. The shader cache derives from your game files and stays out of Git.
 
 ### Pipeline list
 
@@ -125,7 +128,7 @@ Every native run started by `run-game.ps1` leaves the pipelines it created in `b
 
 ```powershell
 ./scripts/update-pipeline-cache.ps1
-./scripts/build-game-native.ps1 -PlumeSource out/plume -XenosRecompThirdparty tools/xenosrecomp/thirdparty -Backend d3d12
+./scripts/build-game-native.ps1 -PlumeSource out/plume -XenosRecompThirdparty tools/xenosrecomp/thirdparty
 ```
 
 The script starts from the current list, so its entries and order are kept. `-Sources` builds the list from the given files only.

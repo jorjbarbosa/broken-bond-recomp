@@ -4,6 +4,7 @@
 # copies of texts that only exist inside a source header or upstream repository.
 # Condition selects a component only when that part is in the build:
 #   FidelityFX     - amd_fidelityfx_dx12.dll is staged
+#   NativeVulkan   - the native Vulkan backend is built (every release)
 @{
     Components = @(
         @{ Name = 'nlohmann/json 3.11.3'; License = 'MIT'

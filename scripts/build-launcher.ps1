@@ -26,7 +26,7 @@ $buildRoot = Join-Path $projectRoot 'build/launcher-native'
 if (-not $GameBuildDirectory) { $GameBuildDirectory = Join-Path $projectRoot 'build/native' }
 $GameBuildDirectory = [IO.Path]::GetFullPath($GameBuildDirectory)
 # Match the adjacent native executable's APIs when rebuilding only its launcher.
-$apiOptions = @('-DBROKENBOND_NATIVE_D3D12=ON', '-DBROKENBOND_NATIVE_VULKAN=OFF')
+$apiOptions = @('-DBROKENBOND_NATIVE_D3D12=ON', '-DBROKENBOND_NATIVE_VULKAN=ON')
 $nativeCache = Join-Path $GameBuildDirectory 'CMakeCache.txt'
 if (-not (Test-Path -LiteralPath $nativeCache)) { throw 'Configure a native game build first or pass -GameBuildDirectory.' }
 if ((Get-Content -LiteralPath $nativeCache -Raw) -notmatch '(?m)^BROKENBOND_NATIVE_RENDERER:BOOL=ON\s*$') {

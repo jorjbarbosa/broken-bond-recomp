@@ -31,12 +31,12 @@ set(BROKENBOND_SOURCES
 add_subdirectory(third_party/nlohmann_json)
 
 # The shipping native build uses the Rise renderer adapted to Broken Bond,
-# with Direct3D 12 and Vulkan APIs. The OFF configuration is the separate
-# Xenos investigation host and does not build a launcher.
-# See docs/renderers.md.
+# with Direct3D 12 and Vulkan APIs, both built by default. The OFF
+# configuration is the separate Xenos investigation host and does not build
+# a launcher. See docs/renderers.md.
 option(BROKENBOND_NATIVE_RENDERER "Build the native game and launcher" OFF)
 option(BROKENBOND_NATIVE_D3D12 "Build the native Direct3D 12 backend" ON)
-option(BROKENBOND_NATIVE_VULKAN "Build the native Vulkan backend and SPIR-V shaders" OFF)
+option(BROKENBOND_NATIVE_VULKAN "Build the native Vulkan backend and SPIR-V shaders" ON)
 option(BROKENBOND_NATIVE_TESTS "Build the native backend host tests" OFF)
 if(BROKENBOND_NATIVE_RENDERER)
     if(NOT BROKENBOND_NATIVE_D3D12 AND NOT BROKENBOND_NATIVE_VULKAN)

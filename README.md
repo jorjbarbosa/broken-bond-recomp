@@ -91,7 +91,7 @@ git -c core.symlinks=true submodule update --init --recursive
 ./scripts/build-game.ps1            # generates the C++ code
 # Prepare pinned native dependencies as described in the build guide, then:
 ./scripts/build-game-native.ps1 -PlumeSource out/plume `
-  -XenosRecompThirdparty tools/xenosrecomp/thirdparty -Backend d3d12
+  -XenosRecompThirdparty tools/xenosrecomp/thirdparty
 ./build/native/broken_bond_launcher.exe
 ```
 
@@ -130,7 +130,7 @@ Work happens on the `develop` branch; `main` is the primary branch. Keep game fi
 
 - [ReXGlue](https://github.com/rexglue/rexglue-sdk), recompilation SDK and runtime.
 - [Xenia](https://github.com/xenia-project/xenia) and [XenonRecomp](https://github.com/hedge-dev/XenonRecomp), foundations and references for the Xbox 360 recompilation ecosystem. Several of the XMA decoder fixes are ports of [Xenia Canary](https://github.com/xenia-canary/xenia-canary) commits.
-- [XenosRecomp](https://github.com/hedge-dev/XenosRecomp), shader translation for the native renderer (forked in `tools/xenosrecomp/`), and [Plume](https://github.com/renderbag/plume) with [D3D12 Memory Allocator](https://github.com/GPUOpen-LibrariesAndSDKs/D3D12MemoryAllocator), its Direct3D 12 backend.
+- [XenosRecomp](https://github.com/hedge-dev/XenosRecomp), shader translation for the native renderer (forked in `tools/xenosrecomp/`), and [Plume](https://github.com/renderbag/plume) with [D3D12 Memory Allocator](https://github.com/GPUOpen-LibrariesAndSDKs/D3D12MemoryAllocator) for its Direct3D 12 backend, and [volk](https://github.com/zeux/volk), [Vulkan Memory Allocator](https://github.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator), [Vulkan Headers](https://github.com/KhronosGroup/Vulkan-Headers) and [SMOL-V](https://github.com/aras-p/smol-v) for its Vulkan backend.
 - [SDL](https://github.com/libsdl-org/SDL), [Dear ImGui](https://github.com/ocornut/imgui), [toml++](https://github.com/marzer/tomlplusplus), and [extract-xiso](https://github.com/XboxDev/extract-xiso).
 
 **References**
@@ -143,6 +143,6 @@ Work happens on the `develop` branch; `main` is the primary branch. Keep game fi
 
 Copyright (C) 2026 Jorge Barbosa. The source code of this port is licensed under version 3 of the [GNU General Public License](LICENSE) (GPL-3.0-only).
 
-Third-party code keeps its own license: the ReXGlue SDK (`sdk/`, BSD-3-Clause) and its dependencies, the XenosRecomp fork (`tools/xenosrecomp/`, MIT), Plume and D3D12 Memory Allocator (MIT, built into the executable with the native renderer), and the Lato fonts (`launcher/assets/fonts/`, OFL-1.1).
+Third-party code keeps its own license: the ReXGlue SDK (`sdk/`, BSD-3-Clause) and its dependencies, the XenosRecomp fork (`tools/xenosrecomp/`, MIT), Plume, D3D12 Memory Allocator, volk and Vulkan Memory Allocator (MIT), SMOL-V (MIT and Apache-2.0) and the Vulkan Headers (Apache-2.0), built into the executable with the native renderer, and the Lato fonts (`launcher/assets/fonts/`, OFL-1.1).
 
 Naruto: The Broken Bond, its content, and its artwork and trademarks, including the artwork in `launcher/assets/` and `docs/assets/`, belong to their respective owners and are not covered by this license. The license does not cover the original game executable, its assets, or the code translated from it. No game data is distributed with this project.

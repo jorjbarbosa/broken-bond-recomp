@@ -1,7 +1,9 @@
 # Native launcher validation
 
 The earlier dual-API build was validated on Windows x64 on 2026-10-20.
-This version now ships Direct3D 12 only; the release change is recorded below.
+The 0.1.0-beta release shipped Direct3D 12 only; that change is recorded below.
+Vulkan is built again by default since 2026-10-27 (see
+[installer validation](installer-validation.md)).
 The SDK revision is unchanged.
 
 ## Configuration and UI
