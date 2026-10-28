@@ -17,6 +17,8 @@
 #include <rex/system/interfaces/graphics.h>
 #include <rex/system/xmemory.h>
 
+REXCVAR_DECLARE(std::string, native_backend);  // gpu/settings.cpp
+
 // Accept the old selector for configuration compatibility; this build always
 // uses a native backend, including when launched directly with an old TOML.
 REXCVAR_DEFINE_STRING(renderer, "native", "broken_bond/Graphics",
@@ -83,6 +85,10 @@ void Configure(rex::RuntimeConfig& config) {
 #if defined(BROKENBOND_NATIVE_VULKAN)
   if (const char* wine = broken_bond::WineVersion())
     REXLOG_INFO("[broken_bond] Wine {} detected: the native renderer runs on Vulkan", wine);
+#endif
+#if defined(BROKENBOND_NATIVE_D3D12_DISABLED)
+  if (const auto requested = REXCVAR_GET(native_backend); requested != backend)
+    REXLOG_INFO("[broken_bond] native_backend '{}' is not in this build: the native renderer runs on {}", requested, backend);
 #endif
   REXLOG_INFO("[broken_bond] Renderer: native; backend: {}{}", backend, path.empty() ? "" : ", with the journal");
   gpu::crash_dump::Install();  // REX_NATIVE_CRASH_DUMP=1 (crash_dump.h).

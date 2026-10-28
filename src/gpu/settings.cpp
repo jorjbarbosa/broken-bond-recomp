@@ -287,6 +287,11 @@ void LoadSettings() {
   // whatever the configuration says.
   if (broken_bond::WineVersion()) s.native_backend = "vulkan";
 #endif
+#if defined(BROKENBOND_NATIVE_D3D12_DISABLED) && defined(BROKENBOND_NATIVE_VULKAN)
+  // A build without Direct3D 12 (Linux) runs on Vulkan only, whatever the
+  // configuration says: a .toml written on Windows still starts the game.
+  s.native_backend = "vulkan";
+#endif
   if (rex::cvar::GetFlagInfo("d3d12_allow_variable_refresh_rate_and_tearing"))
     s.allow_tearing = rex::cvar::Query<bool>("d3d12_allow_variable_refresh_rate_and_tearing");
   // fsr2 and fsr3 are the SDK's temporal upscalers, not covered: they keep bilinear.
