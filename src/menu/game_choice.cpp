@@ -1,8 +1,12 @@
-// The Windows picker belongs to the game window; only the XEX is hashed.
+// The system picker: on Windows the game window's, elsewhere SDL's dialogs
+// (the XDG desktop portal). Only the XEX is hashed.
 #include "menu/game_choice.h"
 #include "menu/text.h"
 #include <fstream>
 #include <toml++/toml.hpp>
+#ifndef _WIN32
+#include <SDL3/SDL.h>
+#endif
 #ifdef _WIN32
 #include <windows.h>
 #include <shobjidl.h>
@@ -44,7 +48,27 @@ FileChoice ChooseFile(void* owner, bool folder) {
   CoTaskMemFree(name);
   return {std::move(path), {}};
 #else
-  return {{}, "The system file picker is unavailable on this platform"};
+  // SDL calls back from its event pump (the portal's reply) or from a thread
+  // of its own (zenity); this UI action waits for it, pumping SDL's events.
+  std::promise<FileChoice> completion;
+  auto result = completion.get_future();
+  const auto callback = [](void* state, const char* const* files, int) {
+    FileChoice choice;
+    if (!files) choice.error = SDL_GetError();
+    else if (*files) {
+      const std::string value(*files);
+      choice.path = std::filesystem::path(std::u8string(value.begin(), value.end()));
+    }
+    static_cast<std::promise<FileChoice>*>(state)->set_value(std::move(choice));
+  };
+  if (folder) {
+    SDL_ShowOpenFolderDialog(callback, &completion, nullptr, nullptr, false);
+  } else {
+    const SDL_DialogFileFilter filters[] = {{Text("game-filter"), "iso;xex"}, {Text("all-files"), "*"}};
+    SDL_ShowOpenFileDialog(callback, &completion, nullptr, filters, 2, nullptr, false);
+  }
+  while (result.wait_for(std::chrono::milliseconds(10)) != std::future_status::ready) SDL_PumpEvents();
+  return result.get();
 #endif
 }
 

@@ -5,6 +5,7 @@
 // unreadable or incomplete.
 
 #include <cstdint>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -123,6 +124,16 @@ void SyntheticTests(const fs::path& dir) {
   Check(Identify(dir / "random.bin").status == Status::kNotXbox360, "random.bin: not-xbox360");
   Check(Identify(dir).status == Status::kNotXbox360, "folder without default.xex: not-xbox360");
   Check(Identify(dir / "missing.iso").status == Status::kUnreadable, "missing.iso: unreadable");
+
+#ifndef _WIN32
+  // The AppImage runtime names the image in $APPIMAGE.
+  setenv("APPIMAGE", (dir / "Broken Bond.AppImage").c_str(), 1);
+  Check(AppImageFolder() == dir, "$APPIMAGE: the image's folder");
+  unsetenv("APPIMAGE");
+  Check(AppImageFolder().empty(), "no $APPIMAGE: no folder");
+#else
+  Check(AppImageFolder().empty(), "no AppImage on Windows");
+#endif
 }
 
 // <status>=<path>: a real disc image or folder and the status it must have.
@@ -164,6 +175,23 @@ void RequiredDataTests(const fs::path& dir, const fs::path& source) {
   Check(FindNearbyGame(executable).empty(), "no repository without the manifest");
   Write(install / "broken_bond_manifest.toml", "");
   Check(FindNearbyGame(executable) == fs::canonical(complete), "a repository build finds the repository's game");
+  const auto linux_build = install / "build" / "linux";
+  fs::create_directories(linux_build);
+  Check(FindNearbyGame(linux_build) == fs::canonical(complete), "a Linux build finds the repository's game");
+  // An AppImage runs a copy of the executable from elsewhere: the game folder
+  // next to the image, after the executable's own.
+  const auto copy = dir / "appimage-copy";
+  fs::remove_all(copy);
+  fs::create_directories(copy);
+  Check(FindNearbyGame(copy).empty(), "no game next to the copy");
+  Check(FindNearbyGame(copy, install) == fs::canonical(complete), "the game folder next to the AppImage");
+  fs::create_directories(copy / "game");
+  fs::copy_file(source / "default.xex", copy / "game" / "default.xex");
+  Check(FindNearbyGame(copy, install) == fs::canonical(complete), "a ready game next to the AppImage before an incomplete one");
+  for (const auto* name : {"naruto.bf", "xeshader.sdb", "Naruto.SRA", "Naruto_clip.SRA", "naruto_sound.sra",
+                           "naruto_stream.sra"})
+    Write(copy / "game" / name, "fixture");
+  Check(FindNearbyGame(copy, install) == fs::canonical(copy / "game"), "the executable's own game first");
   Write(complete / "naruto.bf", "");
   Check(Identify(complete).status == Status::kIncomplete, "empty main archive is incomplete");
   Write(complete / "naruto.bf", "fixture");

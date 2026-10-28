@@ -256,7 +256,7 @@ if(BROKENBOND_NATIVE_RENDERER)
         enable_testing()
         include(tools/native-renderer/backend-tests.cmake)
         # The shared settings code of the menus (src/menu).
-        foreach(_menu_test IN ITEMS key_bindings localization game_languages update_checker)
+        foreach(_menu_test IN ITEMS key_bindings localization game_languages update_checker folders)
             add_executable(broken_bond_menu_${_menu_test}_test tests/${_menu_test}_test.cpp)
             target_link_libraries(broken_bond_menu_${_menu_test}_test PRIVATE broken_bond_menu_components)
             if(MSVC)
@@ -268,6 +268,7 @@ if(BROKENBOND_NATIVE_RENDERER)
         add_test(NAME menu_game_languages COMMAND broken_bond_menu_game_languages_test
             "${CMAKE_CURRENT_BINARY_DIR}/test-data/menu-game-languages")
         add_test(NAME menu_update_checker COMMAND broken_bond_menu_update_checker_test)
+        add_test(NAME menu_folders COMMAND broken_bond_menu_folders_test)
         # The configuration file: load, save, the migrations and the API under Wine.
         add_executable(broken_bond_config_manager_test tests/config_manager_test.cpp)
         target_link_libraries(broken_bond_config_manager_test PRIVATE broken_bond_menu_components)
@@ -356,6 +357,11 @@ if(BROKENBOND_NATIVE_RENDERER)
             add_executable(broken_bond_posix_wait_test tests/posix_wait_test.cpp)
             target_link_libraries(broken_bond_posix_wait_test PRIVATE rex::runtime)
             add_test(NAME posix_wait COMMAND broken_bond_posix_wait_test)
+            # The settings restart's start once the game has exited (src/launch_arguments.h).
+            add_executable(broken_bond_launch_restart_test tests/launch_restart_test.cpp)
+            target_include_directories(broken_bond_launch_restart_test PRIVATE src)
+            add_test(NAME launch_restart COMMAND broken_bond_launch_restart_test
+                "${CMAKE_CURRENT_BINARY_DIR}/test-data/launch-restart")
         endif()
     endif()
     # The SDK runtime next to the executable on Linux, where the executable finds

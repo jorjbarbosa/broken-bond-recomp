@@ -15,6 +15,7 @@
 #include <algorithm>
 #include <array>
 #include <cctype>
+#include <cstdlib>
 #include <fstream>
 #include <iterator>
 #include <optional>
@@ -161,15 +162,28 @@ Identity Identify(const std::filesystem::path& root) {
 std::filesystem::path RepositoryOf(const std::filesystem::path& executable_folder) {
   std::error_code ec;
   const auto build = executable_folder.parent_path();
-  if ((executable_folder.filename() == "native" || executable_folder.filename() == "game") &&
-      build.filename() == "build" &&
+  const auto name = executable_folder.filename();
+  if ((name == "native" || name == "game" || name == "linux") && build.filename() == "build" &&
       std::filesystem::is_regular_file(build.parent_path() / "broken_bond_manifest.toml", ec))
     return build.parent_path();
   return {};
 }
 
-std::filesystem::path FindNearbyGame(const std::filesystem::path& executable_folder) {
+std::filesystem::path AppImageFolder() {
+#ifdef _WIN32
+  return {};
+#else
+  const char* image = std::getenv("APPIMAGE");
+  if (!image || !*image) return {};
+  std::error_code ec;
+  return std::filesystem::absolute(rex::to_path(image), ec).parent_path();
+#endif
+}
+
+std::filesystem::path FindNearbyGame(const std::filesystem::path& executable_folder,
+                                     const std::filesystem::path& image_folder) {
   std::vector<std::filesystem::path> candidates{executable_folder / "game"};
+  if (!image_folder.empty()) candidates.push_back(image_folder / "game");
   // A build in this repository plays the repository's game folder, as the launcher does.
   if (const auto repository = RepositoryOf(executable_folder); !repository.empty())
     candidates.push_back(repository / "game");

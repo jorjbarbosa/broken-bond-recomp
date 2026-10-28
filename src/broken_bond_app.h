@@ -7,6 +7,7 @@
 #include <atomic>
 #include <chrono>
 #include <cstdio>
+#include <cstdlib>
 #include <fstream>
 #include <limits>
 #include <optional>
@@ -116,8 +117,8 @@ class BrokenBondApp : public rex::ReXApp {
   // The paths without the launcher, which passes --game_data_root and
   // --user_data_root: the command line first; then the game folder or disc
   // image of the .toml's custom_game_root, else the one beside the executable
-  // (game_image.h); the saves where the launcher keeps them. Logging starts
-  // after this, so OnPostInitLogging reports the choice.
+  // or the AppImage (game_image.h); the saves where the launcher keeps them.
+  // Logging starts after this, so OnPostInitLogging reports the choice.
   void OnConfigurePaths(rex::PathConfig& paths) override {
 #ifdef _WIN32
     // A restart for saved settings (RestartForSettings): the previous process
@@ -168,7 +169,7 @@ class BrokenBondApp : public rex::ReXApp {
       }
     }
     if (paths.game_data_root.empty()) {
-      paths.game_data_root = broken_bond::game_image::FindNearbyGame(exe_dir);
+      paths.game_data_root = broken_bond::game_image::FindNearbyGame(exe_dir, broken_bond::game_image::AppImageFolder());
       game_root_source_ = paths.game_data_root.empty() ? "none" : "nearby";
     }
   }
@@ -605,17 +606,19 @@ class BrokenBondApp : public rex::ReXApp {
         }},
         {Text("later"), {}}});
   }
+  // A new process with the saved API and card, on the setup screen; this one
+  // closes in its normal order first.
   void RestartForSettings() {
-#ifdef _WIN32
-    // A new process with the saved API and card, on the setup screen; this
-    // one closes in its normal order first (restart_wait_pid).
-    const auto executable = rex::filesystem::GetExecutableFolder() / L"broken_bond.exe";
+    const auto folder = rex::filesystem::GetExecutableFolder();
     if (menu_settings_.config().custom_game_root.empty() && !game_data_root().empty()) {
       // The game in use (the command line's or the one found nearby) for the next start.
       std::string error;
-      if (!broken_bond::menu::SaveGameRoot(executable.parent_path() / "broken_bond.toml", game_data_root(), error))
-        return;
+      if (!broken_bond::menu::SaveGameRoot(folder / "broken_bond.toml", game_data_root(), error)) return;
     }
+    bool started = false;
+#ifdef _WIN32
+    // The new process waits for this one (restart_wait_pid).
+    const auto executable = folder / L"broken_bond.exe";
     const std::wstring command = broken_bond::launch::QuoteArgument(executable.wstring()) + L" --setup " +
         broken_bond::launch::UserDataArgument(user_data_root()) + L" --restart_wait_pid=" +
         std::to_wstring(GetCurrentProcessId());
@@ -623,17 +626,35 @@ class BrokenBondApp : public rex::ReXApp {
     PROCESS_INFORMATION process{};
     auto writable = command;
     if (CreateProcessW(executable.c_str(), writable.data(), nullptr, nullptr, FALSE, 0, nullptr,
-                       rex::filesystem::GetExecutableFolder().c_str(), &startup, &process)) {
+                       folder.c_str(), &startup, &process)) {
       REXLOG_INFO("[broken_bond] Restarting for saved settings: process {}", process.dwProcessId);
       CloseHandle(process.hThread);
       CloseHandle(process.hProcess);
+      started = true;
+    }
+#else
+    // The AppImage the game was started from, so its AppRun prepares the
+    // next start, else this executable. The new process starts once this one
+    // has exited (StartAfterExit), with the inherited working folder.
+    const char* image = std::getenv("APPIMAGE");
+    const auto executable = image && *image ? std::filesystem::absolute(rex::to_path(image))
+                                            : rex::filesystem::GetExecutablePath();
+    const auto root = std::filesystem::absolute(user_data_root()).lexically_normal();
+    restart_wait_fd_ = broken_bond::launch::StartAfterExit(
+        executable, {"--setup", "--user_data_root=" + rex::path_to_utf8(root)});
+    if (restart_wait_fd_ >= 0) {
+      REXLOG_INFO("[broken_bond] Restarting for saved settings: {} after this process exits",
+                  rex::path_to_utf8(executable));
+      started = true;
+    }
+#endif
+    if (started) {
       RemoveLaunchMarker();
       if (window()) window()->RequestClose();
     } else {
       ui_.ShowDialog(broken_bond::menu::Text("restart"), broken_bond::menu::Text("save-failed"),
                      {{broken_bond::menu::Text("cancel"), {}}});
     }
-#endif
   }
   void QuitFromSetup() {
     if (!setup_resume_) return;
@@ -734,6 +755,9 @@ class BrokenBondApp : public rex::ReXApp {
   broken_bond::menu::GameChoice game_choice_;
   uint64_t game_choice_view_ = 0;
   bool checking_game_ = false;
+#ifndef _WIN32
+  int restart_wait_fd_ = -1;  // Held open until this process exits (RestartForSettings).
+#endif
 #endif
   void LogGameData(const std::filesystem::path& root) {
     using broken_bond::game_image::Status;

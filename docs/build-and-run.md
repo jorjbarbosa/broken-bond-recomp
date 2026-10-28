@@ -237,14 +237,14 @@ cmake --build build/linux
 ./build/linux/broken_bond --game_data_root="$PWD/game"
 ```
 
-`--game_data_root` takes an extracted folder or an ISO; without it, the game looks for one next to the executable, as on Windows. Saves and caches go to `build/user/` for a build inside the repository and to `user/` next to the executable elsewhere, and the log to `logs/` next to the executable. SDL picks Wayland or X11; `SDL_VIDEO_DRIVER=x11` forces X11.
+`--game_data_root` takes an extracted folder or an ISO; without it, the game looks for one next to the executable, or in the repository's `game/` for a build inside it, as on Windows. The setup screen's game choice and the DLC page's folder choice open the desktop's file dialog through SDL (the XDG desktop portal, or zenity when it is installed). Saves and caches go to `build/user/` for a build inside the repository and to `user/` next to the executable elsewhere, and the log to `logs/` next to the executable. SDL picks Wayland or X11; `SDL_VIDEO_DRIVER=x11` forces X11.
 
 ### Known limitations
 
 - The diagnostics that need Windows (minidumps, the stack sampler, the heap watch, the swap-chain proof) are not built. The crash report in the log works; a fault inside the report itself ends the process.
-- The update check, the desktop shortcut and the system file picker of the game choice are Windows-only. Choose the game with `--game_data_root` or `custom_game_root` in `broken_bond.toml`.
+- The update check and the desktop shortcut are Windows-only.
+- Without the XDG desktop portal or zenity, the file dialog cannot open; choose the game with `--game_data_root` or `custom_game_root` in `broken_bond.toml`.
 - Holding Shift at start does not open the setup screen; pass `--setup`.
-- The restart offered after changing the graphics card does nothing; restart the game yourself.
 
 ## Package
 

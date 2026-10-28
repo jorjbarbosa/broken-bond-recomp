@@ -33,14 +33,20 @@ struct Identity {
 // root: a disc image file, a folder with default.xex, or that default.xex.
 Identity Identify(const std::filesystem::path& root);
 
-// The repository a build inside it belongs to (build/native or build/game,
-// with broken_bond_manifest.toml two levels up), or empty.
+// The repository a build inside it belongs to (build/native, build/game or
+// build/linux, with broken_bond_manifest.toml two levels up), or empty.
 std::filesystem::path RepositoryOf(const std::filesystem::path& executable_folder);
 
-// The game folder next to the executable, or the repository's for a build in
-// it (the launcher's game_paths::Find); an unusable one is still returned so
-// the setup screen can name it.
-std::filesystem::path FindNearbyGame(const std::filesystem::path& executable_folder);
+// The folder of the AppImage this process was started from ($APPIMAGE, set by
+// the AppImage runtime), or empty.
+std::filesystem::path AppImageFolder();
+
+// The game folder next to the executable, else next to the AppImage it was
+// started from (image_folder), else the repository's for a build in it (the
+// launcher's game_paths::Find); an unusable one is still returned so the setup
+// screen can name it.
+std::filesystem::path FindNearbyGame(const std::filesystem::path& executable_folder,
+                                     const std::filesystem::path& image_folder = {});
 
 const char* StatusName(Status status);
 
