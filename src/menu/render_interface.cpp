@@ -122,6 +122,11 @@ Rml::TextureHandle RenderInterface::CreateImage(uint32_t width, uint32_t height,
 }
 
 Rml::TextureHandle RenderInterface::LoadTexture(Rml::Vector2i& dimensions, const Rml::String& source) {
+  if (source == "local/game-logo") {
+    if (!game_logo_) return 0;
+    dimensions = {int(game_logo_->width), int(game_logo_->height)};
+    return CreateImage(game_logo_->width, game_logo_->height, game_logo_->rgba.data());
+  }
   if (source == "generated/setup-background") {
     // Original procedural background: no game artwork or raster file embedded.
     constexpr int w = 256, h = 144;
@@ -151,6 +156,11 @@ Rml::TextureHandle RenderInterface::LoadTexture(Rml::Vector2i& dimensions, const
   return CreateImage(uint32_t(width), uint32_t(height), rgba.data());  // PNG texels are straight alpha already.
 }
 
+
+void RenderInterface::SetGameLogo(std::optional<game_logo::Image> image) {
+  Rml::ReleaseTexture("local/game-logo", this);
+  game_logo_ = std::move(image);
+}
 
 Rml::TextureHandle RenderInterface::GenerateTexture(Rml::Span<const Rml::byte> source, Rml::Vector2i dimensions) {
   if (dimensions.x <= 0 || dimensions.y <= 0 || source.size() != size_t(dimensions.x) * dimensions.y * 4) return 0;

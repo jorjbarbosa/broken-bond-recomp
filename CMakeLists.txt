@@ -147,12 +147,16 @@ if(BROKENBOND_NATIVE_RENDERER)
         # The DLC page: content folders, package staging and the folder picker.
         src/menu/content_manager.cpp src/menu/dlc.cpp src/menu/game_choice.cpp
         # The setup screen before the game: when it opens, the page, and the game data's identity.
-        src/menu/setup_gate.cpp src/menu/setup_screen.cpp src/game_image.cpp)
+        src/menu/setup_gate.cpp src/menu/setup_screen.cpp src/game_image.cpp
+        # The setup screen's logo, read from the player's Naruto_clip.SRA.
+        src/menu/game_logo.cpp)
     # The files that menu/assets.cpp embeds (#embed): a change rebuilds it.
     file(GLOB_RECURSE BROKENBOND_UI_FILES CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/ui/*)
     set_source_files_properties(src/menu/assets.cpp PROPERTIES OBJECT_DEPENDS "${BROKENBOND_UI_FILES}")
     target_compile_features(broken_bond_menu_components PUBLIC cxx_std_23)
     target_include_directories(broken_bond_menu_components PUBLIC src)
+    # The bounded zlib decoder of the SDK's stb (game_logo.cpp).
+    target_include_directories(broken_bond_menu_components PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/sdk/thirdparty/stb)
     target_link_libraries(broken_bond_menu_components PUBLIC SDL3::SDL3-static rex::tomlplusplus broken_bond::json
                           rex::runtime RmlUi::Core d3d12 dxgi winhttp ole32 shell32 uuid)
     if(BROKENBOND_NATIVE_VULKAN)
@@ -269,6 +273,19 @@ if(BROKENBOND_NATIVE_RENDERER)
             add_test(NAME game_choice COMMAND broken_bond_game_choice_test
                 "${CMAKE_CURRENT_BINARY_DIR}/test-data/game-choice" "${CMAKE_CURRENT_SOURCE_DIR}/game")
         endif()
+        # The setup screen's logo reader on synthetic archives, a folder and a disc
+        # image, then on the repository's game when present (no artwork in the test).
+        add_executable(broken_bond_game_logo_test tests/game_logo_test.cpp)
+        target_link_libraries(broken_bond_game_logo_test PRIVATE broken_bond_menu_components)
+        set(_game_logo_real)
+        if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/game/Naruto_clip.SRA")
+            set(_game_logo_real "${CMAKE_CURRENT_SOURCE_DIR}/game")
+        endif()
+        add_test(NAME game_logo_clean COMMAND "${CMAKE_COMMAND}" -E rm -rf "${CMAKE_CURRENT_BINARY_DIR}/test-data/game-logo")
+        add_test(NAME game_logo COMMAND broken_bond_game_logo_test "${CMAKE_CURRENT_BINARY_DIR}/test-data/game-logo"
+            ${_game_logo_real})
+        set_tests_properties(game_logo_clean PROPERTIES FIXTURES_SETUP game_logo_dir)
+        set_tests_properties(game_logo PROPERTIES FIXTURES_REQUIRED game_logo_dir)
     endif()
 endif()
 

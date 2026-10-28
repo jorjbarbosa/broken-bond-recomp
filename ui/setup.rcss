@@ -1,10 +1,11 @@
-/* Centered on a 720 dp canvas. The background is procedural, not a bundled
-   image; the title is text. */
+/* Centered on a 720 dp canvas. Only the locally loaded logo is game artwork;
+   the background is procedural, not a bundled image. */
 body { position: absolute; left: 0; top: 0; width: 100%; height: 100%; background-color: #080f1b; }
 #background { position: absolute; left: 0; top: 0; width: 100%; height: 100%; }
 body.controls-open #identity, body.controls-open #choose-hint,
 body.controls-open #menu, body.controls-open #status, body.controls-open #footer { opacity: 0; }
 #identity { position: absolute; left: 50%; margin-left: -240dp; top: 96dp; width: 480dp; height: 192dp; }
+#game-logo { position: absolute; left: 70.7dp; top: 0; width: 338.6dp; height: 192dp; }
 #text-title { display: block; width: 100%; text-align: center; }
 #title { display: block; margin-top: 24dp; font-size: 69.3dp; line-height: 85.3dp; font-weight: bold; letter-spacing: 0.7dp; color: #f5f2eb; }
 #subtitle { display: block; margin-top: 0dp; font-size: 18dp; line-height: 28dp; letter-spacing: 3.3dp; color: #dadddd; }

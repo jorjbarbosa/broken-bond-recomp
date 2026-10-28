@@ -1,6 +1,7 @@
 // The first page of the setup screen (setup_screen.h).
 #include "menu/setup_screen.h"
 #include "menu/text.h"
+#include "menu/render_interface.h"
 #include <utility>
 #include <RmlUi/Core.h>
 #include <rex/logging.h>
@@ -30,6 +31,7 @@ bool SetupScreen::CreateModel(Rml::Context& context) {
   if (!constructor) return false;
   constructor.Bind("game_ready", &game_ready_);
   constructor.Bind("start_failed", &start_failed_);
+  constructor.Bind("logo_ready", &logo_ready_);
   constructor.Bind("first_label", &first_label_);
   constructor.Bind("status_title", &status_title_);
   constructor.Bind("status_detail", &status_detail_);
@@ -59,6 +61,9 @@ bool SetupScreen::Show(Rml::Context& context, const State& state, Actions action
   game_ready_ = state.reason != SetupReason::kFirstRun && state.reason != SetupReason::kGameMissing &&
                 state.reason != SetupReason::kGameNotReady;
   start_failed_ = state.reason == SetupReason::kStartFailed;
+  logo_root_ = game_ready_ && state.game.status == Status::kReady ? state.game_root : std::filesystem::path{};
+  disc_image_ = state.game.disc_image;
+  if (logo_root_ != render_root_) logo_ready_ = false;
   first_label_ = game_ready_ ? Text("setup-play") : Text("choose");
   const auto [title, detail] = StatusText(state);
   status_title_ = title;
@@ -78,6 +83,7 @@ bool SetupScreen::Show(Rml::Context& context, const State& state, Actions action
 }
 
 void SetupScreen::Hide() {
+  logo_root_.clear();
   if (!document_) return;
   document_->Close();  // Its images go at the context's next update.
   document_ = nullptr;
@@ -89,6 +95,38 @@ void SetupScreen::SetGamepadHints(bool gamepad) {
   if (document_) {
     if (auto* hints = document_->GetElementById("setup-hints"))
       hints->SetInnerRML(Text(gamepad ? "setup-pad-hints" : "setup-key-hints"));
+  }
+}
+
+void SetupScreen::UpdateLogo(RenderInterface& render) {
+  if (render_root_ != logo_root_) {
+    render.SetGameLogo({});
+    render_root_ = logo_root_;
+    logo_ready_ = false;
+    logo_complete_ = false;
+    if (model_) model_.DirtyVariable("logo_ready");
+  }
+  if (logo_task_.valid() && logo_task_.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
+    auto image = logo_task_.get();
+    // Hide/Refresh or another selection may have changed the requested origin.
+    if (document_ && pending_root_ == logo_root_) {
+      logo_complete_ = true;
+      logo_ready_ = image.has_value();
+      if (image) REXLOG_INFO("[broken_bond] Setup logo: loaded {}x{} from local game", image->width, image->height);
+      else REXLOG_INFO("[broken_bond] Setup logo: unavailable; keeping text title");
+      render.SetGameLogo(std::move(image));
+      model_.DirtyVariable("logo_ready");
+    }
+  }
+  if (document_ && !logo_root_.empty() && !logo_complete_ && !logo_task_.valid()) {
+    pending_root_ = logo_root_;
+    // Capture values only: closing the UI cannot leave a worker touching it.
+    try {
+      logo_task_ = std::async(std::launch::async, [root = logo_root_, disc = disc_image_] { return game_logo::Load(root, disc); });
+    } catch (...) {
+      logo_complete_ = true;
+      REXLOG_WARN("[broken_bond] Setup logo: worker unavailable; keeping text title");
+    }
   }
 }
 

@@ -7,10 +7,11 @@
 <body data-model="setup">
   <img id="background" src="generated/setup-background"/>
   <div id="identity">
-    <div id="text-title">
+    <div id="text-title" data-if="!logo_ready">
       <div id="title">NARUTO</div>
       <div id="subtitle">THE BROKEN BOND</div>
     </div>
+    <img id="game-logo" data-if="logo_ready" src="local/game-logo"/>
   </div>
   <div id="choose-hint" data-if="!game_ready">@setup-choose-hint</div>
   <div id="menu">

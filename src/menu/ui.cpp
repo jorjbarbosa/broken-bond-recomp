@@ -428,6 +428,7 @@ void Ui::Draw(rex::ui::UIDrawContext& context) {
     panel_.Layout(width, height, context_->GetDensityIndependentPixelRatio());
   }
   if (fps_ && fps_->IsVisible()) UpdateRate();
+  setup_.UpdateLogo(*render_);
   context_->Update();
   if (panel_.RevealSelection()) context_->Update();
   render_->Begin(context, width, height);

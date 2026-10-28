@@ -14,6 +14,7 @@
 #include <optional>
 #include <RmlUi/Core/RenderInterface.h>
 #include <rex/ui/immediate_drawer.h>
+#include "menu/game_logo.h"
 
 namespace broken_bond::menu {
 
@@ -37,6 +38,9 @@ class RenderInterface final : public Rml::RenderInterface {
   void EnableScissorRegion(bool enable) override;
   void SetScissorRegion(Rml::Rectanglei region) override;
   void SetTransform(const Rml::Matrix4f* transform) override;
+  // The setup screen's logo (local/game-logo), read from the player's game; none
+  // keeps the text title.
+  void SetGameLogo(std::optional<game_logo::Image> image);
 
  private:
   Rml::TextureHandle CreateImage(uint32_t width, uint32_t height, const uint8_t* rgba);
@@ -46,6 +50,7 @@ class RenderInterface final : public Rml::RenderInterface {
   bool scissor_ = false;
   Rml::Rectanglei scissor_region_;
   std::optional<Rml::Matrix4f> transform_;
+  std::optional<game_logo::Image> game_logo_;
 };
 
 }  // namespace broken_bond::menu
