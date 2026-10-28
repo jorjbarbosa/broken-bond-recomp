@@ -66,6 +66,7 @@ foreach ($name in $binaries) {
 }
 $releaseParts = @{
     FidelityFX = $binaries -contains 'amd_fidelityfx_dx12.dll'
+    NativeD3D12 = $true
     NativeVulkan = $true
 }
 $components = @((Import-PowerShellDataFile (Join-Path $PSScriptRoot 'third-party-licenses.psd1')).Components |

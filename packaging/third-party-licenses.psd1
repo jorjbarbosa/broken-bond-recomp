@@ -4,7 +4,9 @@
 # copies of texts that only exist inside a source header or upstream repository.
 # Condition selects a component only when that part is in the build:
 #   FidelityFX     - amd_fidelityfx_dx12.dll is staged
+#   NativeD3D12    - the native Direct3D 12 backend is built (the Windows ZIP)
 #   NativeVulkan   - the native Vulkan backend is built (every release)
+# package-linux-appimage.py reads this file too, without the Windows parts.
 @{
     Components = @(
         @{ Name = 'nlohmann/json 3.11.3'; License = 'MIT'
@@ -85,7 +87,7 @@
         @{ Name = 'plume'; License = 'MIT'
            Url = 'https://github.com/renderbag/plume'; File = 'packaging/licenses/plume.txt'; Target = 'plume.txt'
            Usage = 'broken_bond.exe' }
-        @{ Name = 'D3D12 Memory Allocator'; License = 'MIT'
+        @{ Name = 'D3D12 Memory Allocator'; License = 'MIT'; Condition = 'NativeD3D12'
            Url = 'https://github.com/GPUOpen-LibrariesAndSDKs/D3D12MemoryAllocator'; File = 'packaging/licenses/d3d12memoryallocator.txt'; Target = 'd3d12memoryallocator.txt'
            Usage = 'broken_bond.exe' }
         @{ Name = 'XenosRecomp (shader translation, shader_common.h in the embedded shaders)'; License = 'MIT'

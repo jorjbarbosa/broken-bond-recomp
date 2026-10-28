@@ -17,7 +17,7 @@ def main():
     required = {'broken_bond.exe', 'rexruntime.dll', 'broken_bond.toml', 'broken_bond.version',
                 'README.txt', 'licenses/README.txt', 'licenses/broken-bond-recomp.txt',
                 'licenses/rmlui.txt', 'licenses/freetype.txt', 'licenses/roboto-condensed.txt',
-                'licenses/volk.txt', 'licenses/vulkan-headers.txt'}
+                'licenses/volk.txt', 'licenses/vulkan-headers.txt', 'licenses/d3d12memoryallocator.txt'}
     with zipfile.ZipFile(archive) as package:
         assert package.testzip() is None, 'ZIP integrity failure'
         names = {item.filename for item in package.infolist() if not item.is_dir()}

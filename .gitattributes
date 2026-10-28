@@ -7,6 +7,8 @@
 *.json text eol=lf
 *.ps1 text eol=lf
 *.sh text eol=lf
+# The AppImage's AppRun, desktop entry and README are read on Linux.
+packaging/appimage/** text eol=lf
 # Unified patches contain space-prefixed empty context lines.
 *.patch text eol=lf whitespace=-blank-at-eol
 patches/series text eol=lf
