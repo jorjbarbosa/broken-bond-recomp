@@ -55,9 +55,31 @@ struct Settings {
 // native mode is configured: with the Xenos renderer the plugin owns them.
 void RegisterPluginOptions();
 // Reads the options once, when the native mode is configured (the runtime has
-// loaded the configuration by then); CurrentSettings returns those values.
+// loaded the configuration by then): the initial snapshot. Later edits are
+// requested below and applied between frames.
 void LoadSettings();
+// Value snapshots: the menu, translator and render threads share no mutable
+// data. CurrentSettings is the calling thread's own copy of the settings in
+// use, refreshed by its next call once a newer one was applied, so the
+// per-draw reads take no lock.
 const Settings& CurrentSettings();
-// The options in use, with where each value came from, as journal fields.
+Settings RequestedSettings();
+// Queues the settings for the next frame boundary; returns their revision. The
+// API, the adapter and the aspect ratio stay the session's, and the resolution
+// scale follows the session's aspect ratio (AnamorphicScale).
+uint64_t RequestSettings(Settings settings);
+struct SettingsResult {
+  uint64_t revision = 0;
+  bool applied = false;
+  std::string evidence;
+};
+SettingsResult LastSettingsResult();
+class Dispatcher;
+// Guest thread, at the end of the Swap. The newest request goes to
+// Engine::Reconfigure behind all preceding translation work and is published
+// once the engine took it; a refusal restores the request to the settings in use.
+void ApplyPendingSettings(Dispatcher& dispatcher);
+// The boot options and their sources, as journal fields. Applied edits have
+// their own native-live-settings records.
 std::string SettingsEvidence();
 }  // namespace gpu

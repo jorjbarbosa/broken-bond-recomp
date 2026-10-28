@@ -1,6 +1,7 @@
 // Optional boot logo skip for the supported Broken Bond executable.
 // See docs/launcher-game-features.md for the REA/IDA evidence and limits.
 
+#include <atomic>
 #include <cstdint>
 #include <limits>
 #include <string>
@@ -11,11 +12,15 @@
 #include <rex/logging.h>
 
 #include "generated/default/broken_bond_init.h"
+#include "intro_skip.h"
 
 REXCVAR_DEFINE_BOOL(skip_intro_videos, false, "broken_bond",
                     "Skip the Ubisoft boot logo video; preserve story and attract videos");
 
 namespace {
+
+// The menu's choice once it made one (SetSkipIntroVideos); -1 leaves the cvar.
+std::atomic<int> live_skip{-1};
 
 constexpr uint32_t kSkipStatus = 0xC0000035;
 constexpr uint32_t kSkipError = 80;
@@ -52,11 +57,17 @@ bool IsBootLogo(std::string_view path) {
 
 }  // namespace
 
+void broken_bond::SetSkipIntroVideos(bool enabled) {
+  live_skip.store(enabled ? 1 : 0);
+}
+
 REX_HOOK_RAW(sub_8222D838) {
   // This wrapper also handles writable files. Only intercept read-only opens.
   const bool read_only = (ctx.r4.u32 & 0x80000000) != 0 &&
                          (ctx.r4.u32 & 0x40000000) == 0;
-  if (REXCVAR_GET(skip_intro_videos) && read_only) {
+  const int live = live_skip.load();
+  const bool skip = live < 0 ? REXCVAR_GET(skip_intro_videos) : live != 0;
+  if (skip && read_only) {
     const std::string path = ReadGuestPath(base, ctx.r3.u32);
     if (IsBootLogo(path)) {
       REXLOG_INFO("[broken_bond] boot logo video skipped: {}", path);

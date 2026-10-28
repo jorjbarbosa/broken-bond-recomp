@@ -26,6 +26,9 @@ foreach(_broken_bond_engine_test IN ITEMS latch lifetime failure translation res
                    src/gpu/backend/tests/${_broken_bond_engine_test}_test.cpp)
     target_link_libraries(native_engine_${_broken_bond_engine_test}_test PRIVATE native_engine_test_units)
 endforeach()
+# The settings queue applied between frames, through a dispatcher (the journal is stubbed).
+add_executable(native_engine_settings_test src/gpu/tests/settings_test.cpp src/gpu/settings.cpp src/wine.cpp)
+target_link_libraries(native_engine_settings_test PRIVATE native_engine_test_units)
 # The UI layer and the SDK's immediate drawing over it, through a dispatcher.
 add_executable(native_engine_ui_layer_test src/gpu/ui/tests/layer_test.cpp src/gpu/ui/layer.cpp
                src/gpu/ui/immediate_drawer.cpp)
@@ -116,7 +119,7 @@ target_link_libraries(native_shader_package_test PRIVATE broken_bond_smolv libzs
 target_compile_definitions(native_shader_package_test PRIVATE BROKENBOND_SHADER_CACHE_SPIRV=1 NOMINMAX
                            WIN32_LEAN_AND_MEAN)
 add_dependencies(native_shader_package_test broken_bond_native_shader_cache)
-set(native_tests latch lifetime failure translation resource depth_resolve depth_only reconfigure ui pool ui_layer menu completion shader_contract present draw_cache instancing)
+set(native_tests latch lifetime failure translation resource depth_resolve depth_only reconfigure ui pool settings ui_layer menu completion shader_contract present draw_cache instancing)
 if(BROKENBOND_NATIVE_D3D12)
     list(APPEND native_tests bindings)
 endif()

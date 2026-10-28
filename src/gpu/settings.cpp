@@ -3,18 +3,23 @@
 // runs, the presenter cvars of rexruntime.dll read by name, and the journal
 // fields of the options in use.
 #include "gpu/settings.h"
+#include "gpu/backend/dispatcher.h"
+#include "gpu/host/services.h"
 #include "wine.h"
 #include <algorithm>
+#include <atomic>
 #include <cctype>
 #include <charconv>
 #include <cmath>
 #include <deque>
 #include <functional>
+#include <mutex>
 #include <string_view>
 #include <vector>
 #include <windows.h>
 #include <fmt/format.h>
 #include <rex/cvar.h>
+#include <rex/logging.h>
 
 // Options of the native renderer without an SDK counterpart: the swapchain
 // latency and buffer count. The defaults: two buffers, frame latency 1.
@@ -81,6 +86,13 @@ REXCVAR_DEFINE_STRING(native_backend, "d3d12", "broken_bond/Graphics", "Native r
 namespace gpu {
 namespace {
 Settings settings;
+Settings requested_settings;
+std::mutex settings_mutex;
+// Bumped under settings_mutex each time settings changes: the threads' copies
+// (CurrentSettings) compare it before taking the lock.
+std::atomic<uint64_t> published{0};
+uint64_t requested_revision = 0;
+SettingsResult last_result;
 std::string evidence;
 
 // The options that the SDK defines in the Xenos plugin (command_processor.cpp,
@@ -269,21 +281,8 @@ void LoadSettings() {
                            std::abs(aspect / (16.0 / 9.0) - 1.0) > 0.005
                        ? float(aspect)
                        : 0.0f;
-  // At another aspect the title's surfaces are drawn at the image's aspect
-  // (anamorphic): the axis the image widens grows from the scale above, the
-  // other keeps it, so 2x at 21:9 is 3440 x 1440 and 2x at 16:10 2560 x 1600.
-  // Each axis stays within 4x; past it the kept axis gives way.
-  if (s.aspect_ratio > 0.0f) {
-    const float wide = s.aspect_ratio / (16.0f / 9.0f);
-    ResolutionScale& k = s.resolution_scale;
-    if (wide > 1.0f) {
-      k.x = std::min(k.y * wide, 4.0f);
-      k.y = k.x / wide;
-    } else {
-      k.y = std::min(k.x / wide, 4.0f);
-      k.x = k.y * wide;
-    }
-  }
+  // At another aspect the title's surfaces are drawn at the image's aspect.
+  s.resolution_scale = AnamorphicScale(s.resolution_scale, s.aspect_ratio);
   s.graphics_device = REXCVAR_GET(graphics_device);
   s.native_backend = REXCVAR_GET(native_backend);
 #if defined(BROKENBOND_NATIVE_VULKAN)
@@ -302,7 +301,11 @@ void LoadSettings() {
   s.cas_additional_sharpness = PresenterFloat("present_cas_additional_sharpness", 0.0f, 0.0f, 1.0f);
   s.fsr_sharpness_reduction = PresenterFloat("present_fsr_sharpness_reduction", 0.2f, 0.0f, 2.0f);
   s.fsr_max_passes = uint32_t(PresenterFloat("present_fsr_max_upsampling_passes", 4.0f, 1.0f, 4.0f));
-  settings = s;
+  {
+    std::lock_guard lock(settings_mutex);
+    settings = requested_settings = s;
+    published.fetch_add(1, std::memory_order_release);
+  }
 
   std::string sources;
   for (const auto name : kOptions)
@@ -318,6 +321,66 @@ void LoadSettings() {
       s.resolution_scale.y, s.max_frame_latency, s.triple_buffering, s.brightness, s.fsr_max_passes, s.msaa_samples,
       s.transparency_antialiasing, s.frame_rate, s.aspect_ratio, Quoted(s.graphics_device), sources);
 }
-const Settings& CurrentSettings() { return settings; }
+const Settings& CurrentSettings() {
+  thread_local Settings copy;
+  thread_local uint64_t seen = UINT64_MAX;
+  if (published.load(std::memory_order_acquire) != seen) {
+    std::lock_guard lock(settings_mutex);
+    copy = settings;
+    seen = published.load(std::memory_order_relaxed);
+  }
+  return copy;
+}
+Settings RequestedSettings() { std::lock_guard lock(settings_mutex); return requested_settings; }
+uint64_t RequestSettings(Settings next) {
+  std::lock_guard lock(settings_mutex);
+  // The API, the adapter and the aspect ratio belong to the session, even after a saved restart edit.
+  next.native_backend = settings.native_backend;
+  next.graphics_device = settings.graphics_device;
+  next.aspect_ratio = settings.aspect_ratio;
+  next.resolution_scale = AnamorphicScale(next.resolution_scale, next.aspect_ratio);
+  requested_settings = std::move(next);
+  return ++requested_revision;
+}
+SettingsResult LastSettingsResult() { std::lock_guard lock(settings_mutex); return last_result; }
+void ApplyPendingSettings(Dispatcher& dispatcher) {
+  Settings next;
+  uint64_t revision;
+  {
+    std::lock_guard lock(settings_mutex);
+    if (requested_revision == last_result.revision) return;
+    revision = requested_revision;
+    next = requested_settings;
+  }
+  PresentMode present;
+  present.vsync = next.vsync; present.allow_tearing = next.allow_tearing;
+  present.buffers = next.triple_buffering ? 3 : 2;
+  present.max_frame_latency = next.max_frame_latency;
+  present.brightness = next.brightness; present.effect = next.present_effect;
+  present.post_effect = next.swap_post_effect; present.cas_sharpness = next.cas_additional_sharpness;
+  present.fsr_sharpness_reduction = next.fsr_sharpness_reduction; present.fsr_passes = next.fsr_max_passes;
+  RenderMode render{next.resolution_scale, next.msaa_samples, next.graphics_device, dispatcher.Api()};
+  std::string detail;
+  const bool applied = dispatcher.Run([render, present, next](Engine& engine, std::string& out) {
+    if (!engine.Reconfigure(render, present, out)) return false;
+    // Published before the stage may translate any operation after this Run.
+    std::lock_guard lock(settings_mutex);
+    settings = next;
+    published.fetch_add(1, std::memory_order_release);
+    return true;
+  }, detail);
+  {
+    std::lock_guard lock(settings_mutex);
+    if (!applied && requested_revision == revision) requested_settings = settings;
+    last_result = {revision, applied, detail};
+  }
+  host::Record("native-live-settings", fmt::format("\"revision\":{},\"applied\":{},\"resolution_scale\":[{},{}],"
+      "\"frame_rate\":{},\"anisotropic_override\":{},\"transparency_antialiasing\":{},\"engine\":{}", revision,
+      applied, next.resolution_scale.x, next.resolution_scale.y, next.frame_rate, next.anisotropic_override,
+      next.transparency_antialiasing, detail.empty() ? "null" : detail));
+  REXLOG_INFO("[broken_bond] Live settings revision {}: applied={}, resolution_scale={}x{}, frame_rate={}, "
+      "anisotropy={}, transparency_aa={}, {}", revision, applied, next.resolution_scale.x, next.resolution_scale.y,
+      next.frame_rate, next.anisotropic_override, next.transparency_antialiasing, detail);
+}
 std::string SettingsEvidence() { return evidence; }
 }  // namespace gpu
