@@ -2188,7 +2188,18 @@ bool Backend::StageFront(uint32_t key, uint32_t& slot, std::string& evidence) {
   };
   barrier(source, *source_state, D3D12_RESOURCE_STATE_COPY_SOURCE);
   barrier(stage.resource.Get(), stage.state, D3D12_RESOURCE_STATE_COPY_DEST);
-  commands->CopyResource(stage.resource.Get(), source);
+  const auto copies = PresentCopies(state_->render_mode.scale, stage.width, stage.height);
+  if (copies.size() == 1) {
+    commands->CopyResource(stage.resource.Get(), source);
+  } else {
+    D3D12_TEXTURE_COPY_LOCATION to{}, from{};
+    to.pResource = stage.resource.Get(); to.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+    from.pResource = source; from.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+    for (const GapCopy& g : copies) {
+      const D3D12_BOX box{g.source.left, g.source.top, 0, g.source.right, g.source.bottom, 1};
+      commands->CopyTextureRegion(&to, g.dest_x, g.dest_y, 0, &from, &box);
+    }
+  }
   *source_last_use = stage.last_use_fence = state_->batch.fence;
   stage.key = key;
   stage.staged = true;

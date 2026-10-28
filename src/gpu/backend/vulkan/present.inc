@@ -263,9 +263,16 @@ bool Backend::StageFront(uint32_t key, uint32_t& slot, std::string& evidence) {
   auto commands = s.Commands();
   Transition(commands, image, VK_IMAGE_ASPECT_COLOR_BIT, *sync, kCopySource);
   Transition(commands, stage.image->image, VK_IMAGE_ASPECT_COLOR_BIT, stage.state, kCopyDest, true);
-  VkImageCopy copy{};
-  copy.srcSubresource = copy.dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1}; copy.extent = {width, height, 1};
-  vkCmdCopyImage(commands, image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, stage.image->image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copy);
+  std::vector<VkImageCopy> copies;
+  for (const GapCopy& g : PresentCopies(s.render_mode.scale, width, height)) {
+    VkImageCopy& copy = copies.emplace_back();
+    copy.srcSubresource = copy.dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+    copy.srcOffset = {int32_t(g.source.left), int32_t(g.source.top), 0};
+    copy.dstOffset = {int32_t(g.dest_x), int32_t(g.dest_y), 0};
+    copy.extent = {g.source.right - g.source.left, g.source.bottom - g.source.top, 1};
+  }
+  vkCmdCopyImage(commands, image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, stage.image->image,
+                 VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, uint32_t(copies.size()), copies.data());
   *last = stage.last_use = s.batch.sequence; stage.staged = true; stage.presented = false;
   slot = uint32_t(s.staged_frames++ % s.stages.size()); ++s.batch.operations;
   evidence = fmt::format("{{\"staged\":true,\"slot\":{},\"key\":{},\"size\":[{},{}]}}", slot, key, width, height);

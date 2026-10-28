@@ -130,19 +130,18 @@ struct ScreenArea {
 // an integer scale, the pixels whose centers lie before k / 2 at a fraction.
 inline uint32_t HalfPixelGap(float k) { return k > 1.0f ? uint32_t(std::ceil(k * 0.5f - 0.5f + 1e-4f)) : 0; }
 
-// The copies of the resolve of box to (dest_x, dest_y), with that gap filled:
+// The copies of box to (dest_x, dest_y), with a given top/left gap filled:
 // the covered part, the gap rows from the first covered row, the gap columns
 // from the first covered column, the corner from the first covered pixel. No
 // copy reads a gap pixel and no two write the same texel, so they need no
-// order. One copy of the whole box at 1x or when the box is not larger than
-// its gap.
+// order. One copy of the whole box with no gap or when the box is not larger
+// than its gap.
 struct GapCopy {
   HostBox source;
   uint32_t dest_x = 0, dest_y = 0;
 };
-inline std::vector<GapCopy> ResolveCopies(const ResolutionScale& k, const HostBox& box, uint32_t dest_x,
-                                          uint32_t dest_y) {
-  const uint32_t gx = HalfPixelGap(k.x), gy = HalfPixelGap(k.y);
+inline std::vector<GapCopy> EdgeCopies(uint32_t gx, uint32_t gy, const HostBox& box, uint32_t dest_x,
+                                       uint32_t dest_y) {
   if ((!gx && !gy) || box.right - box.left <= gx || box.bottom - box.top <= gy) return {{box, dest_x, dest_y}};
   const uint32_t x = box.left + gx, y = box.top + gy;
   std::vector<GapCopy> copies{{{x, y, box.right, box.bottom}, dest_x + gx, dest_y + gy}};
@@ -151,6 +150,23 @@ inline std::vector<GapCopy> ResolveCopies(const ResolutionScale& k, const HostBo
   for (uint32_t i = 0; i < gy; ++i)
     for (uint32_t j = 0; j < gx; ++j) copies.push_back({{x, y, x + 1, y + 1}, dest_x + j, dest_y + i});
   return copies;
+}
+
+inline std::vector<GapCopy> ResolveCopies(const ResolutionScale& k, const HostBox& box, uint32_t dest_x,
+                                          uint32_t dest_y) {
+  return EdgeCopies(HalfPixelGap(k.x), HalfPixelGap(k.y), box, dest_x, dest_y);
+}
+
+// The image composited over the title's frame can keep a partly blended edge
+// once the half-pixel resolve gap is filled: at 2x, rows and columns 0 and 1
+// hold the fringe. The Present's copy extends the first full guest pixel
+// (ceil(k) host pixels) over it, before FXAA and sharpening can spread it. The
+// guest's render targets and the 1x output stay unchanged; nothing is rescaled
+// or shifted.
+inline std::vector<GapCopy> PresentCopies(const ResolutionScale& k, uint32_t width, uint32_t height) {
+  const uint32_t gx = k.x > 1.0f ? uint32_t(std::ceil(k.x)) : 0;
+  const uint32_t gy = k.y > 1.0f ? uint32_t(std::ceil(k.y)) : 0;
+  return EdgeCopies(gx, gy, {0, 0, width, height}, 0, 0);
 }
 
 }  // namespace gpu
