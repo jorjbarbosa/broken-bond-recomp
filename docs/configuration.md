@@ -88,6 +88,18 @@ game keeps running, but its controller, keyboard and mouse input stay neutral
 while the menu shows; Esc or B closes it. With `show_fps_overlay = true` the
 frame rate also shows in a corner of the screen.
 
+**Settings** in the game menu has the launcher's options under the same keys,
+saved to `broken_bond.toml` at each change. The frame rate overlay, fullscreen,
+the menu language and the menu shortcuts apply at once; the options marked
+RESTART apply at the next start. The menu adds these keys:
+
+| Key | Default | Effect |
+| --- | --- | --- |
+| `bind_game_menu` | `"F1"` | Keyboard key that opens the game menu |
+| `game_menu_chord` | `"Back+Start"` | Controller buttons that open it: `Back+Start`, `LB+RB+Start` or `L3+R3` |
+| `show_shader_indicator` | `true` | Shows a notice while pipelines compile |
+| `check_for_updates` | `true` | Checks the project's latest release at start and notifies when it is newer; Settings > Advanced also checks on request |
+
 ### Native renderer options
 
 These keys exist only in native renderer builds. Each takes effect on the next launch.

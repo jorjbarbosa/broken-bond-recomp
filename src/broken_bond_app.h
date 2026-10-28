@@ -27,10 +27,17 @@
 #include "gpu/ui/immediate_drawer.h"
 #include "gpu/ui/layer.h"
 #include "menu/input_gate.h"
+#include "menu/settings.h"
+#include "menu/shortcut.h"
 #include "menu/text.h"
 #include "menu/ui.h"
+#include "menu/update_checker.h"
+#include "port_version.h"
+#include <SDL3/SDL_misc.h>
 #include <rex/logging.h>
 #include <rex/ui/presenter.h>
+
+REXCVAR_DEFINE_BOOL(check_for_updates, true, "broken_bond/UI", "Notify when a new release is available");
 #endif
 
 // Alt+Enter and F11 switch between borderless fullscreen and windowed mode.
@@ -157,6 +164,7 @@ class BrokenBondApp : public rex::ReXApp {
   // Swap asks the UI thread for the next frame while a document is shown, and
   // polls the menu shortcuts otherwise. F1 or Back+Start opens the game menu.
   void SetupUi() {
+    menu_settings_.Initialize(rex::filesystem::GetExecutableFolder());
     native_drawer_ = std::make_unique<gpu::ui::ImmediateDrawer>(gpu::ui::UiLayer());
     gpu::ui::UiLayer().SetFrameRequest([this] {  // The Swap's thread.
       if (closing_.load()) return;
@@ -178,11 +186,11 @@ class BrokenBondApp : public rex::ReXApp {
     if (window()) window()->AddInputListener(&ui_, std::numeric_limits<size_t>::max() - 1);
     ui_.SetInputActive([this] { return window() && window()->HasFocus(); });
     ui_.SetTick([this] { ServiceMenu(); });
-    ui_.EnableGameMenu(kMenuKey, kMenuChord, [this] { ToggleGameMenu(); });
+    menu_settings_.SetUtilities([this] { CreateDesktopShortcut(); }, [this] { CheckUpdates(); });
+    if (REXCVAR_GET(check_for_updates))
+      updates_ = std::make_unique<launcher_updates::Checker>(broken_bond::PortVersion(), user_data_root() / "menu-updates.json");
+    UpdateMenuShortcut();
     ui_.SetFpsVisible(rex::cvar::Query<bool>("show_fps_overlay"));
-    char hint[512];
-    std::snprintf(hint, sizeof(hint), broken_bond::menu::Text("shortcut-format"), kMenuKey, "Back + Start");
-    shortcut_hint_ = hint;
     // The hint shows a few seconds after the game's first frame reaches the screen.
     gpu::ui::UiLayer().SetFirstPresentCallback([this] {  // Engine owner.
       if (closing_.load()) return;
@@ -192,7 +200,17 @@ class BrokenBondApp : public rex::ReXApp {
         shortcut_hint_due_ = std::chrono::steady_clock::now() + std::chrono::seconds(4);
       });
     });
-    REXLOG_INFO("[broken_bond] Game menu: {} or Back+Start", kMenuKey);
+    REXLOG_INFO("[broken_bond] Game menu: {} or {}", menu_settings_.menu_options().key, menu_settings_.menu_options().chord);
+  }
+  // The menu key and controller chord of the settings, and the hint that names them.
+  void UpdateMenuShortcut() {
+    const auto& options = menu_settings_.menu_options();
+    ui_.EnableGameMenu(options.key, options.chord, [this] { ToggleGameMenu(); });
+    std::string chord;
+    for (char c : options.chord) chord += c == '+' ? " + " : std::string(1, c);
+    char hint[512];
+    std::snprintf(hint, sizeof(hint), broken_bond::menu::Text("shortcut-format"), options.key.c_str(), chord.c_str());
+    shortcut_hint_ = hint;
   }
   // On the UI thread with each menu frame: the shortcut hint and the shader indicator.
   void ServiceMenu() {
@@ -202,11 +220,71 @@ class BrokenBondApp : public rex::ReXApp {
       ui_.ShowShortcutHint(shortcut_hint_);
     }
     const auto progress = gpu::CurrentShaderProgress();
-    ui_.SetShadersVisible(gpu::ShaderCompilationVisible(), progress.pending, progress.fraction);
+    ui_.SetShadersVisible(menu_settings_.menu_options().shaders && gpu::ShaderCompilationVisible(), progress.pending,
+                          progress.fraction);
+    if (!updates_) return;
+    using broken_bond::menu::Text;
+    updates_->Poll();
+    if (updates_->status() == launcher_updates::Status::Available && !updates_->IsIgnored() && !update_notified_) {
+      update_notified_ = true;
+      const auto release = updates_->release();
+      char message[512];
+      std::snprintf(message, sizeof(message), Text("update-detail"), release.version.c_str());
+      ui_.Notify(message, Text("open-release"), [url = release.page_url] { SDL_OpenURL(url.c_str()); },
+                 Text("update-available"));
+    }
+    if (manual_update_check_ && updates_->status() != launcher_updates::Status::Checking) {
+      manual_update_check_ = false;
+      if (updates_->status() != launcher_updates::Status::Available)
+        ui_.Notify(Text(updates_->status() == launcher_updates::Status::Current ? "updates-current" : "updates-failed"));
+    }
+  }
+  // The settings pages (menu/settings.h). The frame rate, fullscreen, the menu
+  // language and the menu shortcuts apply at once; the options marked RESTART
+  // apply at the next start, which a notice recalls when the pages close.
+  void OpenSettings() {
+    menu_settings_.Open(ui_, 0, true, {}, [this](const std::string& key) {
+      const auto& config = menu_settings_.config();
+      if (key == "show_fps_overlay") {
+        rex::cvar::SetFlagByName(key, config.show_fps_overlay ? "true" : "false");
+        ui_.SetFpsVisible(config.show_fps_overlay);
+      } else if (key == "fullscreen") {
+        rex::cvar::SetFlagByName(key, config.fullscreen ? "true" : "false");
+      } else if (key == "bind_game_menu" || key == "game_menu_chord") {
+        UpdateMenuShortcut();
+      } else if (key != "launcher_language" && key != "show_shader_indicator") {
+        settings_restart_ = true;
+      }
+    }, [this] {
+      if (settings_restart_) ui_.Notify(broken_bond::menu::Text("changed"));
+      settings_restart_ = false;
+      if (ui_.OverlayShown()) OpenGameMenu();
+    });
+  }
+  void CreateDesktopShortcut() {
+    const bool ok = broken_bond::menu::WriteShortcut(broken_bond::menu::DesktopShortcut(),
+        rex::filesystem::GetExecutableFolder() / "broken_bond.exe", user_data_root());
+    ui_.Notify(broken_bond::menu::Text(ok ? "shortcut-done" : "save-failed"));
+  }
+  void CheckUpdates() {
+    using broken_bond::menu::Text;
+    if (!updates_)
+      updates_ = std::make_unique<launcher_updates::Checker>(broken_bond::PortVersion(), user_data_root() / "menu-updates.json");
+    if (updates_->status() == launcher_updates::Status::Available) {
+      const auto release = updates_->release();
+      char title[512];
+      std::snprintf(title, sizeof(title), Text("updates-available"), release.version.c_str());
+      ui_.ShowDialog(title, Text("update-hint"), {
+          {Text("open-release"), [url = release.page_url] { SDL_OpenURL(url.c_str()); }}, {Text("cancel"), {}}});
+    } else {
+      if (updates_->CanCheck()) updates_->CheckNow();
+      manual_update_check_ = true;
+      ui_.Notify(Text("updates-checking"));
+    }
   }
   void OpenGameMenu() {
     using broken_bond::menu::Text;
-    ui_.ShowOverlay({}, {}, [this] {
+    ui_.ShowOverlay([this] { OpenSettings(); }, {}, [this] {
       ui_.ShowDialog(std::string(Text("exit-game")) + "?", Text("exit-confirm"), {
           {Text("exit-game"), [this] { app_context().CallInUIThreadDeferred([this] {
              if (window()) window()->RequestClose();
@@ -233,10 +311,11 @@ class BrokenBondApp : public rex::ReXApp {
     ui_.Draw(context);
   }
 
-  static constexpr const char* kMenuKey = "F1";
-  static constexpr const char* kMenuChord = "Back+Start";
   std::unique_ptr<rex::ui::ImmediateDrawer> native_drawer_;  // Before ui_: it outlives the Ui.
   broken_bond::menu::Ui ui_;
+  broken_bond::menu::Settings menu_settings_;
+  std::unique_ptr<launcher_updates::Checker> updates_;
+  bool update_notified_ = false, manual_update_check_ = false, settings_restart_ = false;
   std::string shortcut_hint_;
   bool shortcut_hint_pending_ = false;
   std::chrono::steady_clock::time_point shortcut_hint_due_{};

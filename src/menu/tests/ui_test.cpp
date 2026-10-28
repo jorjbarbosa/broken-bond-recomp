@@ -2,19 +2,23 @@
 // through a dispatcher as the Swaps deliver it. Over a green image: the frame
 // rate document and its hiding; the game menu bar with only Exit, Enter and
 // Esc; a dialog whose default is Cancel; a panel's arrows, tabs and Back; the
-// menu strings in every language; the controller's navigation and shortcut;
-// and the release of the UI's textures with the menus.
+// settings pages saving to broken_bond.toml; the menu strings in every
+// language; the controller's navigation and shortcut; and the release of the
+// UI's textures with the menus.
 #include "gpu/backend/dispatcher.h"
 #include "gpu/backend/tests/test_backend.h"
 #include "gpu/ui/immediate_drawer.h"
 #include "gpu/ui/layer.h"
 #include "menu/assets.h"
 #include "menu/pad_input.h"
+#include "menu/settings.h"
 #include "menu/text.h"
 #include "menu/ui.h"
 #include <windows.h>
+#include <algorithm>
 #include <array>
 #include <chrono>
+#include <cmath>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -23,6 +27,8 @@
 #include <rex/ui/presenter.h>
 #include <rex/ui/ui_event.h>
 #include <rex/ui/virtual_key.h>
+#include <toml++/toml.hpp>
+#include <RmlUi/Core.h>
 
 using namespace gpu;
 
@@ -189,6 +195,60 @@ int main(int argc, char** argv) {
     key(rex::ui::VirtualKey::kEscape);
     frame("panel-back", modal);
     check("panel-back-closes", closed == 1 && !menu.PanelShown(), "{}");
+
+    // The settings pages: each edit is saved at once, unknown keys survive.
+    const auto settings_dir = std::filesystem::path(argv[1]).parent_path() / "settings";
+    std::filesystem::create_directories(settings_dir);
+    const auto settings_path = settings_dir / "broken_bond.toml";
+    std::ofstream(settings_path) << "unknown_option = 42\nuser_language = 1\nfullscreen = false\n"
+                                    "show_fps_overlay = false\nmnk_mode = true\nmnk_mouse = true\n";
+    broken_bond::menu::Settings settings_model;
+    settings_model.Initialize(settings_dir);
+    std::vector<std::string> changed_keys;
+    int settings_closed = 0;
+    settings_model.Open(menu, 0, false, {}, [&](const std::string& key) { changed_keys.push_back(key); },
+                        [&] { ++settings_closed; });
+    frame("settings-game", modal);
+    key(rex::ui::VirtualKey::kRight);
+    frame("settings-language", modal);
+    auto saved = toml::parse_file(settings_path.string());
+    check("settings-save-language", saved["user_language"].value<int>() == 4 && saved["unknown_option"].value<int>() == 42,
+          "{\"user_language\":" + std::to_string(saved["user_language"].value_or(0)) + "}");
+    key(rex::ui::VirtualKey::kNext); frame("settings-display", modal);
+    key(rex::ui::VirtualKey::kDown); key(rex::ui::VirtualKey::kDown); key(rex::ui::VirtualKey::kRight);
+    frame("settings-resolution", modal);
+    saved = toml::parse_file(settings_path.string());
+    check("settings-fractional-resolution", saved["internal_resolution_scale"].value<double>() == 1.5 &&
+          saved["resolution_scale"].value<int>() == 1, "{}");
+    key(rex::ui::VirtualKey::kDown); key(rex::ui::VirtualKey::kRight);
+    frame("settings-aspect", modal);
+    saved = toml::parse_file(settings_path.string());
+    check("settings-aspect-ratio", saved["aspect_ratio"].value<double>() == 0.0,
+          "{\"aspect_ratio\":" + std::to_string(saved["aspect_ratio"].value_or(-9.0)) + "}");
+    key(rex::ui::VirtualKey::kDown); key(rex::ui::VirtualKey::kReturn); frame("settings-number-description", modal);
+    int numeric_choices = 0;
+    for (int i = 0; i < Rml::GetContext("game")->GetNumDocuments(); ++i) {
+      auto* document = Rml::GetContext("game")->GetDocument(i);
+      if (auto* detail = document->IsVisible() ? document->GetElementById("detail") : nullptr) {
+        Rml::ElementList choices; detail->GetElementsByClassName(choices, "choice"); numeric_choices += int(choices.size());
+      }
+    }
+    check("numeric-value-keeps-description-panel", numeric_choices == 0, "{}");
+    key(rex::ui::VirtualKey::kRight); frame("settings-number-adjusted", modal);
+    saved = toml::parse_file(settings_path.string());
+    check("numeric-arrow-adjustment-saved", std::abs(saved["brightness"].value_or(0.0) - .51) < .0001, "{}");
+    for (int i = 0; i < 3; ++i) { key(rex::ui::VirtualKey::kNext); frame("settings-next-" + std::to_string(i), modal); }
+    key(rex::ui::VirtualKey::kDown); key(rex::ui::VirtualKey::kDown); key(rex::ui::VirtualKey::kRight);
+    frame("settings-fps", modal);
+    saved = toml::parse_file(settings_path.string());
+    check("settings-fps-saved", saved["show_fps_overlay"].value<bool>() == true, "{}");
+    const auto edited = [&](const char* name) {
+      return std::find(changed_keys.begin(), changed_keys.end(), name) != changed_keys.end();
+    };
+    check("settings-changes-reported", edited("user_language") && edited("resolution_scale") &&
+          edited("aspect_ratio") && edited("brightness") && edited("show_fps_overlay"), "{}");
+    key(rex::ui::VirtualKey::kEscape); frame("settings-closed", modal);
+    check("settings-escape-closes", settings_closed == 1 && !menu.PanelShown(), "{}");
 
     // The menu strings in each language.
     broken_bond::menu::TextSystem translations;

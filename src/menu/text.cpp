@@ -86,6 +86,11 @@ constexpr Entry strings[] = {
  {"shaders", {"Compiling shaders", "Compilando shaders", "Compilation des shaders", "Shader werden kompiliert", "Compilando shaders", "Compilazione shader", "Компиляция шейдеров"}},
  {"shader-option", {"Show shader indicator", "Mostrar indicador de shaders", "Afficher la compilation des shaders", "Shader-Anzeige einblenden", "Mostrar indicador de shaders", "Mostra indicatore shader", "Индикатор компиляции шейдеров"}},
  {"menu-key", {"Menu shortcut", "Atalho do menu", "Raccourci du menu", "Menü-Tastenkürzel", "Atajo del menú", "Scorciatoia del menu", "Клавиша меню"}},
+ {"updates-check", {"Check for updates", "Verificar atualizações", "Vérifier les mises à jour", "Nach Updates suchen", "Buscar actualizaciones", "Controlla aggiornamenti", "Проверить обновления"}},
+ {"updates-checking", {"Checking for updates…", "Verificando atualizações…", "Recherche de mises à jour…", "Suche nach Updates…", "Buscando actualizaciones…", "Ricerca aggiornamenti…", "Проверка обновлений…"}},
+ {"updates-current", {"Your version is up to date.", "Sua versão está atualizada.", "Votre version est à jour.", "Deine Version ist aktuell.", "Tu versión está actualizada.", "La tua versione è aggiornata.", "У вас актуальная версия."}},
+ {"updates-failed", {"Could not check for updates. Try again later.", "Não foi possível verificar. Tente novamente mais tarde.", "Vérification impossible. Réessayez plus tard.", "Prüfung fehlgeschlagen. Versuche es später erneut.", "No se pudo comprobar. Inténtalo más tarde.", "Verifica non riuscita. Riprova più tardi.", "Не удалось проверить. Повторите позже."}},
+ {"updates-available", {"New version available: %s", "Nova versão disponível: %s", "Nouvelle version disponible : %s", "Neue Version verfügbar: %s", "Nueva versión disponible: %s", "Nuova versione disponibile: %s", "Доступна новая версия: %s"}},
  {"pad-shortcut", {"Controller shortcut", "Atalho do controle", "Raccourci manette", "Controller-Tastenkürzel", "Atajo del mando", "Scorciatoia controller", "Комбинация геймпада"}},
 };
 }

@@ -141,7 +141,7 @@ if(BROKENBOND_NATIVE_RENDERER)
         src/mods/translation_data.cpp src/wine.cpp
         # The menus: RmlUi over the SDK's immediate drawing, with the files of ui/ embedded.
         src/menu/text.cpp src/menu/panel.cpp src/menu/pad_input.cpp src/menu/input_gate.cpp
-        src/menu/render_interface.cpp src/menu/assets.cpp src/menu/ui.cpp)
+        src/menu/render_interface.cpp src/menu/assets.cpp src/menu/ui.cpp src/menu/settings.cpp)
     # The files that menu/assets.cpp embeds (#embed): a change rebuilds it.
     file(GLOB_RECURSE BROKENBOND_UI_FILES CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/ui/*)
     set_source_files_properties(src/menu/assets.cpp PROPERTIES OBJECT_DEPENDS "${BROKENBOND_UI_FILES}")
