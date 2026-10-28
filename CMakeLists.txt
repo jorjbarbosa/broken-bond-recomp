@@ -153,6 +153,15 @@ if(WIN32)
 endif()
 target_include_directories(broken_bond PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
 target_link_libraries(broken_bond PRIVATE broken_bond::json)
+# The data folder's locations: the default per system, the location
+# descriptors and the overrides (src/data_paths.h).
+add_library(broken_bond_data_paths STATIC src/data_paths.cpp)
+target_include_directories(broken_bond_data_paths PUBLIC src)
+target_compile_features(broken_bond_data_paths PUBLIC cxx_std_23)
+target_link_libraries(broken_bond_data_paths PRIVATE broken_bond::json)
+if(WIN32)
+    target_link_libraries(broken_bond_data_paths PRIVATE shell32 ole32 uuid)
+endif()
 if(BROKENBOND_NATIVE_RENDERER)
     target_link_libraries(broken_bond PRIVATE RmlUi::Core)
     # The settings code of the menus: the configuration file, languages, key
@@ -339,6 +348,17 @@ if(BROKENBOND_NATIVE_RENDERER)
         endforeach()
         add_test(NAME data_achievements COMMAND broken_bond_data_achievements_test "${_data_storage}/achievements")
         set_tests_properties(data_achievements PROPERTIES FIXTURES_REQUIRED data_storage_dir)
+        # The data folder's locations on injected environments (src/data_paths.h).
+        add_executable(broken_bond_data_paths_test tests/data_paths_test.cpp)
+        target_link_libraries(broken_bond_data_paths_test PRIVATE broken_bond_data_paths broken_bond::json)
+        if(WIN32)
+            target_link_libraries(broken_bond_data_paths_test PRIVATE advapi32)
+        endif()
+        if(MSVC)
+            target_compile_options(broken_bond_data_paths_test PRIVATE /utf-8)
+        endif()
+        add_test(NAME data_paths COMMAND broken_bond_data_paths_test "${_data_storage}/paths")
+        set_tests_properties(data_paths PROPERTIES FIXTURES_REQUIRED data_storage_dir)
         # The four players' controls (src/controls): profiles and their file, key
         # capture, the configured drivers, the hardware service on SDL's virtual
         # gamepads (with the SDK's SDL driver beside it: one static SDL), and the
