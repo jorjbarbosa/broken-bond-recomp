@@ -1,4 +1,4 @@
-# Portable defaults. Relative user data paths resolve beside the launcher.
+# Portable defaults. Relative user data paths resolve beside the game.
 renderer = "native"
 native_backend = "d3d12"
 launcher_language = "en"

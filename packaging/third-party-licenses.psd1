@@ -9,7 +9,7 @@
     Components = @(
         @{ Name = 'nlohmann/json 3.11.3'; License = 'MIT'
            Url = 'https://github.com/nlohmann/json'; File = 'third_party/nlohmann_json/LICENSE.MIT'; Target = 'nlohmann-json.txt'
-           Usage = 'broken_bond.exe, broken_bond_launcher.exe' }
+           Usage = 'broken_bond.exe' }
         @{ Name = 'ReXGlue SDK (includes code derived from Xenia)'; License = 'BSD-3-Clause'
            Url = 'https://github.com/rexglue/rexglue-sdk'; File = 'sdk/LICENSE'; Target = 'rexglue-sdk.txt'
            Usage = 'broken_bond.exe, rexruntime.dll' }
@@ -21,13 +21,13 @@
            Usage = 'rexruntime.dll' }
         @{ Name = 'SDL3'; License = 'Zlib'
            Url = 'https://github.com/libsdl-org/SDL'; File = 'sdk/thirdparty/sdl3/LICENSE.txt'; Target = 'sdl3.txt'
-           Usage = 'rexruntime.dll, broken_bond_launcher.exe' }
+           Usage = 'rexruntime.dll, broken_bond.exe' }
         @{ Name = 'Dear ImGui'; License = 'MIT'
            Url = 'https://github.com/ocornut/imgui'; File = 'sdk/thirdparty/imgui/LICENSE.txt'; Target = 'imgui.txt'
-           Usage = 'rexruntime.dll, broken_bond_launcher.exe' }
+           Usage = 'rexruntime.dll' }
         @{ Name = 'stb_image'; License = 'MIT OR Unlicense'
            Url = 'https://github.com/nothings/stb'; File = 'packaging/licenses/stb.txt'; Target = 'stb.txt'
-           Usage = 'rexruntime.dll, broken_bond_launcher.exe' }
+           Usage = 'rexruntime.dll, broken_bond.exe' }
         @{ Name = '{fmt}'; License = 'MIT'
            Url = 'https://github.com/fmtlib/fmt'; File = 'sdk/thirdparty/fmt/LICENSE'; Target = 'fmt.txt'
            Usage = 'rexruntime.dll' }
@@ -39,7 +39,7 @@
            Usage = 'rexruntime.dll' }
         @{ Name = 'toml++'; License = 'MIT'
            Url = 'https://github.com/marzer/tomlplusplus'; File = 'sdk/thirdparty/tomlplusplus/LICENSE'; Target = 'tomlplusplus.txt'
-           Usage = 'rexruntime.dll, broken_bond.exe, broken_bond_launcher.exe' }
+           Usage = 'rexruntime.dll, broken_bond.exe' }
         @{ Name = 'CLI11'; License = 'BSD-3-Clause'
            Url = 'https://github.com/CLIUtils/CLI11'; File = 'sdk/thirdparty/cli11/LICENSE'; Target = 'cli11.txt'
            Usage = 'rexruntime.dll' }
@@ -54,7 +54,7 @@
            Usage = 'rexruntime.dll' }
         @{ Name = 'UTF8-CPP'; License = 'BSL-1.0'
            Url = 'https://github.com/nemtrif/utfcpp'; File = 'sdk/thirdparty/utfcpp/LICENSE'; Target = 'utfcpp.txt'
-           Usage = 'rexruntime.dll, broken_bond.exe, broken_bond_launcher.exe' }
+           Usage = 'rexruntime.dll, broken_bond.exe' }
         @{ Name = 'aes_128'; License = 'MIT'
            Url = 'https://github.com/openluopworld/aes_128'; File = 'sdk/thirdparty/aes_128/LICENSE'; Target = 'aes_128.txt'
            Usage = 'rexruntime.dll' }
@@ -79,12 +79,6 @@
         @{ Name = 'DirectX Shader Compiler API headers'; License = 'NCSA'
            Url = 'https://github.com/microsoft/DirectXShaderCompiler'; File = 'packaging/licenses/directx-shader-compiler.txt'; Target = 'directx-shader-compiler.txt'
            Usage = 'rexruntime.dll' }
-        @{ Name = 'extract-xiso'; License = 'BSD-4-Clause (modified)'
-           Url = 'https://github.com/XboxDev/extract-xiso'; File = 'build/tools/extract-xiso/artifacts/LICENSE.TXT'; Target = 'extract-xiso.txt'
-           Usage = 'BrokenBondInstaller.exe (ISO import)' }
-        @{ Name = 'Lato fonts'; License = 'OFL-1.1'
-           Url = 'https://www.latofonts.com'; File = 'launcher/assets/fonts/OFL.txt'; Target = 'lato.txt'
-           Usage = 'assets\fonts' }
         @{ Name = 'AMD FidelityFX SDK'; License = 'MIT'; Condition = 'FidelityFX'
            Url = 'https://github.com/rexglue/FidelityFX-SDK'; File = 'packaging/licenses/fidelityfx.txt'; Target = 'fidelityfx.txt'
            Usage = 'amd_fidelityfx_dx12.dll' }
@@ -120,7 +114,7 @@
            Usage = 'broken_bond.exe' }
         @{ Name = 'Vulkan Headers'; License = 'Apache-2.0'; Condition = 'NativeVulkan'
            Url = 'https://github.com/KhronosGroup/Vulkan-Headers'; File = 'packaging/licenses/vulkan-headers-apache.txt'; Target = 'vulkan-headers.txt'
-           Usage = 'broken_bond.exe and broken_bond_launcher.exe' }
+           Usage = 'broken_bond.exe' }
         @{ Name = 'SMOL-V'; License = 'MIT and Apache-2.0'; Condition = 'NativeVulkan'
            Url = 'https://github.com/aras-p/smol-v'; File = 'packaging/licenses/smol-v.txt'; Target = 'smol-v.txt'
            Usage = 'broken_bond.exe (embedded SPIR-V decoder)' }

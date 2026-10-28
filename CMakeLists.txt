@@ -35,9 +35,8 @@ add_subdirectory(third_party/nlohmann_json)
 
 # The shipping native build uses the Rise renderer adapted to Broken Bond,
 # with Direct3D 12 and Vulkan APIs, both built by default. The OFF
-# configuration is the separate Xenos investigation host and does not build
-# a launcher. See docs/renderers.md.
-option(BROKENBOND_NATIVE_RENDERER "Build the native game and launcher" OFF)
+# configuration is the separate Xenos investigation host. See docs/renderers.md.
+option(BROKENBOND_NATIVE_RENDERER "Build the native game" OFF)
 option(BROKENBOND_NATIVE_D3D12 "Build the native Direct3D 12 backend" ON)
 option(BROKENBOND_NATIVE_VULKAN "Build the native Vulkan backend and SPIR-V shaders" ON)
 option(BROKENBOND_NATIVE_TESTS "Build the native backend host tests" OFF)
@@ -110,11 +109,11 @@ if(BROKENBOND_NATIVE_RENDERER)
 endif()
 
 if(WIN32)
-    # The executable's icon (the launcher's), for the taskbar and Explorer.
+    # The executable's icon, for the taskbar and Explorer.
     enable_language(RC)
     configure_file(src/broken_bond.rc.in "${CMAKE_CURRENT_BINARY_DIR}/broken_bond.rc" @ONLY)
     set_source_files_properties("${CMAKE_CURRENT_BINARY_DIR}/broken_bond.rc" PROPERTIES
-        OBJECT_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/launcher/assets/favicon.ico")
+        OBJECT_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/ui/broken_bond.ico")
     add_executable(broken_bond WIN32 ${BROKENBOND_SOURCES} "${CMAKE_CURRENT_BINARY_DIR}/broken_bond.rc")
 else()
     add_executable(broken_bond ${BROKENBOND_SOURCES})
@@ -133,9 +132,8 @@ target_include_directories(broken_bond PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src"
 target_link_libraries(broken_bond PRIVATE broken_bond::json)
 if(BROKENBOND_NATIVE_RENDERER)
     target_link_libraries(broken_bond PRIVATE RmlUi::Core)
-    # The settings code the menus share with the launcher (until it retires):
-    # the configuration file, languages, key bindings, graphics cards, folders,
-    # the update check and the desktop shortcut.
+    # The settings code of the menus: the configuration file, languages, key
+    # bindings, graphics cards, folders, the update check and the desktop shortcut.
     add_library(broken_bond_menu_components STATIC
         src/menu/config_manager.cpp src/menu/folders.cpp src/menu/game_languages.cpp
         src/menu/graphics_devices.cpp src/menu/key_bindings.cpp src/menu/key_names.cpp
@@ -218,8 +216,8 @@ if(BROKENBOND_NATIVE_RENDERER)
         set(native_shader_options SPIRV PASSES src/gpu/backend)
     endif()
     target_compile_definitions(broken_bond PRIVATE BROKENBOND_NATIVE_RENDERER_BOOTSTRAP=1)
-    # The version shown by the game and the launcher when no broken_bond.version
-    # file sits next to them (the packages write that file).
+    # The version shown by the game when no broken_bond.version file sits next
+    # to it (the packages write that file).
     set(BROKENBOND_VERSION "dev" CACHE STRING "Port version")
     target_compile_definitions(broken_bond PRIVATE BROKENBOND_VERSION="${BROKENBOND_VERSION}")
     # The shader cache generated from the local game files (game/xeshader.sdb).
@@ -244,6 +242,14 @@ if(BROKENBOND_NATIVE_RENDERER)
         add_test(NAME menu_game_languages COMMAND broken_bond_menu_game_languages_test
             "${CMAKE_CURRENT_BINARY_DIR}/test-data/menu-game-languages")
         add_test(NAME menu_update_checker COMMAND broken_bond_menu_update_checker_test)
+        # The configuration file: load, save, the migrations and the API under Wine.
+        add_executable(broken_bond_config_manager_test tests/config_manager_test.cpp)
+        target_link_libraries(broken_bond_config_manager_test PRIVATE broken_bond_menu_components)
+        if(MSVC)
+            target_compile_options(broken_bond_config_manager_test PRIVATE /utf-8)
+        endif()
+        add_test(NAME config_manager COMMAND broken_bond_config_manager_test
+            "${CMAKE_CURRENT_BINARY_DIR}/test-data/config-manager")
         # The DLC content operations (src/menu/content_manager.h) in a scratch root.
         add_executable(broken_bond_menu_dlc_test tests/dlc_test.cpp)
         target_link_libraries(broken_bond_menu_dlc_test PRIVATE broken_bond_menu_components)
@@ -319,9 +325,4 @@ endif()
 
 if(WIN32 AND CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
     target_link_options(broken_bond PRIVATE -Xlinker /DEBUG)
-endif()
-
-option(BROKENBOND_BUILD_LAUNCHER "Build the Windows launcher" ${WIN32})
-if(BROKENBOND_BUILD_LAUNCHER AND BROKENBOND_NATIVE_RENDERER)
-    add_subdirectory(launcher)
 endif()
