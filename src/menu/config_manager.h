@@ -6,14 +6,14 @@
 
 #include "key_bindings.h"
 
-// The launcher targets native game builds; API availability matches that build.
+// Available graphics choices match the backends compiled into the game.
 inline constexpr bool kNativeRendererBuilt = true;
-#if defined(BROKENBOND_LAUNCHER_NATIVE_VULKAN)
+#if defined(BROKENBOND_MENU_NATIVE_VULKAN)
 inline constexpr bool kNativeVulkanBuilt = true;
 #else
 inline constexpr bool kNativeVulkanBuilt = false;
 #endif
-#if defined(BROKENBOND_LAUNCHER_NATIVE_D3D12_DISABLED)
+#if defined(BROKENBOND_MENU_NATIVE_D3D12_DISABLED)
 inline constexpr bool kNativeD3d12Built = false;
 #else
 inline constexpr bool kNativeD3d12Built = true;

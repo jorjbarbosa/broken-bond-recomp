@@ -44,7 +44,7 @@ if ($LASTEXITCODE -ne 0) { throw 'Launcher configuration failed.' }
 & cmake --build $buildRoot --parallel $Jobs
 if ($LASTEXITCODE -ne 0) { throw 'Launcher build failed.' }
 if ($Test) {
-    & cmake --build $buildRoot --target broken_bond_launcher_test broken_bond_key_bindings_test broken_bond_localization_test broken_bond_runtime_input_test --parallel $Jobs
+    & cmake --build $buildRoot --target broken_bond_launcher_test broken_bond_runtime_input_test --parallel $Jobs
     if ($LASTEXITCODE -ne 0) { throw 'Launcher test build failed.' }
     & ctest --test-dir $buildRoot --output-on-failure
     if ($LASTEXITCODE -ne 0) { throw 'Launcher tests failed.' }

@@ -108,7 +108,7 @@ inline constexpr const char* kIt[] = {
     "Ammorbidisce i bordi seghettati filtrando l'immagine finale. Estremo leviga di più e può sfocare i dettagli fini.",  // FxaaDescription
     "Come l'immagine viene adattata allo schermo. CAS aumenta la nitidezza, FSR la ingrandisce con nitidezza e Bilineare la lascia morbida.",  // PostProcessingDescription
     "Aggiunge un rumore fine che nasconde le bande di colore nelle sfumature.",  // DitherDescription
-    "Mostra frequenza e tempo dei fotogrammi in un angolo dello schermo. F1 lo attiva o disattiva durante il gioco.",  // FpsOverlayDescription
+    "Mostra frequenza e tempo dei fotogrammi in un angolo dello schermo.",  // FpsOverlayDescription
     "Avvia il gioco a schermo intero. Disattivato, gira in una finestra.",  // FullscreenDescription
     "Salta i loghi mostrati all'avvio del gioco. Il filmato d'apertura resta.",  // SkipIntroDescription
     "Legge i controller tramite SDL, che riconosce controller Xbox, PlayStation e altri. Disattivato, il gioco usa XInput, che riconosce solo controller compatibili con Xbox.",  // SdlInputDescription

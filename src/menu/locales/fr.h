@@ -108,7 +108,7 @@ inline constexpr const char* kFr[] = {
     "Adoucit les bords crénelés en filtrant l'image finale. Extrême lisse davantage et peut flouter les détails fins.",  // FxaaDescription
     "La façon dont l'image est adaptée à l'écran. CAS accentue la netteté, FSR agrandit l'image en l'affinant et le filtrage bilinéaire la garde douce.",  // PostProcessingDescription
     "Ajoute un bruit fin qui masque les bandes de couleur dans les dégradés.",  // DitherDescription
-    "Affiche la fréquence et le temps d'image dans un coin de l'écran. F1 l'active ou le désactive en jeu.",  // FpsOverlayDescription
+    "Affiche la fréquence et le temps d'image dans un coin de l'écran.",  // FpsOverlayDescription
     "Lance le jeu en plein écran. Désactivé, il s'ouvre dans une fenêtre.",  // FullscreenDescription
     "Passe les logos affichés au démarrage du jeu. La cinématique d'ouverture est conservée.",  // SkipIntroDescription
     "Lit les manettes via SDL, qui reconnaît les manettes Xbox, PlayStation et d'autres. Désactivé, le jeu utilise XInput, qui ne reconnaît que les manettes compatibles Xbox.",  // SdlInputDescription

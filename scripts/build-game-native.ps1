@@ -60,7 +60,7 @@ try {
     if ($Tests) {
         & cmake --build $BuildDirectory --target broken_bond_native_tests broken_bond_launcher_test --parallel $Jobs
         if ($LASTEXITCODE -ne 0) { throw 'Native renderer test build failed.' }
-        & ctest --test-dir $BuildDirectory --output-on-failure -R '^(native_|launcher_config)'
+        & ctest --test-dir $BuildDirectory --output-on-failure -R '^(native_|menu_|launcher_config)'
         if ($LASTEXITCODE -ne 0) { throw 'Native renderer tests failed.' }
     }
 } finally {

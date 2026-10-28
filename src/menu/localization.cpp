@@ -131,7 +131,7 @@ const char* const kStringsEn[] = {
     "Smooths jagged edges by filtering the final image. Extreme smooths more and can blur fine detail.",  // FxaaDescription
     "How the image is fitted to the screen. CAS sharpens it, FSR upscales it with sharpening, and Bilinear keeps it soft.",  // PostProcessingDescription
     "Adds fine noise that hides color banding in gradients.",  // DitherDescription
-    "Shows the frame rate and frame time in a corner of the screen. F1 toggles it in game.",  // FpsOverlayDescription
+    "Shows the frame rate and frame time in a corner of the screen.",  // FpsOverlayDescription
     "Runs the game in fullscreen. Off, it runs in a window.",  // FullscreenDescription
     "Skips the logos shown when the game starts. The opening movie still plays.",  // SkipIntroDescription
     "Reads controllers through SDL, which recognizes Xbox, PlayStation and other controllers. Off, the game uses XInput, which only recognizes Xbox-compatible controllers.",  // SdlInputDescription
@@ -279,7 +279,7 @@ const char* const kStringsPtBr[] = {
     "Suaviza bordas serrilhadas filtrando a imagem final. Extremo suaviza mais e pode borrar detalhes finos.",  // FxaaDescription
     "Como a imagem é ajustada à tela. CAS aumenta a nitidez, FSR amplia com nitidez e Bilinear deixa a imagem suave.",  // PostProcessingDescription
     "Adiciona um ruído fino que esconde faixas de cor em degradês.",  // DitherDescription
-    "Mostra a taxa e o tempo de quadro num canto da tela. F1 liga e desliga durante o jogo.",  // FpsOverlayDescription
+    "Mostra a taxa e o tempo de quadro num canto da tela.",  // FpsOverlayDescription
     "Roda o jogo em tela cheia. Desligado, roda numa janela.",  // FullscreenDescription
     "Pula os logos exibidos ao abrir o jogo. O vídeo de abertura continua.",  // SkipIntroDescription
     "Lê o controle pelo SDL, que reconhece controles de Xbox, PlayStation e outros. Desligado, o jogo usa o XInput, que só reconhece controles compatíveis com Xbox.",  // SdlInputDescription

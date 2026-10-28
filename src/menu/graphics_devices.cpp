@@ -9,14 +9,14 @@
 #include <windows.h>
 #include <d3d12.h>
 #include <dxgi.h>
-#if defined(BROKENBOND_LAUNCHER_NATIVE_VULKAN)
+#if defined(BROKENBOND_MENU_NATIVE_VULKAN)
 #define VK_NO_PROTOTYPES
 #include <vulkan/vulkan.h>
 #endif
 #endif
 
 const std::vector<std::string>& GraphicsDevices(bool vulkan) {
-#if defined(BROKENBOND_LAUNCHER_NATIVE_VULKAN)
+#if defined(BROKENBOND_MENU_NATIVE_VULKAN)
   if (vulkan) {
     static const std::vector<std::string> devices = [] {
       std::vector<std::string> names;

@@ -1,4 +1,4 @@
-#include "game_languages.h"
+#include "menu/game_languages.h"
 
 #include <algorithm>
 #include <chrono>
@@ -6,7 +6,7 @@
 #include <iostream>
 #include <stdexcept>
 
-#include "localization.h"
+#include "menu/localization.h"
 
 using namespace launcher_ui;
 

@@ -1,4 +1,4 @@
-#include "localization.h"
+#include "menu/localization.h"
 
 #include <cstring>
 #include <iostream>
@@ -43,6 +43,9 @@ int main() {
         Localization::SetLanguage(options[i].language);
         Require(Tr(text_id)[0] != '\0', "Translation is missing");
         Require(Placeholders(Tr(text_id)) == placeholders, "Translation changed printf placeholders");
+        if (text_id == TextId::FpsOverlayDescription)
+          Require(std::string(Tr(text_id)).find("F1") == std::string::npos,
+                  "FPS description must not claim the native menu shortcut toggles FPS");
       }
     }
     for (const auto* alias : {"pt", "pt-BR", "pt_BR"}) {

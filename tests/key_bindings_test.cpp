@@ -1,5 +1,5 @@
-#include "key_bindings.h"
-#include "key_names.h"
+#include "menu/key_bindings.h"
+#include "menu/key_names.h"
 
 #include <iostream>
 #include <set>

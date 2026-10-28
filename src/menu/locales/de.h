@@ -108,7 +108,7 @@ inline constexpr const char* kDe[] = {
     "Glättet gezackte Kanten, indem das fertige Bild gefiltert wird. Extrem glättet stärker und kann feine Details verwischen.",  // FxaaDescription
     "Wie das Bild an den Bildschirm angepasst wird. CAS schärft es, FSR skaliert es mit Schärfung hoch, und Bilinear lässt es weich.",  // PostProcessingDescription
     "Fügt feines Rauschen hinzu, das Farbstufen in Verläufen verbirgt.",  // DitherDescription
-    "Zeigt Bildrate und Bildzeit in einer Bildschirmecke. F1 schaltet die Anzeige im Spiel um.",  // FpsOverlayDescription
+    "Zeigt Bildrate und Bildzeit in einer Bildschirmecke.",  // FpsOverlayDescription
     "Startet das Spiel im Vollbild. Ausgeschaltet läuft es in einem Fenster.",  // FullscreenDescription
     "Überspringt die Logos beim Spielstart. Das Eröffnungsvideo bleibt erhalten.",  // SkipIntroDescription
     "Liest Controller über SDL, das Xbox-, PlayStation- und andere Controller erkennt. Ausgeschaltet nutzt das Spiel XInput, das nur Xbox-kompatible Controller erkennt.",  // SdlInputDescription

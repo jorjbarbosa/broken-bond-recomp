@@ -108,7 +108,7 @@ inline constexpr const char* kEs[] = {
     "Suaviza los bordes dentados filtrando la imagen final. Extremo suaviza más y puede desenfocar los detalles finos.",  // FxaaDescription
     "Cómo se ajusta la imagen a la pantalla. CAS aumenta la nitidez, FSR la escala con nitidez y Bilineal la deja suave.",  // PostProcessingDescription
     "Añade un ruido fino que oculta las bandas de color en los degradados.",  // DitherDescription
-    "Muestra la tasa y el tiempo de fotograma en una esquina de la pantalla. F1 lo activa o desactiva durante el juego.",  // FpsOverlayDescription
+    "Muestra la tasa y el tiempo de fotograma en una esquina de la pantalla.",  // FpsOverlayDescription
     "Ejecuta el juego en pantalla completa. Desactivado, se ejecuta en una ventana.",  // FullscreenDescription
     "Omite los logotipos que aparecen al iniciar el juego. El vídeo de apertura se mantiene.",  // SkipIntroDescription
     "Lee los mandos mediante SDL, que reconoce mandos de Xbox, PlayStation y otros. Desactivado, el juego usa XInput, que solo reconoce mandos compatibles con Xbox.",  // SdlInputDescription

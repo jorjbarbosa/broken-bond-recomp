@@ -131,6 +131,29 @@ target_include_directories(broken_bond PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src"
 target_link_libraries(broken_bond PRIVATE broken_bond::json)
 if(BROKENBOND_NATIVE_RENDERER)
     target_link_libraries(broken_bond PRIVATE RmlUi::Core)
+    # The settings code the menus share with the launcher (until it retires):
+    # the configuration file, languages, key bindings, graphics cards, folders,
+    # the update check and the desktop shortcut.
+    add_library(broken_bond_menu_components STATIC
+        src/menu/config_manager.cpp src/menu/folders.cpp src/menu/game_languages.cpp
+        src/menu/graphics_devices.cpp src/menu/key_bindings.cpp src/menu/key_names.cpp
+        src/menu/localization.cpp src/menu/update_checker.cpp src/menu/shortcut.cpp
+        src/mods/translation_data.cpp src/wine.cpp)
+    target_compile_features(broken_bond_menu_components PUBLIC cxx_std_23)
+    target_include_directories(broken_bond_menu_components PUBLIC src)
+    target_link_libraries(broken_bond_menu_components PUBLIC SDL3::SDL3-static rex::tomlplusplus broken_bond::json
+                          d3d12 dxgi winhttp ole32 shell32 uuid)
+    if(BROKENBOND_NATIVE_VULKAN)
+        target_compile_definitions(broken_bond_menu_components PUBLIC BROKENBOND_MENU_NATIVE_VULKAN=1)
+        target_include_directories(broken_bond_menu_components PRIVATE
+            "${NATIVE_RENDERER_PLUME_SOURCE}/contrib/Vulkan-Headers/include")
+    endif()
+    if(NOT BROKENBOND_NATIVE_D3D12)
+        target_compile_definitions(broken_bond_menu_components PUBLIC BROKENBOND_MENU_NATIVE_D3D12_DISABLED=1)
+    endif()
+    if(MSVC)
+        target_compile_options(broken_bond_menu_components PRIVATE /utf-8)
+    endif()
 endif()
 
 # The translation codec and package reader without the game (tests/translation_test.cpp).
@@ -187,6 +210,19 @@ if(BROKENBOND_NATIVE_RENDERER)
         endif()
         enable_testing()
         include(tools/native-renderer/backend-tests.cmake)
+        # The shared settings code of the menus (src/menu).
+        foreach(_menu_test IN ITEMS key_bindings localization game_languages update_checker)
+            add_executable(broken_bond_menu_${_menu_test}_test tests/${_menu_test}_test.cpp)
+            target_link_libraries(broken_bond_menu_${_menu_test}_test PRIVATE broken_bond_menu_components)
+            if(MSVC)
+                target_compile_options(broken_bond_menu_${_menu_test}_test PRIVATE /utf-8)
+            endif()
+        endforeach()
+        add_test(NAME menu_key_bindings COMMAND broken_bond_menu_key_bindings_test)
+        add_test(NAME menu_localization COMMAND broken_bond_menu_localization_test)
+        add_test(NAME menu_game_languages COMMAND broken_bond_menu_game_languages_test
+            "${CMAKE_CURRENT_BINARY_DIR}/test-data/menu-game-languages")
+        add_test(NAME menu_update_checker COMMAND broken_bond_menu_update_checker_test)
     endif()
 endif()
 
