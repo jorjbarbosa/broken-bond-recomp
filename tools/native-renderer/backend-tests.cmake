@@ -74,6 +74,26 @@ foreach(_stage IN ITEMS vs ps)
     target_sources(native_engine_instancing_test PRIVATE "${_draw_cache_shaders}/instancing_${_stage}.h")
 endforeach()
 target_include_directories(native_engine_instancing_test PRIVATE "${_draw_cache_shaders}")
+# D3D12 bindings: real readbacks after repeated, changed and invalidated draw
+# bindings, with its own DXIL shaders.
+if(BROKENBOND_NATIVE_D3D12)
+    add_executable(native_engine_bindings_test src/gpu/backend/d3d12/tests/bindings_test.cpp)
+    target_link_libraries(native_engine_bindings_test PRIVATE native_engine_test_units)
+    foreach(_stage IN ITEMS vs ps)
+        add_custom_command(OUTPUT "${_draw_cache_shaders}/bindings_${_stage}.h"
+            COMMAND "${_draw_cache_thirdparty}/dxc-bin/bin/x64/dxc.exe"
+                -T ${_stage}_6_0 -E ${_stage}_main -HV 2021
+                -Vn kBindings_${_stage} -Fh "${_draw_cache_shaders}/bindings_${_stage}.h"
+                "${CMAKE_CURRENT_SOURCE_DIR}/src/gpu/backend/d3d12/tests/bindings.hlsl"
+            DEPENDS src/gpu/backend/d3d12/tests/bindings.hlsl
+                    "${_draw_cache_thirdparty}/dxc-bin/bin/x64/dxc.exe" VERBATIM)
+        target_sources(native_engine_bindings_test PRIVATE "${_draw_cache_shaders}/bindings_${_stage}.h")
+    endforeach()
+    target_include_directories(native_engine_bindings_test PRIVATE "${_draw_cache_shaders}")
+endif()
+# The constant packets and the pooled storage of captures (CPU only).
+add_executable(native_draw_storage_test src/gpu/common/tests/draw_storage_test.cpp)
+target_include_directories(native_draw_storage_test PRIVATE src)
 # Host test of the Vulkan device (no guest code): clear, upload, copy and
 # readback, with a bounded wait on the submission.
 add_executable(native_vulkan_transfer_test src/gpu/backend/vulkan/tests/transfer_test.cpp)
@@ -90,13 +110,16 @@ target_compile_definitions(native_shader_package_test PRIVATE BROKENBOND_SHADER_
                            WIN32_LEAN_AND_MEAN)
 add_dependencies(native_shader_package_test broken_bond_native_shader_cache)
 set(native_tests latch lifetime failure translation resource depth_resolve depth_only completion shader_contract present draw_cache instancing)
-set(native_test_targets native_vulkan_transfer_test native_shader_package_test)
+if(BROKENBOND_NATIVE_D3D12)
+    list(APPEND native_tests bindings)
+endif()
+set(native_test_targets native_vulkan_transfer_test native_shader_package_test native_draw_storage_test)
 foreach(case IN LISTS native_tests)
     list(APPEND native_test_targets native_engine_${case}_test)
 endforeach()
 add_custom_target(broken_bond_native_tests DEPENDS ${native_test_targets})
 foreach(target IN LISTS native_test_targets)
-    if(target STREQUAL "native_shader_package_test")
+    if(target STREQUAL "native_shader_package_test" OR target STREQUAL "native_draw_storage_test")
         add_test(NAME ${target} COMMAND ${target})
     else()
         add_test(NAME ${target} COMMAND "${Python3_EXECUTABLE}"

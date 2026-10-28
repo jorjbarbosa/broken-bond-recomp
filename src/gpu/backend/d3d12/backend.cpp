@@ -23,6 +23,7 @@
 #include <cmath>
 #include <algorithm>
 #include <cstring>
+#include <span>
 #include <deque>
 #include <map>
 #include <unordered_map>
@@ -43,6 +44,7 @@ namespace plume { std::unique_ptr<RenderInterface> CreateD3D12Interface(); }
 
 namespace gpu::d3d12 {
 namespace {
+constexpr size_t kDrawStreamsMax = 8;  // Vertex buffer slots (the title binds up to 4).
 // REX_NATIVE_D3D12_DEBUG=1 turns the D3D12 debug layer on; without it
 // no info queue exists and no diagnostic can be stored or read. Unset or 0
 // leaves it off, the product default: its validation costs about a third of
@@ -238,7 +240,25 @@ struct Backend::State {
     std::vector<Microsoft::WRL::ComPtr<ID3D12Resource>> retained;
     std::vector<uint32_t> views;  // SRV slots back to free_views at the fence.
     uint64_t operations = 0;
-    bool draw_bindings = false;  // Root signature, heaps and tables set once per batch.
+    // False after Reset or a presentation/resolve pass changes graphics state.
+    // Clears, copies and resource barriers leave the bindings intact.
+    bool draw_bindings = false;
+    struct DrawBindings {
+      ID3D12PipelineState* pipeline = nullptr;
+      ID3D12Resource* color = nullptr;
+      ID3D12Resource* depth = nullptr;
+      D3D12_CPU_DESCRIPTOR_HANDLE rtv{}, dsv{};
+      D3D12_VIEWPORT viewport{};
+      D3D12_RECT scissor{};
+      std::array<D3D12_GPU_VIRTUAL_ADDRESS, 3> constants{};
+      std::array<D3D12_VERTEX_BUFFER_VIEW, kDrawStreamsMax> streams{};
+      UINT stream_count = 0;
+      D3D12_INDEX_BUFFER_VIEW indices{};
+      D3D12_PRIMITIVE_TOPOLOGY topology = D3D_PRIMITIVE_TOPOLOGY_UNDEFINED;
+      std::array<float, 4> blend{};
+      UINT stencil_ref = 0;
+      bool stencil_valid = false;
+    } bound;
   };
   Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList> batch_list;
   bool batch_open = false;
@@ -1928,6 +1948,8 @@ bool Backend::Present(uint32_t slot, bool capture, std::vector<uint8_t>& bgra, u
   barrier(back->d3d, D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET);
   auto rtv = state_->present_rtv->GetCPUDescriptorHandleForHeapStart();
   rtv.ptr += SIZE_T(device->d3d->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV)) * index;
+  // Invalidate before recording, including an effects path that may fail.
+  state_->batch.draw_bindings = false;
   commands->OMSetRenderTargets(1, &rtv, FALSE, nullptr);
   if (effects) {
     if (!state_->OutputEffects(commands, slot, rtv, w, h, vx, vy, plan, page->gpu + offset, hr))
@@ -1955,8 +1977,6 @@ bool Backend::Present(uint32_t slot, bool capture, std::vector<uint8_t>& bgra, u
     commands->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
     commands->DrawInstanced(3, 1, 0, 0);
   }
-  // The draw layer binds its own heaps, root signature and tables again.
-  state_->batch.draw_bindings = false;
   Microsoft::WRL::ComPtr<ID3D12Resource> readback;
   D3D12_PLACED_SUBRESOURCE_FOOTPRINT footprint{};
   UINT64 total = 0;
@@ -2308,6 +2328,8 @@ bool Backend::ResolveSurface(const ResolveRequest& request, uint64_t& fenceValue
     // A new destination is a render target never initialized: the pass writes
     // every texel, so it is discarded first.
     if (!dest.last_use_fence) commands->DiscardResource(dst, nullptr);
+    // The draw layer restores all graphics state after the resolve pass.
+    state_->batch.draw_bindings = false;
     commands->OMSetRenderTargets(1, &rtv, FALSE, nullptr);
     const D3D12_VIEWPORT viewport{0.0f, 0.0f, float(dest.width), float(dest.height), 0.0f, 1.0f};
     const D3D12_RECT scissor{0, 0, LONG(dest.width), LONG(dest.height)};
@@ -2329,8 +2351,6 @@ bool Backend::ResolveSurface(const ResolveRequest& request, uint64_t& fenceValue
     commands->SetGraphicsRoot32BitConstants(1, 2, pass, 0);
     commands->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
     commands->DrawInstanced(3, 1, 0, 0);
-    // The draw layer binds its own heaps, root signature, targets and tables again.
-    state_->batch.draw_bindings = false;
     if (sampled) ++state_->sample_resolves;
     else ++state_->depth_resolves;
     method = sampled ? "sample-pass" : source.desc.samples > 1 ?
@@ -2404,12 +2424,11 @@ D3D12_BLEND_OP xenosBlendOp(uint32_t f, bool& ok) {
   }
 }
 constexpr UINT kDrawViews = 4096, kDrawSamplers = 2048;
-constexpr size_t kDrawStreamsMax = 8;  // Vertex buffer slots of one draw (the title binds up to 4).
 // A request's constants onto the engine's block: the whole block
 // (4096 bytes) replaces it; otherwise the delta records (uint16 first
 // register, uint16 count, count x 16 bytes) are applied in order. False: a
 // malformed request.
-bool ApplyConstants(const std::vector<uint8_t>& whole, const std::vector<uint8_t>& delta,
+bool ApplyConstants(std::span<const uint8_t> whole, std::span<const uint8_t> delta,
                     std::array<uint8_t, 4096>& block) {
   if (whole.size() == 4096) {
     std::memcpy(block.data(), whole.data(), 4096);
@@ -2963,7 +2982,18 @@ bool Backend::DrawIndexed(const DrawRequest& r, uint64_t& fenceValue, std::strin
   profile::Timer record_time(profile::kEngineRecord);
   const D3D12_GPU_VIRTUAL_ADDRESS gpu = page->gpu + page_offset;
   auto& list = state_->batch_list;
-  if (!skip_draw) list->SetPipelineState(PipelineState(pipeline));
+  auto& bound = state_->batch.bound;
+  const bool bindings_valid = state_->batch.draw_bindings;
+  if (!bindings_valid) {
+    bound.pipeline = nullptr;
+    bound.stencil_valid = false;
+  }
+  // A skipped asynchronous draw does not bind a PSO. Keep the actually bound
+  // one (or unknown after invalidation), so the next real draw restores it.
+  if (!skip_draw && bound.pipeline != PipelineState(pipeline)) {
+    list->SetPipelineState(PipelineState(pipeline));
+    bound.pipeline = PipelineState(pipeline);
+  }
   auto transition = [&](State::Surface& surface, D3D12_RESOURCE_STATES after) {
     if (surface.state == after) return;
     D3D12_RESOURCE_BARRIER b{};
@@ -3007,19 +3037,34 @@ bool Backend::DrawIndexed(const DrawRequest& r, uint64_t& fenceValue, std::strin
   if (depth) transition(*depth, D3D12_RESOURCE_STATE_DEPTH_WRITE);
   const auto rtv = color ? color->view->GetCPUDescriptorHandleForHeapStart() : D3D12_CPU_DESCRIPTOR_HANDLE{};
   const auto dsv = depth ? depth->view->GetCPUDescriptorHandleForHeapStart() : D3D12_CPU_DESCRIPTOR_HANDLE{};
-  list->OMSetRenderTargets(color ? 1 : 0, color ? &rtv : nullptr, FALSE, depth ? &dsv : nullptr);
+  auto* color_resource = color ? static_cast<plume::D3D12Texture*>(color->texture.get())->d3d : nullptr;
+  auto* depth_resource = depth ? static_cast<plume::D3D12Texture*>(depth->texture.get())->d3d : nullptr;
+  if (!bindings_valid || bound.color != color_resource || bound.depth != depth_resource ||
+      bound.rtv.ptr != rtv.ptr || bound.dsv.ptr != dsv.ptr) {
+    list->OMSetRenderTargets(color ? 1 : 0, color ? &rtv : nullptr, FALSE, depth ? &dsv : nullptr);
+    bound.color = color_resource;
+    bound.depth = depth_resource;
+    bound.rtv = rtv;
+    bound.dsv = dsv;
+  }
   // The viewport and the scissor come in guest pixels; the screen layer's
   // into the centered 16:9 area (regions.h, ScreenArea).
   const ScreenArea area(state_->render_mode.scale, r.screen_area);
   const ScreenArea::Viewport host = area.ViewportInHost(r.viewport);
   const D3D12_VIEWPORT viewport{host.x, host.y, host.width, host.height, r.viewport[4], r.viewport[5]};
-  list->RSSetViewports(1, &viewport);
+  if (!bindings_valid || std::memcmp(&bound.viewport, &viewport, sizeof(viewport))) {
+    list->RSSetViewports(1, &viewport);
+    bound.viewport = viewport;
+  }
   D3D12_RECT scissor{std::max<LONG>(area.EdgeX(r.scissor[0]), 0), std::max<LONG>(area.EdgeY(r.scissor[1]), 0),
                      std::min<LONG>(area.EdgeX(r.scissor[2]), target.desc.width),
                      std::min<LONG>(area.EdgeY(r.scissor[3]), target.desc.height)};
   if (scissor.right <= scissor.left || scissor.bottom <= scissor.top) scissor = {0, 0, 0, 0};
-  list->RSSetScissorRects(1, &scissor);
-  if (!state_->batch.draw_bindings) {  // Clears and copies in between leave them bound.
+  if (!bindings_valid || std::memcmp(&bound.scissor, &scissor, sizeof(scissor))) {
+    list->RSSetScissorRects(1, &scissor);
+    bound.scissor = scissor;
+  }
+  if (!bindings_valid) {
     list->SetGraphicsRootSignature(state_->draw_root.Get());
     ID3D12DescriptorHeap* heaps[] = {state_->draw_views.Get(), state_->draw_samplers.Get()};
     list->SetDescriptorHeaps(2, heaps);
@@ -3029,9 +3074,13 @@ bool Backend::DrawIndexed(const DrawRequest& r, uint64_t& fenceValue, std::strin
   }
   const D3D12_GPU_VIRTUAL_ADDRESS vs_cbv = vs_reuse ? state_->last_vs_cbv : gpu + vs_offset;
   const D3D12_GPU_VIRTUAL_ADDRESS ps_cbv = ps_reuse ? state_->last_ps_cbv : gpu + ps_offset;
-  list->SetGraphicsRootConstantBufferView(4, vs_cbv);
-  list->SetGraphicsRootConstantBufferView(5, ps_cbv);
-  list->SetGraphicsRootConstantBufferView(6, gpu + shared_offset);
+  const std::array<D3D12_GPU_VIRTUAL_ADDRESS, 3> constants{vs_cbv, ps_cbv, gpu + shared_offset};
+  for (UINT i = 0; i < constants.size(); ++i) {
+    if (!bindings_valid || bound.constants[i] != constants[i]) {
+      list->SetGraphicsRootConstantBufferView(4 + i, constants[i]);
+      bound.constants[i] = constants[i];
+    }
+  }
   state_->cbv_batch_fence = state_->batch.fence;
   state_->last_vs_cbv = vs_cbv;
   state_->last_ps_cbv = ps_cbv;
@@ -3046,15 +3095,35 @@ bool Backend::DrawIndexed(const DrawRequest& r, uint64_t& fenceValue, std::strin
       streams[i] = {gpu + stream_offsets[i], UINT(r.streams[i].data.size()), r.streams[i].stride};
     }
   }
-  list->IASetVertexBuffers(0, UINT(r.streams.size()), streams.data());
+  const UINT stream_count = UINT(r.streams.size());
+  if (!bindings_valid || bound.stream_count != stream_count ||
+      std::memcmp(bound.streams.data(), streams.data(), stream_count * sizeof(streams[0]))) {
+    list->IASetVertexBuffers(0, stream_count, streams.data());
+    bound.streams = streams;
+    bound.stream_count = stream_count;
+  }
   if (index_buffer) barrier(index_buffer->resource.Get(), index_buffer->state, kBufferRead);
   const D3D12_INDEX_BUFFER_VIEW indices{
       index_buffer ? index_buffer->resource->GetGPUVirtualAddress() + r.index_offset : gpu + index_offset,
       UINT(index_bytes), r.index32 ? DXGI_FORMAT_R32_UINT : DXGI_FORMAT_R16_UINT};
-  list->IASetIndexBuffer(&indices);
-  list->IASetPrimitiveTopology(PrimitiveTopology(r.topology));
-  list->OMSetBlendFactor(r.blend_factor.data());
-  if (r.stencil_enable) list->OMSetStencilRef(r.stencil_ref);
+  if (!bindings_valid || std::memcmp(&bound.indices, &indices, sizeof(indices))) {
+    list->IASetIndexBuffer(&indices);
+    bound.indices = indices;
+  }
+  const auto topology = PrimitiveTopology(r.topology);
+  if (!bindings_valid || bound.topology != topology) {
+    list->IASetPrimitiveTopology(topology);
+    bound.topology = topology;
+  }
+  if (!bindings_valid || std::memcmp(bound.blend.data(), r.blend_factor.data(), sizeof(bound.blend))) {
+    list->OMSetBlendFactor(r.blend_factor.data());
+    bound.blend = r.blend_factor;
+  }
+  if (r.stencil_enable && (!bound.stencil_valid || bound.stencil_ref != r.stencil_ref)) {
+    list->OMSetStencilRef(r.stencil_ref);
+    bound.stencil_ref = r.stencil_ref;
+    bound.stencil_valid = true;
+  }
   if (!skip_draw) list->DrawIndexedInstanced(r.index_count, std::max(r.instance_count, 1u), 0, r.base_vertex, 0);
   record_time.Stop();
   // Complete when the batch fence completes; no Signal of its own.

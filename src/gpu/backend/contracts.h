@@ -2,6 +2,7 @@
 // backend (backend.h): the descriptions they take and the native result they
 // report.
 #pragma once
+#include "gpu/common/draw_storage.h"
 
 #include <memory>
 #include <string>
@@ -265,8 +266,8 @@ struct DrawRequest {
   // since the last request (vs_constants_delta / ps_constants_delta: records of
   // uint16 first register, uint16 count, count x 16 bytes), applied in order on
   // the owner. Empty both: nothing changed.
-  std::vector<uint8_t> vs_constants, ps_constants;
-  std::vector<uint8_t> vs_constants_delta, ps_constants_delta;
+  ConstantBytes vs_constants, ps_constants;
+  ConstantBytes vs_constants_delta, ps_constants_delta;
   // Version of each constant block (0: always uploaded); the engine
   // rebinds the CBV of the previous draw of the batch when the version holds.
   uint64_t vs_constants_version = 0, ps_constants_version = 0;
