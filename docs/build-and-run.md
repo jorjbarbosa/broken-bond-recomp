@@ -154,7 +154,7 @@ The script starts from the current list, so its entries and order are kept. `-So
 ./build/native/broken_bond.exe
 ```
 
-A build in `build/native` finds the repository's `game/` folder and keeps saves and caches in `build/user/`. It opens on the setup screen: **Play** starts the game, **Settings** and **DLC** open those pages, and the game folder or an ISO can be chosen under **Settings → Game**. Without a supported game, the first entry chooses one instead of playing. The log goes to `build/native/logs/`. See [Configuration](configuration.md).
+A build in `build/native` finds the repository's `game/` folder and keeps its settings, saves, logs and caches in the repository's data folder, `build/data/`, shared by every build inside the repository. Its first start makes it from `build/user/` and `build/native/broken_bond.toml`, which stay as they are. It opens on the setup screen: **Play** starts the game, **Settings** and **DLC** open those pages, and the game folder or an ISO can be chosen under **Settings → Game**. Without a supported game, the first entry chooses one instead of playing. The log goes to `build/data/logs/`. `--data_root <folder>` runs on another data folder for that session. See [Configuration](configuration.md) and [Data folder](data-folder.md).
 
 The startup menu can be turned off under **Settings → Advanced**; hold Shift while opening, or pass `--setup`, to open it again.
 
@@ -165,7 +165,7 @@ The startup menu can be turned off under **Settings → Advanced**; hold Shift w
 ./scripts/run-game.ps1 -Keyboard          # with the SDK's keyboard controller emulation
 ```
 
-The script uses `game/` for the game files and `build/user/` for saves and caches, and writes the log to `build/logs/runtime-<date>.log`. The startup menu shows first unless it is turned off. `-LogLevel debug` or `trace` adds detail. It also writes the renderer's journal next to the log (`.native.jsonl`) and the run's pipelines to `build/pipeline-runs/<run>/`.
+The script uses `game/` for the game files and `build/data/` for settings, saves and caches, and writes the log to `build/logs/runtime-<date>.log`. The startup menu shows first unless it is turned off. `-LogLevel debug` or `trace` adds detail. It also writes the renderer's journal next to the log (`.native.jsonl`) and the run's pipelines to `build/pipeline-runs/<run>/`.
 
 Keyboard defaults include Enter for Start, Space for A, Backspace for B, and WASD for the left stick.
 
@@ -176,7 +176,7 @@ Keyboard defaults include Enter for Start, Space for A, Backspace for B, and WAS
 ./build/native/broken_bond.exe --game_data_root="C:/path/to/game.iso"
 ```
 
-`--game_data_root` takes an extracted folder or an ISO. Without `--user_data_root`, saves and caches stay in `build/user/` for a build in `build/native`, and in `user/` beside the executable elsewhere.
+`--game_data_root` takes an extracted folder or an ISO. Saves and caches stay in the data folder: `build/data/` for a build in `build/native`, and `data\` beside the executable elsewhere. `--user_data_root` names another saves folder.
 
 ## Tests
 
@@ -240,13 +240,13 @@ cmake --build build/linux
 ./build/linux/broken_bond --game_data_root="$PWD/game"
 ```
 
-`--game_data_root` takes an extracted folder or an ISO; without it, the game looks for one next to the executable, or in the repository's `game/` for a build inside it, as on Windows. The setup screen's game choice and the DLC page's folder choice open the desktop's file dialog through SDL (the XDG desktop portal, or zenity when it is installed). Saves and caches go to `build/user/` for a build inside the repository and to `user/` next to the executable elsewhere, and the log to `logs/` next to the executable. SDL picks Wayland or X11; `SDL_VIDEO_DRIVER=x11` forces X11.
+`--game_data_root` takes an extracted folder or an ISO; without it, the game looks for one next to the executable, or in the repository's `game/` for a build inside it, as on Windows. The setup screen's game choice and the DLC page's folder choice open the desktop's file dialog through SDL (the XDG desktop portal, or zenity when it is installed). Settings, saves, logs and caches go to the data folder: `build/data/` for a build inside the repository, `data/` next to the executable elsewhere, and the XDG data folder for the AppImage (see [Data folder](data-folder.md)). SDL picks Wayland or X11; `SDL_VIDEO_DRIVER=x11` forces X11.
 
 ### Known limitations
 
 - The diagnostics that need Windows (minidumps, the stack sampler, the heap watch, the swap-chain proof) are not built. The crash report in the log works; a fault inside the report itself ends the process.
 - The update check and the desktop shortcut are Windows-only.
-- Without the XDG desktop portal or zenity, the file dialog cannot open; choose the game with `--game_data_root` or `custom_game_root` in `broken_bond.toml`.
+- Without the XDG desktop portal or zenity, the file dialog cannot open; choose the game with `--game_data_root` or `custom_game_root` in the data folder's `broken_bond.toml`.
 - Holding Shift at start does not open the setup screen; pass `--setup`.
 - On a build without Direct3D 12 the game runs on Vulkan whatever `native_backend` says, and the log says so.
 

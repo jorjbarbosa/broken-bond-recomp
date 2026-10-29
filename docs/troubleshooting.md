@@ -62,7 +62,7 @@ Expected: the game picks Konoha's time of day at random each time the title load
 | Symptom | What to check |
 | --- | --- |
 | Short pauses in a new area | Pipelines compile the first time they appear on your driver; later visits do not pause. See [Pipelines](renderers.md#pipelines) |
-| A native option has no effect | Set it in the game menu, where most options apply at once. Edited by hand, options are read at startup: close the game, edit `broken_bond.toml` next to the executable, and start again; see [Native renderer options](configuration.md#native-renderer-options) |
+| A native option has no effect | Set it in the game menu, where most options apply at once. Edited by hand, options are read at startup: close the game, edit `broken_bond.toml` in the data folder, and start again; see [Native renderer options](configuration.md#native-renderer-options) |
 | The game stops during startup with `REX_NATIVE_DIAGNOSTICS=1` | Known; leave the variable unset |
 
 ## Collecting diagnostics
@@ -70,9 +70,10 @@ Expected: the game picks Konoha's time of day at random each time the title load
 | Started with | Log |
 | --- | --- |
 | `scripts/run-game.ps1` | `build/logs/runtime-<date>.log`, and the native renderer's journal next to it (`.native.jsonl`) |
-| `broken_bond.exe` directly | `logs/` next to the executable (`build/native/logs/` in a repository build) |
+| `broken_bond.exe` directly | The data folder's `logs/`: `data\logs\` next to the executable, `build/data/logs/` in a repository build, `~/.local/share/broken_bond/logs/` for the AppImage |
+| A start that stops before the game, naming the data folder | `%TEMP%\broken_bond\bootstrap\` (`/tmp/broken_bond/bootstrap/` on Linux); see [Data folder](data-folder.md) |
 
-For more detail, use `run-game.ps1 -LogLevel debug`, or set `log_level = "debug"` in `broken_bond.toml` and restore `"info"` afterwards.
+For more detail, use `run-game.ps1 -LogLevel debug`, or set `log_level = "debug"` in the data folder's `broken_bond.toml` and restore `"info"` afterwards.
 
 For a crash with the native renderer, set the environment variable `REX_NATIVE_CRASH_DUMP=stack` before starting the game: the crash then writes `crash-stack.txt`, the host stack, which follows the game's call chain. `REX_NATIVE_CRASH_DUMP=1` also writes a full minidump (`crash.dmp`). The files go to the run's folder in `build/pipeline-runs/` with `run-game.ps1`, or to the folder in `REX_NATIVE_FRAME_DIR`, or to the working directory.
 

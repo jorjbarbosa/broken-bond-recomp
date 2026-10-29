@@ -8,22 +8,22 @@ No complete translation is bundled yet. The repository has a small Portuguese de
 
 ## Try the Portuguese demo
 
-Copy [examples/mods/pt-br-demo](../examples/mods/pt-br-demo) into `mods/pt-br-demo` next to `broken_bond.exe`:
+Copy [examples/mods/pt-br-demo](../examples/mods/pt-br-demo) into `mods/pt-br-demo` in the data folder (`data\` beside `broken_bond.exe`, `build/data/` for a build in the repository, `~/.local/share/broken_bond/` for the AppImage; **Settings → Advanced → Open data folder** opens it):
 
 ```text
-broken_bond.exe
-broken_bond.toml
-mods/
-  pt-br-demo/
-    mod.toml
-    textos.json
+data/
+  broken_bond.toml
+  mods/
+    pt-br-demo/
+      mod.toml
+      textos.json
 ```
 
 Open **Settings** on the setup screen, or in the game menu (F1 or Back + Start), and choose the demo in **Settings → Game → Game language**. Valid packages in `mods/` appear by their manifest name, without added labels. Copying a package makes it available; only selecting it activates it. The list is read each time the page opens.
 
 Selecting a translation automatically uses English as its base. Selecting any official language disables the translation. The selection applies at the next start. If the selected package is missing or invalid, it is not listed and the menu shows English; the game keeps its original texts and logs why. Restoring the package makes it available again. The menus check the package structure and JSON, while engine tags and arguments are checked by the game when it loads the table.
 
-For manual configuration, close the game and set these keys in that executable's `broken_bond.toml`:
+For manual configuration, close the game and set these keys in the data folder's `broken_bond.toml`:
 
 ```toml
 user_language = 1

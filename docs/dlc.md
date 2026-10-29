@@ -14,21 +14,20 @@ The DLC page needs the native renderer build; the install at start runs with eit
 2. Select **Add DLC...**, then the folder that holds your packages or already-extracted content.
 3. Restart the game to install the packages.
 
-The page searches the folder for files with a `CON `, `LIVE` or `PIRS` signature, whatever their extension. It copies the packages it finds into the DLC folder next to the executable (`dlc/`), and the game installs them at the next start. A folder without packages is treated as extracted content and copied into the user data folder at once.
+The page searches the folder for files with a `CON `, `LIVE` or `PIRS` signature, whatever their extension. It copies the packages it finds into the data folder's `dlc/`, and the game installs them at the next start. A folder without packages is treated as extracted content and copied into the user data folder at once.
 
 The page lists installed content by the name in its header, and staged packages as **Installs on restart** until the game has installed them. **Open DLC folder** opens the installed content folder.
 
 ## Install by hand
 
-Copy the packages, or a download that keeps the Xbox 360 layout (`55530825/00000002/<package>`), into `dlc/` next to `broken_bond.exe`, then start the game. Each package is installed once: a package counts as installed when its extracted folder and its header exist in the user data folder.
+Copy the packages, or a download that keeps the Xbox 360 layout (`55530825/00000002/<package>`), into the data folder's `dlc/` (`data\dlc\` beside `broken_bond.exe`; see [Data folder](data-folder.md)), then start the game. Each package is installed once: a package counts as installed when its extracted folder and its header exist in the user data folder.
 
 ```text
-<executable folder>/
-├── broken_bond.exe
+<data folder>/
 └── dlc/                          # dlc_source_path
     └── <your packages>
 
-<user data folder>/               # user_data_root (build/user in a repository build)
+<user data folder>/               # the data folder's user/, or user_data_root
 └── 0000000000000000/
     └── 55530825/
         ├── 00000002/
@@ -44,7 +43,7 @@ At start the game also repairs the installed content folder:
 
 Folder names longer than 42 bytes cannot be opened by the game and are reported in the log.
 
-`dlc_source_path` (default `"dlc"`) sets the folder scanned at start. A relative path starts at the executable's folder; an empty value stops new installs but keeps installed content.
+`dlc_source_path` (default `"dlc"`, the data folder's `dlc/`) sets the folder scanned at start. Another relative path starts at the folder the settings were written for, or at the executable's folder when it comes from the command line; an empty value stops new installs but keeps installed content.
 
 ## Diagnostics
 

@@ -47,15 +47,21 @@ Outputs, in `dist/` or `-OutputRootDir`:
 - `SHA256SUMS.txt`.
 
 The payload is `broken_bond.exe`, `rexruntime.dll` (and
-`amd_fidelityfx_dx12.dll` when the SDK provides it), the default
-`broken_bond.toml`, `broken_bond.version`, a quick-start `README.txt`, and
-`licenses/`. `third-party-licenses.psd1` lists the components; their notices
+`amd_fidelityfx_dx12.dll` when the SDK provides it),
+`defaults/broken_bond.toml` (the settings a new data folder starts from, from
+`packaging/broken_bond.toml`), `broken_bond.version`, a quick-start
+`README.txt`, and `licenses/`. `third-party-licenses.psd1` lists the components; their notices
 and the source revisions of the LGPL libraries go to `licenses/README.txt`.
 The menus, their fonts, the shaders and the icon are embedded in the
 executable; the icon's source is `ui/broken_bond.ico`.
 
 The ZIP has no launcher, setup helper, `extract-xiso` or installer. Game data,
-personal settings, saves, logs and mods are never copied into it. The game
+personal settings, saves, logs and mods are never copied into it, and nothing in
+it lies where a copy keeps the files in use (`data\`, `data_location.json`, a
+`broken_bond.toml`, `user\`, `logs\`, `mods\`, `dlc\` beside the executable):
+an update extracted over a copy replaces the program files only. The game makes
+its data folder, `data\`, from the defaults or from a 0.1.0-beta copy's files;
+see [Data folder](../docs/data-folder.md). The game
 needs the Microsoft Visual C++ x64 runtime. `scripts/extract-game.ps1` remains
 a developer tool for the code generation inputs, outside the release.
 
@@ -94,15 +100,17 @@ bundled: the script stops if the binaries need anything beyond glibc, the C++
 runtime, the X11 and xcb client libraries and the Wayland client. The binaries
 need the build system's glibc or newer (2.43 on Ubuntu 26.04).
 
-The game writes beside its executable, and the image is read only. So at each
-start the `AppRun` copies the binaries, the version, the README and the
-licenses into `$XDG_DATA_HOME/broken_bond` (`~/.local/share/broken_bond`) when
-the image's build differs from the copy's, seeds `broken_bond.toml` there on
-the first start, and runs the copy with the caller's arguments and working
-folder. The settings, the saves and caches (`user/`), the logs, mods and DLC
-stay in that folder across updates. The game finds a `game/` folder beside the
-AppImage by itself. `--test-posix-wait` runs the wait check from the image
-without copying anything.
+The `AppRun` runs the game from the image with the caller's arguments and
+working folder. The game keeps its settings, saves, logs, mods and DLC packages
+in `$XDG_DATA_HOME/broken_bond` (`~/.local/share/broken_bond`) and its caches in
+`$XDG_CACHE_HOME/broken_bond`, and makes that folder itself from
+`defaults/broken_bond.toml`; see [Data folder](../docs/data-folder.md). The game
+finds a `game/` folder beside the AppImage by itself. AppImages before this one
+copied the program into the data folder and ran it from there; when that folder
+has their `.build-id`, the `AppRun` first removes the copy by name
+(`broken_bond`, `librexruntime.so`, `broken_bond.version`, `README.txt`,
+`licenses/`, `.appimage.lock`, then `.build-id`) and keeps everything else.
+`--test-posix-wait` runs the wait check from the image.
 
 ## Bridge for 0.1.0-beta installations
 
@@ -137,11 +145,15 @@ The bridge keeps 0.1.0-beta's AppId, default folder
     `broken_bond.exe`;
   - shortcuts to other copies are left alone.
 - **What it keeps:** `game\`, `user\`, the existing `broken_bond.toml` byte for
-  byte, DLC, mods and other files, also on uninstall.
+  byte, `logs\`, DLC, mods, a `data\` folder and `data_location.json`, and other
+  files, also on uninstall. The game's next start copies a 0.1.0-beta copy's
+  settings, saves, logs and mods into `data\`.
+- **What it installs:** the ZIP's payload, with `defaults\broken_bond.toml`.
 - **What it refuses:** numeric downgrades. There is no ISO page, helper or
   extraction.
-- **New copies:** the bridge can also install one, and new copies take the
-  bridge's language as the menu language. New players should use the ZIP.
+- **New copies:** the bridge can also install one; it writes the bridge's
+  language into `defaults\broken_bond.toml` as the menu language. New players
+  should use the ZIP.
 
 ```powershell
 ./dist/BrokenBondInstaller.exe /MODE=update /DIR="C:\Games\Naruto The Broken Bond"
@@ -155,6 +167,8 @@ missing update destinations fail before any file is replaced.
 ```powershell
 # The ZIP against its published folder:
 python -I packaging/tests/test_package.py dist/broken-bond-recomp-win-amd64.zip
+# A newer ZIP extracted twice over a copy of an older one with player data:
+python -I packaging/tests/test_data_zip.py <older.zip> <newer.zip> <new output folder>
 # The configuration gate, with a stub build:
 pwsh -NoProfile -File packaging/tests/test_release_gate.ps1
 # Real Inno installs of the bridge:
@@ -168,12 +182,19 @@ On Linux, the AppImage:
 
 ```bash
 python3 -I packaging/tests/test_appimage.py dist/broken-bond-recomp-linux-x86_64.AppImage
+python3 -I packaging/tests/test_data_appimage.py <older.AppImage> <newer.AppImage> <new output folder>
 ```
 
-It runs the image's wait check extracted and, when the host has FUSE, mounted;
-extracts the image and checks its payload, notices and seed; and runs the
-`AppRun` over a stub game in a scratch home, for the copy, the seed, the
-arguments, the working folder and an update. It never starts the game.
+`test_appimage.py` runs the image's wait check extracted and, when the host has
+FUSE, mounted; extracts the image and checks its payload, notices and defaults;
+and runs the `AppRun` over a stub game in a scratch home, for the arguments, the
+working folder, the run from the image and the removal of an earlier image's
+copy. It never starts the game.
+
+`test_data_appimage.py` needs a desktop session and a Vulkan driver
+(`SDL_VIDEO_DRIVER=x11` under WSLg). It starts two real images to the setup
+screen over a data folder an earlier image left, a new home, and the portable
+folder with a pending move, and checks that the player's files stay.
 
 `BROKENBOND_TEST_OLD_PACKAGE` is the extracted v0.1.0-beta ZIP, from the
 project's release page.

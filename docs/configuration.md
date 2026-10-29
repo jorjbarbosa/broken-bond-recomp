@@ -4,7 +4,7 @@
 
 ## Where to configure settings
 
-Use the setup screen or the game menu. Both save `broken_bond.toml` **next to the executable** (`build/native/broken_bond.toml` in a repository build) at each change. Close the game before editing the file by hand.
+Use the setup screen or the game menu. Both save `broken_bond.toml` in the **data folder** (`data\` beside `broken_bond.exe`, `build/data/` for a build in the repository; see [Data folder](data-folder.md)) at each change. Close the game before editing the file by hand.
 
 Every option can also be set as an environment variable named `REX_` plus the key in capitals (such as `REX_MSAA_SAMPLES=4`), or on the command line (`--msaa_samples 4`; a boolean needs `=`, as in `--fullscreen=false`). The command line takes precedence over environment variables, and both over the file.
 
@@ -26,7 +26,7 @@ In game, F1 or Back + Start opens the game menu over the native renderer: **Sett
 | Display | Graphics API, graphics card, resolution, aspect ratio, brightness, frame rate, VSync, fullscreen |
 | Quality | MSAA, FXAA, post-processing, texture filtering, transparency AA |
 | Controls | Configure controls, SDL or XInput, the menu's keyboard key and controller buttons |
-| Advanced | Startup menu, frame latency, triple buffering, FPS overlay, pipeline notice, update check, desktop shortcut |
+| Advanced | General: startup menu, update check, desktop shortcut. On-screen indicators: FPS overlay, pipeline notice. Performance: frame latency, triple buffering. Data folder: the folder in use, Open, Choose another folder, Use portable folder, Restore default folder |
 
 In game, resolution, brightness, frame rate, VSync, MSAA, FXAA, post-processing, texture filtering, transparency AA, frame latency, triple buffering and the boot-logo skip apply at once. The menu waits for the renderer to accept each change and restores the previous value if it is refused. Resolution and MSAA changes can pause the image briefly. Options marked RESTART apply at the next start.
 
@@ -50,13 +50,13 @@ Open **Settings → Game → Game language**. The selection is applied on the ne
 
 A code set by hand outside this list is kept and shown as **Custom (code)** until you select a listed language.
 
-Translation packages installed in `mods/` next to the executable also appear in this list, by their own name. Selecting one sets English as the base language and `translation_mod` to the package folder; selecting an official language clears it. See [Translation mods](translation-mods.md).
+Translation packages installed in the data folder's `mods/` also appear in this list, by their own name. Selecting one sets English as the base language and `translation_mod` to the package folder; selecting an official language clears it. See [Translation mods](translation-mods.md).
 
 The voices (English or Japanese) are chosen in the game's own options menu.
 
 ## Main settings
 
-Defaults of a new configuration (`packaging/broken_bond.toml` and the game's own):
+Defaults of a new configuration (`defaults/broken_bond.toml` in a package, from `packaging/broken_bond.toml`, and the game's own):
 
 | Key | Default | Effect |
 | --- | --- | --- |
@@ -98,7 +98,7 @@ The menus also use these keys:
 | `game_menu_chord` | `"Back+Start"` | Controller buttons that open it: `Back+Start`, `LB+RB+Start` or `L3+R3` |
 | `show_shader_indicator` | `true` | Shows a notice while pipelines compile |
 | `check_for_updates` | `true` | Checks the project's latest release at start and notifies when it is newer; Settings > Advanced also checks on request |
-| `dlc_source_path` | `"dlc"` | Folder, relative to the executable, whose DLC packages the game installs at start; the game menu's **DLC** page stages packages there ([DLC](dlc.md)) |
+| `dlc_source_path` | `"dlc"` | Folder whose DLC packages the game installs at start; `"dlc"` is the data folder's `dlc/`; the game menu's **DLC** page stages packages there ([DLC](dlc.md)) |
 
 ### Native renderer options
 
@@ -116,7 +116,7 @@ These keys exist only in native renderer builds. Set in the menus, most apply at
 | `frame_rate` | `30` | Frame rate from 30 to 240. `30` keeps the game's own; above 30 the renderer draws frames between the game's logic steps. See [Renderers](renderers.md#frame-rate) |
 | `aspect_ratio` | `-1` | The image's shape, width over height: `-1` follows the monitor, `0` keeps the game's 16:9, or a ratio such as `1.6` (16:10), `2.3889` (21:9, 3440×1440) or `3.5556` (32:9). The 3D view widens or narrows to fill the screen without stretching; the HUD, menus and videos keep 16:9 proportions in the center. See [Aspect ratio](#aspect-ratio) |
 
-For example, in `build/native/broken_bond.toml`:
+For example, in `build/data/broken_bond.toml`:
 
 ```toml
 renderer = "native"
@@ -139,10 +139,11 @@ Full-screen effects such as fades and the pause dim cover the whole screen. HUD 
 
 ## User files
 
-| Started with | Game files | Saves and caches | Logs |
+| Started with | Game files | Settings, saves and caches (the data folder) | Logs |
 | --- | --- | --- | --- |
-| `build/native/broken_bond.exe` | `custom_game_root`, else the repository's `game/` | `build/user/` | `build/native/logs/` |
-| `scripts/run-game.ps1` | `game/` | `build/user/` | `build/logs/runtime-<date>.log` |
-| A copy elsewhere, such as the ZIP | `custom_game_root` (a folder or an ISO), else a `game/` folder next to it | A `user/` folder next to it | `logs/` next to it |
+| `build/native/broken_bond.exe` | `custom_game_root`, else the repository's `game/` | `build/data/` | `build/data/logs/` |
+| `scripts/run-game.ps1` | `game/` | `build/data/` | `build/logs/runtime-<date>.log` |
+| A copy elsewhere, such as the ZIP | `custom_game_root` (a folder or an ISO), else a `game/` folder next to it | `data\` next to it | `data\logs\` |
+| The Linux AppImage | `custom_game_root`, else a `game/` folder next to the AppImage | `~/.local/share/broken_bond/` (caches in `~/.cache/broken_bond/`) | its `logs/` |
 
-`user_data_root` in the file, or `--user_data_root`, changes the saves folder in every case. A build in `build/native` and `run-game.ps1` share `build/user/`, so saves carry over between them. Installations of 0.1.0-beta kept their saves in `user/` beside the launcher, the same folder the game uses now. Native runs started by `run-game.ps1` also write the renderer's journal next to the log (`.native.jsonl`) and the pipelines they created to `build/pipeline-runs/<run>/`.
+The saves are in the data folder's `user/`. `user_data_root` in the file, or `--user_data_root`, names another saves folder in every case. A build in `build/native` and `run-game.ps1` share `build/data/`, so settings and saves carry over between them; its first start copies the earlier `build/user/` and `build/native/broken_bond.toml` into it. Installations of 0.1.0-beta kept their settings and saves beside the executable (`broken_bond.toml`, `user/`); the first start copies them into `data\` and keeps the originals. [Data folder](data-folder.md) has the details, moving the folder, and backups. Native runs started by `run-game.ps1` also write the renderer's journal next to the log (`.native.jsonl`) and the pipelines they created to `build/pipeline-runs/<run>/`.

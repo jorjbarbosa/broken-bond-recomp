@@ -55,7 +55,8 @@ The Xbox Live features and most of the story have not been tested yet. Other gra
 - **In-game menu:** F1 or Back + Start opens Settings, DLC and Exit game over the game, in seven interface languages.
 - **Four players' controls:** each player has a controller or keyboard and mouse, with its own bindings and dead zones. Controllers are assigned automatically.
 - **DLC:** the DLC page installs the game's marketplace packages. See [DLC](docs/dlc.md).
-- **Translation mods:** packages in `mods/` replace the game's English texts by ID without changing the game files, and the menus list them as game languages. See [Translation mods](docs/translation-mods.md).
+- **Data folder:** settings, saves, logs, translation packages and DLC packages live in one data folder, apart from the program: `data\` beside `broken_bond.exe`, or the XDG data folder for the AppImage. The first start copies a 0.1.0-beta copy's files into it and keeps the originals; Settings → Advanced shows it and can move it. See [Data folder](docs/data-folder.md).
+- **Translation mods:** packages in the data folder's `mods/` replace the game's English texts by ID without changing the game files, and the menus list them as game languages. See [Translation mods](docs/translation-mods.md).
 - **Portable ZIP:** the release is a ZIP to extract and run. Installations of 0.1.0-beta, which used a launcher and an installer, move to it with a bridge installer that keeps game files, saves and settings. See [Release packaging](packaging/README.md).
 - **Automatic function discovery:** a ReXGlue patch finds the functions the game reaches only through pointer tables or addresses built in code, so the port needs no hand-written function list. See [Automatic function discovery](docs/automatic-function-discovery.md).
 
@@ -106,6 +107,7 @@ The [build guide](docs/build-and-run.md) explains each step, the native renderer
 | --- | --- |
 | [Build and run](docs/build-and-run.md) | Toolchain, SDK, game files, code generation, the native renderer, and running |
 | [Configuration](docs/configuration.md) | The setup screen, the game menu's settings, the controls, the configuration file, and user files |
+| [Data folder](docs/data-folder.md) | Where settings, saves, logs and packages live, the first start's import, moving the folder, and backups |
 | [Translation mods](docs/translation-mods.md) | Translation packages, their format, validation, and limits |
 | [DLC](docs/dlc.md) | Installing marketplace packages, their folders, and diagnostics |
 | [Renderers](docs/renderers.md) | The native renderer, the frame rate, the pipeline list, and known issues |
@@ -125,7 +127,7 @@ Planned work, in no particular order:
 
 ## Contributing
 
-Read the [architecture notes](docs/architecture.md) before changing the runtime or code generation files. When reporting an issue, include reproduction steps, the commit you built, CPU, GPU, driver, the renderer you use, your configuration, and the log of the run (`build/logs/` with `run-game.ps1`, otherwise `logs/` beside `broken_bond.exe`).
+Read the [architecture notes](docs/architecture.md) before changing the runtime or code generation files. When reporting an issue, include reproduction steps, the commit you built, CPU, GPU, driver, the renderer you use, your configuration, and the log of the run (`build/logs/` with `run-game.ps1`, otherwise the data folder's `logs/`: `data\logs\` beside `broken_bond.exe`, or `build/data/logs/` for a build in the repository).
 
 Work happens on the `develop` branch; `main` is the primary branch. Keep game files, derived shader data, pipeline lists, and generated code out of commits. SDK changes go into reproducible patches in `patches/`. Code, comments, documentation, and commit messages are written in English, as [AGENTS.md](AGENTS.md) requires.
 
