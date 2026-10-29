@@ -6,13 +6,9 @@
 #include <vector>
 #include <mutex>
 #include <optional>
+#include <stdexcept>
 #include <rex/filesystem/devices/stfs_container_device.h>
 #include <rex/system/xam/content_manager.h>
-
-#if defined(_WIN32)
-#include <windows.h>
-#include <shlobj.h>
-#endif
 
 namespace launcher_content {
 
@@ -122,13 +118,7 @@ std::filesystem::path GetUserDataRoot() {
     std::lock_guard lock(root_mutex);
     if (!root_override.empty()) return root_override;
   }
-#if defined(_WIN32)
-  wchar_t path[MAX_PATH];
-  if (SUCCEEDED(SHGetFolderPathW(nullptr, CSIDL_PERSONAL, nullptr, 0, path))) {
-    return std::filesystem::path(path) / "broken_bond";
-  }
-#endif
-  return std::filesystem::current_path() / "broken_bond";
+  throw std::logic_error("Content root was not set by the game");
 }
 
 std::filesystem::path GetDlcRoot() {

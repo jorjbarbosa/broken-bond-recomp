@@ -692,6 +692,9 @@ Result<PreparedData> PrepareData(const DataPaths& paths, const Environment& env,
     // The default guest root is the user folder; the trees of the older layout,
     // at the data folder's root, move into it before anything is imported.
     if (prepared.paths.user_source == Source::kDefault) MoveGuestTreesIntoUser(root, root / kUserFolder);
+    // The earlier AppImage ran a copy of the program from inside its data
+    // folder: what it kept beside the executable is already in place.
+    const bool program_in_data = Canonical(paths.install_dir) == root;
     if (paths.allow_legacy_import && !previous_complete) {
       if (prepared.paths.user_source == Source::kDefault) {
         if (paths.pending_source) {
@@ -702,8 +705,9 @@ Result<PreparedData> PrepareData(const DataPaths& paths, const Environment& env,
         } else {
           // The guest root the game kept beside its executable (the launcher's
           // user folder), or the repository's build/user for a build inside it.
-          add(MakeSource("guest", env.repository_dir.empty() ? paths.install_dir / kUserFolder
-                                                             : env.repository_dir / "build" / kUserFolder, {}));
+          if (!program_in_data)
+            add(MakeSource("guest", env.repository_dir.empty() ? paths.install_dir / kUserFolder
+                                                               : env.repository_dir / "build" / kUserFolder, {}));
           // 0.1.0-beta started without the launcher kept it in the SDK's default,
           // Documents\broken_bond. Equal files in both are imported once; different
           // ones stop the preparation. An unreachable Documents is reported only.
@@ -727,9 +731,11 @@ Result<PreparedData> PrepareData(const DataPaths& paths, const Environment& env,
         add(MakeSource("dlc", *paths.pending_source / "dlc", "dlc"));
         add(MakeSource("mods", *paths.pending_source / "mods", "mods"));
       } else {
-        add(MakeSource("logs", paths.install_dir / "logs", "logs/legacy/install"));
-        add(MakeSource("dlc", paths.install_dir / "dlc", "dlc"));
-        add(MakeSource("mods", paths.install_dir / "mods", "mods"));
+        if (!program_in_data) {
+          add(MakeSource("logs", paths.install_dir / "logs", "logs/legacy/install"));
+          add(MakeSource("dlc", paths.install_dir / "dlc", "dlc"));
+          add(MakeSource("mods", paths.install_dir / "mods", "mods"));
+        }
         if (paths.distribution_dir != paths.install_dir)
           add(MakeSource("mods", paths.distribution_dir / "mods", "mods"));
       }

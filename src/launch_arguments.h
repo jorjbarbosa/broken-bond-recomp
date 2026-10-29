@@ -1,10 +1,12 @@
-// Process arguments shared by shell links and process restarts: Windows argv
-// quoting, and on POSIX a start that waits for this process to exit.
+// Process arguments shared by shell links and process restarts: the session's
+// storage arguments, Windows argv quoting, and on POSIX a start that waits for
+// this process to exit.
 #pragma once
 #include <filesystem>
 #include <string>
 #include <string_view>
 #include <vector>
+#include "data_paths.h"
 #ifndef _WIN32
 #include <cerrno>
 #include <fcntl.h>
@@ -26,9 +28,34 @@ inline std::wstring QuoteArgument(std::wstring_view value) {
   return result;
 }
 
-inline std::wstring UserDataArgument(const std::filesystem::path& root) {
-  return QuoteArgument(L"--user_data_root=" + std::filesystem::absolute(root).lexically_normal().wstring());
+inline bool Explicit(data::Source source) {
+  return source == data::Source::kCommandLine || source == data::Source::kEnvironment;
 }
+inline std::string Utf8(const std::filesystem::path& path) {
+  const auto value = path.u8string(); return {value.begin(), value.end()};
+}
+// Only the locations the command line or the environment chose: the next
+// start resolves the saved selection, the .toml and the defaults by itself.
+inline std::vector<std::string> StorageArguments(const data::DataPaths& paths) {
+  std::vector<std::string> result;
+  const auto add = [&](const char* flag, const std::filesystem::path& root, data::Source source) {
+    if (Explicit(source)) result.push_back(std::string("--") + flag + "=" + Utf8(root));
+  };
+  add("data_root", paths.data_root, paths.data_source);
+  add("user_data_root", paths.user_data_root, paths.user_source);
+  add("cache_root", paths.cache_root, paths.cache_source);
+  return result;
+}
+#ifdef _WIN32
+inline std::wstring CommandLine(const std::vector<std::string>& arguments) {
+  std::wstring result;
+  for (const auto& argument : arguments) {
+    if (!result.empty()) result += L" ";
+    result += QuoteArgument(std::filesystem::path(std::u8string(argument.begin(), argument.end())).wstring());
+  }
+  return result;
+}
+#endif
 
 #ifndef _WIN32
 // Starts executable with arguments (argv[0] is the executable) once this

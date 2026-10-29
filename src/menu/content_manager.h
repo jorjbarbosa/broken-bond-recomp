@@ -15,7 +15,7 @@ struct ContentInfo {
   bool is_stfs = false;
 };
 
-// Returns the root set by the game (Documents/broken_bond when none was set).
+// Returns the root set by the game; there is no other (the data folder decides it).
 std::filesystem::path GetUserDataRoot();
 
 // Returns the DLC content root for this title:

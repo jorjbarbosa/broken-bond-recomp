@@ -762,6 +762,29 @@ void Sources(const fs::path& directory) {
   for (auto it = after.begin(); it != after.end();)
     it = *it->first.begin() == ".broken_bond-migration" ? after.erase(it) : std::next(it);
   Check(after == earlier, "nothing in the AppImage's folder is copied, moved or removed");
+
+  // That AppImage ran the program copied into the folder itself: the files
+  // beside the executable are the data folder's own, not a source.
+  Fixture program(directory / "AppImage program", Platform::kLinux);
+  program.env.appimage = Utf8(program.root / "apps/Game.AppImage");
+  const auto own = program.Paths().data_root;
+  program.env.install_dir = own;
+  Write(own / "defaults/broken_bond.toml", "renderer = 'native'\n");
+  Write(own / "broken_bond.toml", "fullscreen = false\n");
+  GuestTree(own / "user");
+  Write(own / "logs/broken_bond_001.log", "earlier log");
+  Write(own / "mods/pt-br/texts.json", "translation");
+  Write(own / "broken_bond", "copied program");
+  const auto own_earlier = unlocked(Snapshot(own));
+  auto own_place = Value(program.Prepare());
+  Check(own_place.paths.data_root == own && own_place.paths.install_dir == own &&
+            Read(own_place.paths.user_data_root / save) == std::string("save\0bytes", 10),
+        "a program run from inside its data folder uses the folder as it is");
+  own_place.lease.reset();
+  auto own_after = unlocked(Snapshot(own));
+  for (auto it = own_after.begin(); it != own_after.end();)
+    it = *it->first.begin() == ".broken_bond-migration" ? own_after.erase(it) : std::next(it);
+  Check(own_after == own_earlier, "its logs, mods and saves are not copied into themselves");
 }
 
 int RunChild(std::string_view mode, const fs::path& root) {

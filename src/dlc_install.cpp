@@ -16,8 +16,9 @@
 #include <rex/system/xam/content_manager.h>
 
 REXCVAR_DEFINE_STRING(dlc_source_path, "dlc", "Content",
-                      "Folder scanned for DLC packages to install at start, relative to the "
-                      "executable. If empty or missing, the game runs without new DLC.");
+                      "Folder scanned for DLC packages to install at start: \"dlc\" is the data "
+                      "folder's, another relative path is relative to the executable. If empty or "
+                      "missing, the game runs without new DLC.");
 
 namespace broken_bond::dlc {
 namespace {
@@ -111,9 +112,8 @@ bool Installed(rex::system::xam::ContentManager* content_manager, const std::str
 //   * Other entries are scanned recursively for STFS packages.
 // A package counts as installed when both its extracted folder and its header
 // exist, so this runs once per package and heals a wiped user data tree.
-void InstallSource(rex::system::xam::ContentManager* content_manager,
+void InstallSource(rex::system::xam::ContentManager* content_manager, const std::filesystem::path& root,
                    const std::filesystem::path& user_root) {
-  const auto root = SourceFolder();
   if (root.empty()) {
     REXLOG_INFO("[broken_bond] DLC install disabled (dlc_source_path is empty)");
     return;
@@ -273,19 +273,13 @@ int RepairUserTree(rex::system::xam::ContentManager* content_manager,
 
 }  // namespace
 
-std::filesystem::path SourceFolder() {
-  const std::string path = REXCVAR_GET(dlc_source_path);
-  if (path.empty()) return {};
-  return rex::filesystem::GetExecutableFolder() / rex::to_path(path);
-}
-
-void InstallAtStart(rex::system::xam::ContentManager* content_manager,
+void InstallAtStart(rex::system::xam::ContentManager* content_manager, const std::filesystem::path& source,
                     const std::filesystem::path& user_root) {
   if (!content_manager) {
     REXLOG_WARN("[broken_bond] DLC install skipped: content manager unavailable");
     return;
   }
-  InstallSource(content_manager, user_root);
+  InstallSource(content_manager, source, user_root);
 
   const auto dlc_root = user_root / kCommonXuid / kTitleIdText / kMarketplaceContent;
   std::error_code ec;

@@ -23,10 +23,13 @@ namespace {
 std::string Utf8(const std::filesystem::path& path) { const auto s = path.u8string(); return {s.begin(), s.end()}; }
 std::string Bool(bool value) { return Text(value ? "on" : "off"); }
 }
-void Settings::Initialize(std::filesystem::path directory, bool native_controls) {
+void Settings::Initialize(std::filesystem::path directory, bool native_controls,
+                          std::filesystem::path config_path) {
   edited_flags_.clear();
   controls_enabled_ = native_controls;
-  directory_ = std::move(directory); Reload(); initial_ = config_;
+  directory_ = std::move(directory);
+  config_path_ = config_path.empty() ? directory_ / "broken_bond.toml" : std::move(config_path);
+  Reload(); initial_ = config_;
   const auto effective_backend=rex::cvar::GetFlagByName("input_backend");
   controls::SetBackend(effective_backend.empty()?config_.input_backend:effective_backend);
   if(!controls_enabled_){controls::Publish({});initial_menu_options_=menu_options_;return;}
@@ -39,13 +42,13 @@ void Settings::Initialize(std::filesystem::path directory, bool native_controls)
   initial_menu_options_ = menu_options_;
 }
 void Settings::Reload() {
-  const auto path=directory_ / "broken_bond.toml";
+  const auto& path=config_path_;
   const bool loaded=ConfigManager::Load(path, config_);
   load_failed_=std::filesystem::exists(path)&&!loaded;
   if (controls_enabled_ && config_.controls.version) controls::Publish(config_.controls);
   Localization::SetLanguageCode(config_.launcher_language);
   try {
-    std::ifstream input(directory_ / "broken_bond.toml", std::ios::binary);
+    std::ifstream input(config_path_, std::ios::binary);
     const auto table = toml::parse(input);
     menu_options_.key = table["bind_game_menu"].value_or(std::string("F1"));
     menu_options_.chord = table["game_menu_chord"].value_or(std::string("Back+Start"));
@@ -66,7 +69,7 @@ void Settings::Controls() {
 }
 bool Settings::ApplyBeforeGame() const {
   try {
-    std::ifstream input(directory_ / "broken_bond.toml", std::ios::binary);
+    std::ifstream input(config_path_, std::ios::binary);
     const auto table = toml::parse(input);
     // The SDK already loaded the initial configuration with CLI/environment
     // precedence. Only explicit menu edits may override those session values.
@@ -91,7 +94,7 @@ bool Settings::ApplyBeforeGame() const {
   return false;
 }
 bool Settings::Save(const GameConfig& config) {
-  const auto path = directory_ / "broken_bond.toml";
+  const auto& path = config_path_;
   auto temporary = path; temporary += ".settings.tmp";
   try {
     if(load_failed_)throw std::runtime_error("Refusing to replace a configuration that could not be loaded");
@@ -216,7 +219,7 @@ std::vector<PanelRow> Settings::Rows(int group) {
     if (choose_game_)
       rows.push_back({"custom_game_root", Tr(TextId::TabGameFiles), config_.custom_game_root, Text("game-hint"), false,
           in_game_, {}, 0, {}, choose_game_});
-    const auto mods = launcher_ui::DiscoverTranslationMods(directory_);
+    const auto mods = launcher_ui::DiscoverTranslationMods(config_path_.parent_path() / "mods");
     const auto languages = launcher_ui::GameLanguages(config_, mods);
     std::vector<std::string> names;
     for (const auto& language : languages.options) names.push_back(language.label);

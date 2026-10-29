@@ -174,6 +174,16 @@ target_link_libraries(broken_bond_data_migration PUBLIC broken_bond_data_paths P
 if(WIN32)
     target_link_libraries(broken_bond_data_migration PRIVATE shell32 ole32)
 endif()
+target_link_libraries(broken_bond PRIVATE broken_bond_data_migration)
+# The settings a new data folder starts from, beside the executable. The active
+# .toml lives in the data folder, so a rebuild never replaces it.
+add_custom_target(broken_bond_default_config ALL
+    COMMAND ${CMAKE_COMMAND} -E make_directory $<TARGET_FILE_DIR:broken_bond>/defaults
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            ${CMAKE_CURRENT_SOURCE_DIR}/packaging/broken_bond.toml
+            $<TARGET_FILE_DIR:broken_bond>/defaults/broken_bond.toml
+    VERBATIM)
+add_dependencies(broken_bond broken_bond_default_config)
 if(BROKENBOND_NATIVE_RENDERER)
     target_link_libraries(broken_bond PRIVATE RmlUi::Core)
     # The settings code of the menus: the configuration file, languages, key
@@ -382,6 +392,18 @@ if(BROKENBOND_NATIVE_RENDERER)
         endif()
         add_test(NAME data_migration COMMAND broken_bond_data_migration_test "${_data_storage}/migration")
         set_tests_properties(data_migration PROPERTIES FIXTURES_REQUIRED data_storage_dir TIMEOUT 300)
+        # The storage arguments of the settings restart and the desktop shortcut
+        # (src/launch_arguments.h).
+        add_executable(broken_bond_launch_arguments_test tests/launch_arguments_test.cpp)
+        target_include_directories(broken_bond_launch_arguments_test PRIVATE src)
+        if(WIN32)
+            target_link_libraries(broken_bond_launch_arguments_test PRIVATE shell32)
+        endif()
+        if(MSVC)
+            target_compile_options(broken_bond_launch_arguments_test PRIVATE /utf-8)
+        endif()
+        add_test(NAME launch_arguments COMMAND broken_bond_launch_arguments_test "${_data_storage}/launch-arguments")
+        set_tests_properties(launch_arguments PROPERTIES FIXTURES_REQUIRED data_storage_dir)
         # The four players' controls (src/controls): profiles and their file, key
         # capture, the configured drivers, the hardware service on SDL's virtual
         # gamepads (with the SDK's SDL driver beside it: one static SDL), and the

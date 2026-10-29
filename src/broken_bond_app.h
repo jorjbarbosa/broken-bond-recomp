@@ -18,12 +18,14 @@
 #include <rex/filesystem.h>
 #include <rex/logging.h>
 #include <rex/runtime.h>
+#include <rex/system.h>
 #include <rex/ui/keybinds.h>
 #include <rex/ui/window.h>
 #include <rex/ui/window_listener.h>
 #include <toml++/toml.hpp>
 
 #include "crash_report.h"
+#include "data_migration.h"
 #include "dlc_install.h"
 #include "fps_overlay.h"
 #include "game_image.h"
@@ -36,9 +38,14 @@
 #define NOMINMAX
 #endif
 #include <windows.h>
+#else
+#include <unistd.h>
 #endif
 
 REXCVAR_DEFINE_UINT32(restart_wait_pid, 0, "broken_bond/Internal", "Wait for the previous process during a settings restart");
+REXCVAR_DEFINE_STRING(data_root, "", "broken_bond/Storage",
+                      "Data folder for this session (--data_root or REX_DATA_ROOT; nothing is imported into it)")
+    .lifecycle(rex::cvar::Lifecycle::kInitOnly);
 
 #ifdef BROKENBOND_NATIVE_RENDERER_BOOTSTRAP
 #include "gpu/common/shader_activity.h"
@@ -114,15 +121,15 @@ class BrokenBondApp : public rex::ReXApp {
     if (!config.graphics) SelectXenosAdapter();
   }
 
-  // The paths without the launcher, which passes --game_data_root and
-  // --user_data_root: the command line first; then the game folder or disc
-  // image of the .toml's custom_game_root, else the one beside the executable
-  // or the AppImage (game_image.h); the saves where the launcher keeps them.
-  // Logging starts after this, so OnPostInitLogging reports the choice.
-  void OnConfigurePaths(rex::PathConfig& paths) override {
+  // The data folder, before the SDK reads its .toml (data_migration.h): the
+  // command line's or environment's, the saved selection, else the default
+  // (data_paths.h); earlier locations copied into it; its lock held for the
+  // session. A failed preparation stops the start with its error instead of
+  // starting on a partial folder.
+  bool SetupEnvironment() override {
 #ifdef _WIN32
     // A restart for saved settings (RestartForSettings): the previous process
-    // closes first, so it neither holds the window's device nor writes the .toml.
+    // closes first, so it neither holds the data folder's lock nor writes the .toml.
     if (const auto parent = REXCVAR_GET(restart_wait_pid); parent && parent != GetCurrentProcessId()) {
       if (HANDLE process = OpenProcess(SYNCHRONIZE, FALSE, parent)) {
         WaitForSingleObject(process, INFINITE);
@@ -130,34 +137,57 @@ class BrokenBondApp : public rex::ReXApp {
       }
     }
 #endif
-    const auto exe_dir = rex::filesystem::GetExecutableFolder();
+    using namespace broken_bond::data;
+    try {
+      const auto exe_dir = rex::filesystem::GetExecutableFolder();
+      auto environment = CaptureEnvironment(exe_dir);
+      if (!environment) return FailDataBootstrap(environment.error);
+      environment.value->repository_dir = broken_bond::game_image::RepositoryOf(exe_dir);
+      Overrides cli;
+      for (auto [name, value] : {std::pair{"data_root", &cli.data_root},
+                                 std::pair{"user_data_root", &cli.user_data_root},
+                                 std::pair{"cache_root", &cli.cache_root}}) {
+        if (rex::cvar::GetFlagSource(name) == rex::cvar::Source::kCommandLine)
+          *value = rex::cvar::GetFlagByName(name);
+      }
+      auto paths = ResolvePaths(*environment.value, cli);
+      if (!paths) return FailDataBootstrap(paths.error);
+      auto prepared = PrepareData(*paths.value, *environment.value, cli);
+      if (!prepared) return FailDataBootstrap(prepared.error);
+      auto writable = ValidateWritablePaths(prepared.value->paths);
+      if (!writable) return FailDataBootstrap(writable.error);
+      prepared_data_ = std::move(*prepared.value);
+    } catch (const std::exception& e) {
+      return FailDataBootstrap(e.what());
+    }
+    return rex::ReXApp::SetupEnvironment();
+  }
+
+  // The prepared data folder's .toml, logs, saves and cache. The game: the
+  // command line's first; then the game folder or disc image of the .toml's
+  // custom_game_root, else the one beside the executable or the AppImage
+  // (game_image.h). Logging starts after this, so OnPostInitLogging reports
+  // the choice.
+  void OnConfigurePaths(rex::PathConfig& paths) override {
+    const auto& active = prepared_data_->paths;
+    paths.user_data_root = active.user_data_root;
+    paths.cache_root = active.cache_root;
+    paths.config_path = active.config_path;
+    paths.log_dir = active.log_dir;
+    user_root_source_ = SourceName(active.user_source);
+    command_line_root_ = !paths.game_data_root.empty();
+    if (command_line_root_) return;
+    // Relative paths of the .toml keep the folder it was written for.
     const auto utf8_path = [&](std::string_view text) {
       std::filesystem::path path(std::u8string_view(reinterpret_cast<const char8_t*>(text.data()), text.size()));
-      return path.is_relative() ? exe_dir / path : path;
+      return path.is_relative() ? prepared_data_->config_base / path : path;
     };
     std::optional<toml::table> config;
     try {
-      std::error_code ec;
-      if (std::filesystem::is_regular_file(paths.config_path, ec)) {
-        std::ifstream input(paths.config_path, std::ios::binary);
-        config = toml::parse(input);
-      }
+      std::ifstream input(active.config_path, std::ios::binary);
+      config = toml::parse(input);
     } catch (...) {
     }
-    if (REXCVAR_GET(user_data_root).empty()) {
-      const auto configured = config ? (*config)["user_data_root"].value_or(std::string()) : std::string();
-      if (!configured.empty()) {
-        paths.user_data_root = utf8_path(configured);
-        user_root_source_ = "user_data_root";
-      } else {
-        const auto repository = broken_bond::game_image::RepositoryOf(exe_dir);
-        paths.user_data_root = repository.empty() ? exe_dir / "user" : repository / "build" / "user";
-        user_root_source_ = "default";
-      }
-      if (REXCVAR_GET(cache_root).empty()) paths.cache_root = paths.user_data_root / "cache";
-    }
-    command_line_root_ = !paths.game_data_root.empty();
-    if (command_line_root_) return;
     const auto custom = config ? (*config)["custom_game_root"].value_or(std::string()) : std::string();
     configured_root_ = !custom.empty();
     if (configured_root_) {
@@ -169,16 +199,23 @@ class BrokenBondApp : public rex::ReXApp {
       }
     }
     if (paths.game_data_root.empty()) {
-      paths.game_data_root = broken_bond::game_image::FindNearbyGame(exe_dir, broken_bond::game_image::AppImageFolder());
+      paths.game_data_root = broken_bond::game_image::FindNearbyGame(active.install_dir,
+                                                                     broken_bond::game_image::AppImageFolder());
       game_root_source_ = paths.game_data_root.empty() ? "none" : "nearby";
     }
   }
 
-  // Which game the data root holds, once the log exists: the recompiled code
-  // only runs with the default.xex it was generated from (game_image.h).
+  // The data folder and what its preparation reported, then which game the
+  // data root holds, once the log exists: the recompiled code only runs with
+  // the default.xex it was generated from (game_image.h).
   void OnPostInitLogging() override {
-    REXLOG_INFO("[broken_bond] Paths: game data {} ({}), user data {} ({})", game_data_root().string(),
-                game_root_source_, user_data_root().string(), user_root_source_);
+    const auto& active = prepared_data_->paths;
+    REXLOG_INFO("[broken_bond] Data folder: {} ({}); settings {}, cache {} ({})", rex::path_to_utf8(active.data_root),
+                SourceName(active.data_source), rex::path_to_utf8(active.config_path),
+                rex::path_to_utf8(active.cache_root), SourceName(active.cache_source));
+    for (const auto& message : prepared_data_->diagnostics) REXLOG_INFO("[broken_bond] Data folder: {}", message);
+    REXLOG_INFO("[broken_bond] Paths: game data {} ({}), user data {} ({})", rex::path_to_utf8(game_data_root()),
+                game_root_source_, rex::path_to_utf8(user_data_root()), user_root_source_);
     if (!game_data_root().empty()) LogGameData(game_data_root());
   }
 
@@ -194,11 +231,10 @@ class BrokenBondApp : public rex::ReXApp {
     // The launch marker: there from here until the game's first frame, so a
     // start that dies before it (the engine of a card or API that fails) opens
     // the setup screen next time. The boots that name their game have none.
-    if (!command_line_root_ && !user_data_root().empty()) {
-      launch_marker_ = user_data_root() / "launch.marker";
+    if (!command_line_root_) {
+      launch_marker_ = prepared_data_->paths.data_root / "launch.marker";
       std::error_code ec;
       start_failed_ = std::filesystem::exists(launch_marker_, ec);
-      std::filesystem::create_directories(user_data_root(), ec);
       std::ofstream(launch_marker_) << "started\n";
     }
     namespace menu = broken_bond::menu;
@@ -225,7 +261,7 @@ class BrokenBondApp : public rex::ReXApp {
 #endif
 
   void OnPostSetup() override {
-    broken_bond::translation::Initialize(rex::filesystem::GetExecutableFolder());
+    broken_bond::translation::Initialize(prepared_data_->paths.mods_dir);
     broken_bond::crash_report::Install();  // After the SDK's exception handler.
     if (window()) {
       // Window shortcuts take priority over overlays and keyboard emulation.
@@ -236,7 +272,7 @@ class BrokenBondApp : public rex::ReXApp {
     // Before the title enumerates its marketplace content.
     broken_bond::dlc::InstallAtStart(
         runtime() && runtime()->kernel_state() ? runtime()->kernel_state()->content_manager() : nullptr,
-        user_data_root());
+        DlcSource(), user_data_root());
 #ifdef BROKENBOND_NATIVE_RENDERER_BOOTSTRAP
     // The menus came up before the runtime (OnFinalizePaths); the game menu's
     // shortcuts belong to the running game.
@@ -313,6 +349,97 @@ class BrokenBondApp : public rex::ReXApp {
 #endif
 
  private:
+  // The data folder could not be prepared: the error in a bootstrap log in the
+  // temporary folder (never in another data folder) and in a message box.
+  bool FailDataBootstrap(const std::string& error) {
+    std::string message = "Could not prepare the data folder.\n" + Utf8Text(error);
+    try {
+      const std::string log_file = REXCVAR_GET(log_file);
+      auto config = rex::BuildLogConfig(log_file.empty() ? nullptr : log_file.c_str(), REXCVAR_GET(log_level), {});
+#ifdef _WIN32
+      const auto process = GetCurrentProcessId();
+#else
+      const auto process = getpid();
+#endif
+      const auto directory = std::filesystem::temp_directory_path() / "broken_bond" / "bootstrap";
+      config.app_name = "broken_bond_bootstrap_" + std::to_string(process);
+      config.log_dir = rex::path_to_utf8(directory);
+      rex::InitLogging(config);
+      REXLOG_ERROR("[broken_bond] {}", message);
+      rex::FlushLogging();
+      message += "\nDiagnostic log: " + (log_file.empty() ? config.log_dir : log_file);
+    } catch (const std::exception& e) {
+      message += "\nCould not open the diagnostic log: " + Utf8Text(e.what());
+    }
+    message += "\nResolve the reported issue and start again. --data_root or REX_DATA_ROOT selects another "
+               "writable folder for one session.";
+    std::fprintf(stderr, "%s\n", message.c_str());
+    std::fflush(stderr);
+    rex::ShowSimpleMessageBox(rex::SimpleMessageBoxType::Error, message);
+    return false;
+  }
+  // On Windows the system's error texts come in the ANSI code page, mixed with
+  // the data folder's UTF-8 paths; the log and the message box take UTF-8 only.
+  // Each byte that does not start a UTF-8 character is read in the code page.
+  static std::string Utf8Text(std::string_view text) {
+#ifdef _WIN32
+    std::string result;
+    for (size_t i = 0; i < text.size();) {
+      const auto byte = static_cast<unsigned char>(text[i]);
+      const size_t length = byte < 0x80 ? 1 : (byte >> 5) == 6 ? 2 : (byte >> 4) == 14 ? 3 : (byte >> 3) == 30 ? 4 : 0;
+      if (length && i + length <= text.size() &&
+          MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, text.data() + i, int(length), nullptr, 0)) {
+        result.append(text.substr(i, length));
+        i += length;
+        continue;
+      }
+      wchar_t wide = 0xFFFD;
+      MultiByteToWideChar(CP_ACP, 0, text.data() + i, 1, &wide, 1);
+      char utf8[4];
+      const int size = WideCharToMultiByte(CP_UTF8, 0, &wide, 1, utf8, sizeof(utf8), nullptr, nullptr);
+      result.append(utf8, size > 0 ? size_t(size) : 0);
+      ++i;
+    }
+    return result;
+#else
+    return std::string(text);
+#endif
+  }
+  static const char* SourceName(broken_bond::data::Source source) {
+    using broken_bond::data::Source;
+    switch (source) {
+      case Source::kConfig: return "the .toml";
+      case Source::kUserDescriptor: return "saved selection";
+      case Source::kPortableDescriptor: return "portable selection";
+      case Source::kEnvironment: return "environment";
+      case Source::kCommandLine: return "command line";
+      default: return "default";
+    }
+  }
+  // The folder the game installs DLC packages from at start: the data
+  // folder's dlc/ by default (data_paths.h).
+  std::filesystem::path DlcSource() const {
+    const auto base = rex::cvar::GetFlagSource("dlc_source_path") == rex::cvar::Source::kConfig
+        ? prepared_data_->config_base : prepared_data_->paths.install_dir;
+    return broken_bond::data::ResolveDlcSource(prepared_data_->paths, rex::cvar::GetFlagByName("dlc_source_path"),
+                                               base);
+  }
+  // The arguments a restart and a shortcut keep besides the storage overrides.
+  std::vector<std::string> SessionExtraArguments() const {
+    std::vector<std::string> arguments;
+    const auto source = rex::cvar::GetFlagSource("log_file");
+    if (source == rex::cvar::Source::kCommandLine || source == rex::cvar::Source::kEnvironment) {
+      const auto value = rex::to_path(rex::cvar::GetFlagByName("log_file"));
+      if (!value.empty()) arguments.push_back("--log_file=" + rex::path_to_utf8(
+          (value.is_absolute() ? value : prepared_data_->paths.initial_cwd / value).lexically_normal()));
+    }
+    return arguments;
+  }
+
+  // The data folder of the session (SetupEnvironment). Declared first, so its
+  // lock outlives every member that writes into the folder.
+  std::optional<broken_bond::data::PreparedData> prepared_data_;
+
 #ifdef BROKENBOND_NATIVE_RENDERER_BOOTSTRAP
   // The menus (menu/ui.h) through the UI layer of the native Present, from
   // before the runtime on (the setup screen): each Swap, or each Present of the
@@ -320,7 +447,7 @@ class BrokenBondApp : public rex::ReXApp {
   // shown, and polls the menu shortcuts otherwise. F1 or Back+Start opens the
   // game menu once the game runs.
   void SetupUi() {
-    menu_settings_.Initialize(rex::filesystem::GetExecutableFolder());
+    menu_settings_.Initialize(rex::filesystem::GetExecutableFolder(), true, prepared_data_->paths.config_path);
     native_drawer_ = std::make_unique<gpu::ui::ImmediateDrawer>(gpu::ui::UiLayer());
     gpu::ui::UiLayer().SetFrameRequest([this] {  // The Swap's thread.
       if (closing_.load()) return;
@@ -344,7 +471,7 @@ class BrokenBondApp : public rex::ReXApp {
     ui_.SetTick([this] { ServiceMenu(); });
     menu_settings_.SetUtilities([this] { CreateDesktopShortcut(); }, [this] { CheckUpdates(); });
     if (REXCVAR_GET(check_for_updates))
-      updates_ = std::make_unique<launcher_updates::Checker>(broken_bond::PortVersion(), user_data_root() / "menu-updates.json");
+      updates_ = std::make_unique<launcher_updates::Checker>(broken_bond::PortVersion(), UpdatesFile());
     ui_.SetFpsVisible(rex::cvar::Query<bool>("show_fps_overlay"));
   }
   // The menu key and controller chord of the settings, and the hint that names them.
@@ -452,8 +579,8 @@ class BrokenBondApp : public rex::ReXApp {
   // The DLC page (menu/dlc.h): packages are staged into the folder the game
   // installs from at the next start; extracted folders are copied at once.
   void OpenDlc() {
-    auto staging = broken_bond::dlc::SourceFolder();
-    if (staging.empty()) staging = rex::filesystem::GetExecutableFolder() / "dlc";
+    auto staging = DlcSource();
+    if (staging.empty()) staging = prepared_data_->paths.dlc_dir;
     menu_dlc_.Open(ui_, std::move(staging), user_data_root(), window() ? window()->GetNativeWindowHandle() : nullptr,
         [this](std::function<void()> action) { app_context().CallInUIThreadDeferred(std::move(action)); }, [this] {
           if (setup_resume_) RefreshSetup();
@@ -558,8 +685,7 @@ class BrokenBondApp : public rex::ReXApp {
       using broken_bond::game_image::Status;
       if (result->game.status == Status::kReady) {
         std::string error;
-        if (!broken_bond::menu::SaveGameRoot(rex::filesystem::GetExecutableFolder() / "broken_bond.toml", result->root,
-                                             error)) {
+        if (!broken_bond::menu::SaveGameRoot(prepared_data_->paths.config_path, result->root, error)) {
           ui_.ShowDialog(Text("save-failed"), error, {{Text("cancel"), {}}});
           return;
         }
@@ -607,26 +733,31 @@ class BrokenBondApp : public rex::ReXApp {
         {Text("later"), {}}});
   }
   // A new process with the saved API and card, on the setup screen; this one
-  // closes in its normal order first.
+  // closes in its normal order first. It finds the same data folder by itself:
+  // only the session's explicit locations go on its command line.
   void RestartForSettings() {
-    const auto folder = rex::filesystem::GetExecutableFolder();
+    const auto& active = prepared_data_->paths;
     if (menu_settings_.config().custom_game_root.empty() && !game_data_root().empty()) {
       // The game in use (the command line's or the one found nearby) for the next start.
       std::string error;
-      if (!broken_bond::menu::SaveGameRoot(folder / "broken_bond.toml", game_data_root(), error)) return;
+      if (!broken_bond::menu::SaveGameRoot(active.config_path, game_data_root(), error)) return;
     }
+    auto arguments = broken_bond::launch::StorageArguments(active);
+    const auto extra = SessionExtraArguments();
+    arguments.insert(arguments.end(), extra.begin(), extra.end());
+    arguments.push_back("--setup");
     bool started = false;
 #ifdef _WIN32
     // The new process waits for this one (restart_wait_pid).
-    const auto executable = folder / L"broken_bond.exe";
-    const std::wstring command = broken_bond::launch::QuoteArgument(executable.wstring()) + L" --setup " +
-        broken_bond::launch::UserDataArgument(user_data_root()) + L" --restart_wait_pid=" +
-        std::to_wstring(GetCurrentProcessId());
+    const auto executable = active.install_dir / L"broken_bond.exe";
+    arguments.push_back("--restart_wait_pid=" + std::to_string(GetCurrentProcessId()));
+    const std::wstring command = broken_bond::launch::QuoteArgument(executable.wstring()) + L" " +
+        broken_bond::launch::CommandLine(arguments);
     STARTUPINFOW startup{sizeof(startup)};
     PROCESS_INFORMATION process{};
     auto writable = command;
     if (CreateProcessW(executable.c_str(), writable.data(), nullptr, nullptr, FALSE, 0, nullptr,
-                       folder.c_str(), &startup, &process)) {
+                       active.initial_cwd.c_str(), &startup, &process)) {
       REXLOG_INFO("[broken_bond] Restarting for saved settings: process {}", process.dwProcessId);
       CloseHandle(process.hThread);
       CloseHandle(process.hProcess);
@@ -639,9 +770,7 @@ class BrokenBondApp : public rex::ReXApp {
     const char* image = std::getenv("APPIMAGE");
     const auto executable = image && *image ? std::filesystem::absolute(rex::to_path(image))
                                             : rex::filesystem::GetExecutablePath();
-    const auto root = std::filesystem::absolute(user_data_root()).lexically_normal();
-    restart_wait_fd_ = broken_bond::launch::StartAfterExit(
-        executable, {"--setup", "--user_data_root=" + rex::path_to_utf8(root)});
+    restart_wait_fd_ = broken_bond::launch::StartAfterExit(executable, std::move(arguments));
     if (restart_wait_fd_ >= 0) {
       REXLOG_INFO("[broken_bond] Restarting for saved settings: {} after this process exits",
                   rex::path_to_utf8(executable));
@@ -684,13 +813,15 @@ class BrokenBondApp : public rex::ReXApp {
   }
   void CreateDesktopShortcut() {
     const bool ok = broken_bond::menu::WriteShortcut(broken_bond::menu::DesktopShortcut(),
-        rex::filesystem::GetExecutableFolder() / "broken_bond.exe", user_data_root());
+        prepared_data_->paths.install_dir / "broken_bond.exe", prepared_data_->paths, SessionExtraArguments());
     ui_.Notify(broken_bond::menu::Text(ok ? "shortcut-done" : "save-failed"));
   }
+  // The update check's state, at the data folder's root.
+  std::filesystem::path UpdatesFile() const { return prepared_data_->paths.data_root / "menu-updates.json"; }
   void CheckUpdates() {
     using broken_bond::menu::Text;
     if (!updates_)
-      updates_ = std::make_unique<launcher_updates::Checker>(broken_bond::PortVersion(), user_data_root() / "menu-updates.json");
+      updates_ = std::make_unique<launcher_updates::Checker>(broken_bond::PortVersion(), UpdatesFile());
     if (updates_->status() == launcher_updates::Status::Available) {
       const auto release = updates_->release();
       char title[512];

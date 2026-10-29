@@ -18,8 +18,11 @@ class Settings {
     shortcut_ = std::move(shortcut); updates_ = std::move(updates);
   }
   // native_controls: the four players' profiles drive the input (controls/);
-  // off, the input keeps the cvars.
-  void Initialize(std::filesystem::path directory, bool native_controls = true);
+  // off, the input keeps the cvars. config_path: the active .toml (the data
+  // folder's), else broken_bond.toml in directory; the translation mods are
+  // in the mods folder beside it.
+  void Initialize(std::filesystem::path directory, bool native_controls = true,
+                  std::filesystem::path config_path = {});
   void Open(Ui& ui, int tab, bool in_game, std::function<void()> choose_game,
             std::function<void(const std::string&)> changed, std::function<void()> closed);
   void Reload();
@@ -44,6 +47,7 @@ class Settings {
   void Controls();
   void SaveMenuOptions(const std::string& key, MenuOptions next);
   std::filesystem::path directory_;
+  std::filesystem::path config_path_;
   GameConfig config_, initial_;
   std::unordered_set<std::string> edited_flags_;
   MenuOptions menu_options_, initial_menu_options_;
