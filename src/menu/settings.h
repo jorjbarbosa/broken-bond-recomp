@@ -4,6 +4,7 @@
 #pragma once
 #include "menu/panel.h"
 #include "../menu/config_manager.h"
+#include "data_paths.h"
 #include <filesystem>
 #include <functional>
 #include <unordered_set>
@@ -17,6 +18,16 @@ class Settings {
   void SetUtilities(std::function<void()> shortcut, std::function<void()> updates) {
     shortcut_ = std::move(shortcut); updates_ = std::move(updates);
   }
+  // The Data folder section of Advanced: the session's folders, the location
+  // saved for the next start (pending), and select, which asks for another
+  // location (data_migration.h's RequestLocation). The mods are read from the
+  // session's folder until the restart.
+  void SetDataFolder(data::DataPaths active, std::optional<std::filesystem::path> pending,
+                     std::function<void(data::Mode)> select) {
+    data_paths_ = std::move(active); pending_data_root_ = std::move(pending);
+    select_data_location_ = std::move(select);
+  }
+  void SetPendingDataLocation(std::optional<std::filesystem::path> pending);
   // native_controls: the four players' profiles drive the input (controls/);
   // off, the input keeps the cvars. config_path: the active .toml (the data
   // folder's), else broken_bond.toml in directory; the translation mods are
@@ -52,6 +63,9 @@ class Settings {
   std::unordered_set<std::string> edited_flags_;
   MenuOptions menu_options_, initial_menu_options_;
   std::function<void()> shortcut_, updates_;
+  std::optional<data::DataPaths> data_paths_;
+  std::optional<std::filesystem::path> pending_data_root_;
+  std::function<void(data::Mode)> select_data_location_;
   Ui* ui_ = nullptr;
   int group_ = 0;
   bool in_game_ = false;

@@ -157,6 +157,9 @@ class BrokenBondApp : public rex::ReXApp {
       auto writable = ValidateWritablePaths(prepared.value->paths);
       if (!writable) return FailDataBootstrap(writable.error);
       prepared_data_ = std::move(*prepared.value);
+      // For a location chosen in Advanced (RequestDataLocation).
+      data_environment_ = std::move(*environment.value);
+      data_cli_ = std::move(cli);
     } catch (const std::exception& e) {
       return FailDataBootstrap(e.what());
     }
@@ -439,6 +442,10 @@ class BrokenBondApp : public rex::ReXApp {
   // The data folder of the session (SetupEnvironment). Declared first, so its
   // lock outlives every member that writes into the folder.
   std::optional<broken_bond::data::PreparedData> prepared_data_;
+  std::optional<broken_bond::data::Environment> data_environment_;
+  broken_bond::data::Overrides data_cli_;
+  // A location chosen in Advanced, used from the next start.
+  std::optional<std::filesystem::path> pending_data_root_;
 
 #ifdef BROKENBOND_NATIVE_RENDERER_BOOTSTRAP
   // The menus (menu/ui.h) through the UI layer of the native Present, from
@@ -523,6 +530,9 @@ class BrokenBondApp : public rex::ReXApp {
   // RESTART apply at the next start, which a notice recalls when the pages
   // close. Opened from the setup screen, everything applies when the game starts.
   void OpenSettings() {
+    menu_settings_.SetDataFolder(prepared_data_->paths, pending_data_root_, [this](broken_bond::data::Mode mode) {
+      app_context().CallInUIThreadDeferred([this, mode] { RequestDataLocation(mode); });
+    });
     menu_settings_.SetLiveSettings([](const std::string& key, const GameConfig& config) -> uint64_t {
       auto next = gpu::RequestedSettings();
       if (key == "vsync") next.vsync = config.vsync;
@@ -719,12 +729,46 @@ class BrokenBondApp : public rex::ReXApp {
       ui_.ShowDialog(Text("checking"), Text("wait"));
     }
   }
-  // The API and the card belong to the session: a restart starts a new
-  // process on the setup screen with the saved choice.
+  // Another data folder, from Advanced: a folder chosen in the system picker,
+  // the portable folder or the default. The choice is saved for the next
+  // start, which copies this folder's files into it (data_migration.h); this
+  // session keeps writing here. Choosing the session's own location again
+  // clears a pending one.
+  void RequestDataLocation(broken_bond::data::Mode mode) {
+    if (closing_.load() || prepared_data_->paths.session_override) return;
+    std::filesystem::path target;
+    if (mode == broken_bond::data::Mode::kCustom) {
+      const auto choice = broken_bond::menu::ChooseFile(window() ? window()->GetNativeWindowHandle() : nullptr, true);
+      if (!choice.error.empty()) {
+        REXLOG_WARN("[broken_bond] Data folder picker: {}", choice.error);
+        ShowDataLocationError(); return;
+      }
+      if (choice.path.empty() || closing_.load()) return;
+      target = choice.path;
+    }
+    const auto result = broken_bond::data::RequestLocation(*prepared_data_, *data_environment_, mode, target, data_cli_);
+    if (!result) {
+      REXLOG_WARN("[broken_bond] Data location selection: {}", result.error);
+      ShowDataLocationError(); return;
+    }
+    if (result.value->pending_source || result.value->mode != prepared_data_->paths.mode)
+      pending_data_root_ = result.value->data_root;
+    else pending_data_root_.reset();
+    REXLOG_INFO("[broken_bond] Data folder for the next start: {}",
+                pending_data_root_ ? rex::path_to_utf8(*pending_data_root_) : std::string("unchanged"));
+    menu_settings_.SetPendingDataLocation(pending_data_root_);
+    if (pending_data_root_) OfferSettingsRestart();
+  }
+  void ShowDataLocationError() {
+    using broken_bond::menu::Text;
+    ui_.ShowDialog(Text("storage-error"), Text("storage-error-help"), {{Text("cancel"), {}}});
+  }
+  // The API, the card and the data folder belong to the session: a restart
+  // starts a new process on the setup screen with the saved choice.
   void OfferSettingsRestart() {
     if (closing_.load()) return;
     using broken_bond::menu::Text;
-    std::string message = Text("changed");
+    std::string message = Text(pending_data_root_ ? "storage-pending-help" : "changed");
     if (game_running_) message += std::string("\n\n") + Text("exit-confirm");
     ui_.ShowDialog(Text("restart-required"), message, {
         {Text("restart-now"), [this] {

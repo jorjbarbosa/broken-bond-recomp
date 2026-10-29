@@ -6,6 +6,7 @@
 #include "controls/runtime.h"
 #include "../menu/game_languages.h"
 #include "../menu/graphics_devices.h"
+#include "menu/folders.h"
 #include "../menu/key_names.h"
 #include <algorithm>
 #include <cmath>
@@ -40,6 +41,11 @@ void Settings::Initialize(std::filesystem::path directory, bool native_controls,
   }
   controls::Publish(config_.controls);
   initial_menu_options_ = menu_options_;
+}
+void Settings::SetPendingDataLocation(std::optional<std::filesystem::path> pending) {
+  pending_data_root_ = std::move(pending);
+  if (ui_ && panel_revision_ == ui_->ViewRevision())
+    Redraw(pending_data_root_ ? "data-pending" : "data-active");
 }
 void Settings::Reload() {
   const auto& path=config_path_;
@@ -219,7 +225,8 @@ std::vector<PanelRow> Settings::Rows(int group) {
     if (choose_game_)
       rows.push_back({"custom_game_root", Tr(TextId::TabGameFiles), config_.custom_game_root, Text("game-hint"), false,
           in_game_, {}, 0, {}, choose_game_});
-    const auto mods = launcher_ui::DiscoverTranslationMods(config_path_.parent_path() / "mods");
+    const auto mods = launcher_ui::DiscoverTranslationMods(
+        data_paths_ ? data_paths_->mods_dir : config_path_.parent_path() / "mods");
     const auto languages = launcher_ui::GameLanguages(config_, mods);
     std::vector<std::string> names;
     for (const auto& language : languages.options) names.push_back(language.label);
@@ -349,18 +356,46 @@ std::vector<PanelRow> Settings::Rows(int group) {
         config_.show_startup_menu != initial_.show_startup_menu, false,
         {Text("off"), Text("on")}, config_.show_startup_menu ? 1 : 0,
         [this](int value) { Change("show_startup_menu", [value](GameConfig& c) { c.show_startup_menu = value != 0; }); }, {}});
+    if (updates_) rows.push_back({"updates", Text("updates-check"), "", Text("update-hint"), false, false, {}, 0, {}, updates_});
+    if (shortcut_) rows.push_back({"shortcut", Text("shortcut"), "", Text("shortcut"), false, false, {}, 0, {}, shortcut_});
+    toggle("show_fps_overlay", TextId::FpsOverlayLabel, TextId::FpsOverlayDescription, &GameConfig::show_fps_overlay, false);
+    rows.push_back({"show_shader_indicator", Text("shader-option"), Bool(menu_options_.shaders), Text("shader-option"),
+        menu_options_.shaders != initial_menu_options_.shaders, false, {Text("off"), Text("on")}, menu_options_.shaders ? 1 : 0,
+        [this](int value) { auto next = menu_options_; next.shaders = value != 0; SaveMenuOptions("show_shader_indicator", next); }, {}});
     choice("max_frame_latency", TextId::FrameLatencyLabel, TextId::FrameLatencyDescription,
         config_.native_backend == "vulkan" ? std::vector<std::string>{Tr(TextId::FrameLatencyLowest)} :
         std::vector<std::string>{Tr(TextId::FrameLatencyLowest), "2", "3"}, config_.max_frame_latency - 1,
         config_.max_frame_latency != initial_.max_frame_latency, true,
         [](GameConfig& config, int value) { config.max_frame_latency = value + 1; });
     toggle("triple_buffering", TextId::TripleBufferingLabel, TextId::TripleBufferingDescription, &GameConfig::triple_buffering);
-    toggle("show_fps_overlay", TextId::FpsOverlayLabel, TextId::FpsOverlayDescription, &GameConfig::show_fps_overlay, false);
-    rows.push_back({"show_shader_indicator", Text("shader-option"), Bool(menu_options_.shaders), Text("shader-option"),
-        menu_options_.shaders != initial_menu_options_.shaders, false, {Text("off"), Text("on")}, menu_options_.shaders ? 1 : 0,
-        [this](int value) { auto next = menu_options_; next.shaders = value != 0; SaveMenuOptions("show_shader_indicator", next); }, {}});
-    if (updates_) rows.push_back({"updates", Text("updates-check"), "", Text("update-hint"), false, false, {}, 0, {}, updates_});
-    if (shortcut_) rows.push_back({"shortcut", Text("shortcut"), "", Text("shortcut"), false, false, {}, 0, {}, shortcut_});
+    if (data_paths_) {
+      // The session's folder, and a change of location, copied at the next
+      // start; a --data_root or REX_DATA_ROOT session cannot change it.
+      const auto active = data_paths_->data_root;
+      const bool blocked = data_paths_->session_override;
+      PanelRow current{"data-active", Text("storage-active"), Utf8(active),
+          std::string(Text("storage-help")) + "\n\n" + Utf8(active)};
+      current.section = Text("storage-section"); rows.push_back(std::move(current));
+      rows.push_back({"data-open", Text("storage-open"), "", Utf8(active), false, false, {}, 0, {},
+          [active] { launcher_ui::OpenFolder(active); }});
+      if (data_paths_->user_source != data::Source::kDefault) {
+        const auto guest = data_paths_->user_data_root;
+        rows.push_back({"data-guest", Text("storage-guest"), Utf8(guest),
+            std::string(Text("storage-guest-help")) + "\n\n" + Utf8(guest), false, false, {}, 0, {},
+            [guest] { launcher_ui::OpenFolder(guest); }});
+      }
+      const auto action = [&](const char* id, const char* label, data::Mode mode) {
+        PanelRow row{id, Text(label), "", Text(blocked ? "storage-override" : "storage-help"), false, true};
+        if (!blocked && select_data_location_) row.activate = [fn = select_data_location_, mode] { fn(mode); };
+        rows.push_back(std::move(row));
+      };
+      action("data-choose", "storage-choose", data::Mode::kCustom);
+      action("data-portable", "storage-portable", data::Mode::kPortable);
+      action("data-default", "storage-default", data::Mode::kDefault);
+      if (pending_data_root_)
+        rows.push_back({"data-pending", Text("storage-pending"), Utf8(*pending_data_root_),
+            std::string(Text("storage-pending-help")) + "\n\n" + Utf8(*pending_data_root_), true, true});
+    }
   }
   for (auto& row : rows) {
     if (request_live_ && Live(row.id)) row.restart = false;
@@ -382,6 +417,9 @@ std::vector<PanelRow> Settings::Rows(int group) {
     if (group == 3 && row.id == "input_backend") row.section = Text("input-section");
     if (group == 3 && row.id == "mnk_mode") row.section = Text("keyboard-mouse");
     if (group == 3 && row.id == "bind_game_menu") row.section = Text("menu-section");
+    if (group == 4 && row.id == "show_startup_menu") row.section = Text("general-section");
+    if (group == 4 && row.id == "show_fps_overlay") row.section = Text("overlay-section");
+    if (group == 4 && row.id == "max_frame_latency") row.section = Text("performance-section");
   }
   return rows;
 }

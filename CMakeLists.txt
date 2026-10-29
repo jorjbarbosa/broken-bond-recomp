@@ -404,6 +404,15 @@ if(BROKENBOND_NATIVE_RENDERER)
         endif()
         add_test(NAME launch_arguments COMMAND broken_bond_launch_arguments_test "${_data_storage}/launch-arguments")
         set_tests_properties(launch_arguments PROPERTIES FIXTURES_REQUIRED data_storage_dir)
+        # Advanced's Data folder rows and sections over the real menu documents
+        # and a CPU drawer (src/menu/settings.h).
+        add_executable(broken_bond_data_menu_test tests/data_menu_test.cpp)
+        target_link_libraries(broken_bond_data_menu_test PRIVATE broken_bond_menu_components)
+        if(MSVC)
+            target_compile_options(broken_bond_data_menu_test PRIVATE /utf-8)
+        endif()
+        add_test(NAME data_menu COMMAND broken_bond_data_menu_test "${_data_storage}/menu")
+        set_tests_properties(data_menu PROPERTIES FIXTURES_REQUIRED data_storage_dir)
         # The four players' controls (src/controls): profiles and their file, key
         # capture, the configured drivers, the hardware service on SDL's virtual
         # gamepads (with the SDK's SDL driver beside it: one static SDL), and the
