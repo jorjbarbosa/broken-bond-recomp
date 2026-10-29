@@ -89,6 +89,7 @@ The script applies the patches in `patches/` to the `sdk` submodule, in the orde
 | `rexglue-posix-multiwait-sleep-precision.patch` | POSIX waits keep their sub-millisecond remainder instead of spinning on zero-time waits |
 | `rexglue-data-log-directory.patch` | The application can name the folder of its sequential logs (`PathConfig::log_dir`); the logs, the `.toml` and its log levels are read and written under non-ASCII paths, with wide log file names on Windows |
 | `rexglue-data-achievements-unicode.patch` | The achievement metadata and unlock files are read and written under non-ASCII paths |
+| `rexglue-input-system-lock.patch` | The input system takes one call at a time, so guest threads reading the controllers together never see its device list rebuilt under them |
 
 Rebuild the SDK with this script after changing any patch. On Linux, `scripts/build-sdk.sh` applies the same list and builds the SDK with the `linux-amd64` preset into the same folders.
 

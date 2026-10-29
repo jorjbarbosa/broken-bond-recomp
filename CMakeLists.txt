@@ -426,6 +426,12 @@ if(BROKENBOND_NATIVE_RENDERER)
         add_test(NAME controls_service COMMAND broken_bond_controls_service_test)
         add_test(NAME controls_replay COMMAND broken_bond_controls_replay_test
             "${CMAKE_CURRENT_BINARY_DIR}/test-data/controls-replay")
+        # The SDK's input system read by several guest threads while its device
+        # list changes (patches/rexglue-input-system-lock.patch).
+        add_executable(broken_bond_input_system_test tests/input_system_test.cpp)
+        target_link_libraries(broken_bond_input_system_test PRIVATE broken_bond_menu_components)
+        add_test(NAME input_system COMMAND broken_bond_input_system_test)
+        set_tests_properties(input_system PROPERTIES TIMEOUT 120)
         if(WIN32)
             # The menus' input gate over a driver that ignores the active callback
             # (as XInput and the replay do), the shader activity the menus show,
