@@ -183,7 +183,8 @@ int main(int argc, char** argv) {
 
     const auto sections = [&] {
       std::string text;
-      for (const char* id : {"show_startup_menu", "show_fps_overlay", "max_frame_latency", "data-active"})
+      for (const char* id : {"show_startup_menu", "show_fps_overlay", "max_frame_latency", "crash_reporting",
+                             "data-active"})
         if (auto* row = Element(id); row && row->GetPreviousSibling()) text += row->GetPreviousSibling()->GetInnerRML() + "|";
       return text;
     };
@@ -195,10 +196,12 @@ int main(int argc, char** argv) {
       Check(!expected.empty() && Element("data-choose")->GetInnerRML().find(expected) != std::string::npos &&
             *broken_bond::menu::Text("storage-error") && *broken_bond::menu::Text("storage-error-help") &&
             *broken_bond::menu::Text("storage-override") && *broken_bond::menu::Text("storage-guest-help") &&
-            *broken_bond::menu::Text("storage-pending-help"),
+            *broken_bond::menu::Text("storage-pending-help") && *broken_bond::menu::Text("crash-reporting") &&
+            *broken_bond::menu::Text("crash-reporting-help"),
             "The location actions and errors exist in this language");
       const auto headings = sections();
-      for (const char* key : {"general-section", "overlay-section", "performance-section", "storage-section"})
+      for (const char* key : {"general-section", "overlay-section", "performance-section", "diagnostics-section",
+                              "storage-section"})
         Check(*broken_bond::menu::Text(key) &&
               headings.find(Rml::StringUtilities::EncodeRml(broken_bond::menu::Text(key))) != std::string::npos,
               "Advanced's sections head their rows in this language");

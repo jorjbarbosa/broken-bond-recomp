@@ -72,6 +72,8 @@ struct GameConfig {
   bool present_dither = false;
   bool show_fps_overlay = false;
   bool show_startup_menu = true;
+  // Crash reports to Sentry: off until the player turns them on.
+  bool crash_reporting = false;
 
   // The image's width over its height (aspect_ratio, native renderer): -1 follows the
   // monitor (default), 0 keeps the game's 16:9, else 1.6 (16:10), 2.3889 (21:9), 3.5556 (32:9).

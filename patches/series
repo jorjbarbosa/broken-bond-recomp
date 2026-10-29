@@ -17,3 +17,5 @@ rexglue-posix-multiwait-sleep-precision.patch
 rexglue-data-log-directory.patch
 rexglue-data-achievements-unicode.patch
 rexglue-input-system-lock.patch
+rexglue-sentry-close-hook.patch
+rexglue-sentry-signal-chain.patch

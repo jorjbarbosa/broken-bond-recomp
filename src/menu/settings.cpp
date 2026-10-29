@@ -368,6 +368,9 @@ std::vector<PanelRow> Settings::Rows(int group) {
         config_.max_frame_latency != initial_.max_frame_latency, true,
         [](GameConfig& config, int value) { config.max_frame_latency = value + 1; });
     toggle("triple_buffering", TextId::TripleBufferingLabel, TextId::TripleBufferingDescription, &GameConfig::triple_buffering);
+    rows.push_back({"crash_reporting", Text("crash-reporting"), Bool(config_.crash_reporting), Text("crash-reporting-help"),
+        config_.crash_reporting != initial_.crash_reporting, true, {Text("off"), Text("on")}, config_.crash_reporting ? 1 : 0,
+        [this](int value) { Change("crash_reporting", [value](GameConfig& config) { config.crash_reporting = value != 0; }); }, {}});
     if (data_paths_) {
       // The session's folder, and a change of location, copied at the next
       // start; a --data_root or REX_DATA_ROOT session cannot change it.
@@ -420,6 +423,7 @@ std::vector<PanelRow> Settings::Rows(int group) {
     if (group == 4 && row.id == "show_startup_menu") row.section = Text("general-section");
     if (group == 4 && row.id == "show_fps_overlay") row.section = Text("overlay-section");
     if (group == 4 && row.id == "max_frame_latency") row.section = Text("performance-section");
+    if (group == 4 && row.id == "crash_reporting") row.section = Text("diagnostics-section");
   }
   return rows;
 }

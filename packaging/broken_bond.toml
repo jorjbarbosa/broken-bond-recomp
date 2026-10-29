@@ -16,3 +16,7 @@ swap_post_effect = "fxaa"
 present_effect = "cas"
 vsync = true
 fullscreen = true
+# Optional uploads of native crash dumps, technical details and startup timing
+# to Sentry. Dumps may contain personal data; saves and game files are never
+# attached. Also in Settings > Advanced; turning it on needs a restart.
+crash_reporting = false

@@ -67,6 +67,26 @@ int main(int argc, char** argv) {
     Require(!ConfigManager::Save(root / "absent" / "settings.toml", config),
             "An unwritable destination reported success");
 
+    // Crash reports: off by default and in older files, then the player's
+    // choice survives a save, and so does turning them off.
+    const auto reporting_path = root / "settings" / "reporting.toml";
+    Write(reporting_path, "personal_setting = 'keep'\n");
+    GameConfig reporting;
+    Require(!reporting.crash_reporting, "Crash reporting requires explicit consent");
+    Require(ConfigManager::Load(reporting_path, reporting) && !reporting.crash_reporting,
+            "Existing configurations must not opt players into reporting");
+    reporting.crash_reporting = true;
+    Require(ConfigManager::Save(reporting_path, reporting), "Could not persist reporting consent");
+    GameConfig opted_in;
+    Require(ConfigManager::Load(reporting_path, opted_in) && opted_in.crash_reporting,
+            "Reporting consent did not survive reload");
+    Require(toml::parse_file(reporting_path.string())["personal_setting"].value<std::string>() == "keep",
+            "Saving the reporting consent erased an unmanaged setting");
+    opted_in.crash_reporting = false;
+    Require(ConfigManager::Save(reporting_path, opted_in) && ConfigManager::Load(reporting_path, opted_in) &&
+                !opted_in.crash_reporting,
+            "Reporting revocation did not survive reload");
+
     Write(path, "renderer = 'native'\nuser_data_root = 'my saves'\nkeybind_a = 'J,K,L'\n"
                 "ultrawide_target_aspect = 2.3889\n");
     GameConfig options;

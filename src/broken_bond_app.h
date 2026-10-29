@@ -65,6 +65,7 @@ REXCVAR_DEFINE_STRING(data_root, "", "broken_bond/Storage",
 #include "menu/ui.h"
 #include "menu/update_checker.h"
 #include "port_version.h"
+#include "sentry_reporting.h"
 #include "wine.h"
 #include <SDL3/SDL_misc.h>
 #include <rex/logging.h>
@@ -75,6 +76,11 @@ REXCVAR_DEFINE_BOOL(setup, false, "broken_bond/UI",
 REXCVAR_DEFINE_BOOL(show_startup_menu, true, "broken_bond/UI",
                     "Show the initial menu before the game (Settings > Advanced)");
 REXCVAR_DEFINE_BOOL(check_for_updates, true, "broken_bond/UI", "Notify when a new release is available");
+REXCVAR_DEFINE_BOOL(crash_reporting, false, "broken_bond/Reporting",
+                    "Allow crash reports and startup timing to be sent to Sentry");
+REXCVAR_DEFINE_STRING(sentry_test, "", "broken_bond/Internal",
+                      "Developer verification: error or crash; requires crash_reporting=true")
+    .lifecycle(rex::cvar::Lifecycle::kInitOnly);
 #endif
 
 // Alt+Enter and F11 switch between borderless fullscreen and windowed mode.
@@ -163,7 +169,23 @@ class BrokenBondApp : public rex::ReXApp {
     } catch (const std::exception& e) {
       return FailDataBootstrap(e.what());
     }
+#ifdef BROKENBOND_NATIVE_RENDERER_BOOTSTRAP
+    // The SDK's environment starts the log, and with it the crash reports
+    // (OnPostInitLogging); --sentry_test checks them and ends the process.
+    if (!rex::ReXApp::SetupEnvironment()) {
+      broken_bond::reporting::Close();
+      return false;
+    }
+    if (const auto test = REXCVAR_GET(sentry_test); !test.empty()) {
+      const bool verified = broken_bond::reporting::Verify(test);
+      broken_bond::reporting::Close();
+      rex::FlushLogging();
+      std::_Exit(verified ? 0 : 2);
+    }
+    return true;
+#else
     return rex::ReXApp::SetupEnvironment();
+#endif
   }
 
   // The prepared data folder's .toml, logs, saves and cache. The game: the
@@ -213,6 +235,10 @@ class BrokenBondApp : public rex::ReXApp {
   // the default.xex it was generated from (game_image.h).
   void OnPostInitLogging() override {
     const auto& active = prepared_data_->paths;
+#ifdef BROKENBOND_NATIVE_RENDERER_BOOTSTRAP
+    broken_bond::reporting::Initialize(rex::filesystem::GetExecutableFolder(), active.cache_root,
+                                       broken_bond::PortVersion(), REXCVAR_GET(crash_reporting));
+#endif
     REXLOG_INFO("[broken_bond] Data folder: {} ({}); settings {}, cache {} ({})", rex::path_to_utf8(active.data_root),
                 SourceName(active.data_source), rex::path_to_utf8(active.config_path),
                 rex::path_to_utf8(active.cache_root), SourceName(active.cache_source));
@@ -264,6 +290,9 @@ class BrokenBondApp : public rex::ReXApp {
 #endif
 
   void OnPostSetup() override {
+#ifdef BROKENBOND_NATIVE_RENDERER_BOOTSTRAP
+    broken_bond::reporting::FinishStartup();
+#endif
     broken_bond::translation::Initialize(prepared_data_->paths.mods_dir);
     broken_bond::crash_report::Install();  // After the SDK's exception handler.
     if (window()) {
@@ -308,6 +337,7 @@ class BrokenBondApp : public rex::ReXApp {
 
   void OnShutdown() override {
 #ifdef BROKENBOND_NATIVE_RENDERER_BOOTSTRAP
+    broken_bond::reporting::Close();
     game_running_ = false;
     broken_bond::menu::input_blocked = false;
     CloseSetupScreen();
@@ -348,6 +378,13 @@ class BrokenBondApp : public rex::ReXApp {
       });
     }
     return false;
+  }
+
+  void OnClosing(rex::ui::UIEvent& event) override {
+    // The SDK ends the process with _Exit here: neither destructors nor
+    // OnShutdown run, so the crash reports flush first.
+    broken_bond::reporting::Close();
+    rex::ReXApp::OnClosing(event);
   }
 #endif
 
@@ -567,6 +604,12 @@ class BrokenBondApp : public rex::ReXApp {
       if (key == "show_fps_overlay") {
         rex::cvar::SetFlagByName(key, config.show_fps_overlay ? "true" : "false");
         ui_.SetFpsVisible(config.show_fps_overlay);
+      } else if (key == "crash_reporting") {
+        // Turning it off revokes the consent at once; turning it on starts the
+        // reports at the next start unless they run in this session.
+        rex::cvar::SetFlagByName(key, config.crash_reporting ? "true" : "false");
+        if (!broken_bond::reporting::SetConsent(config.crash_reporting) && config.crash_reporting)
+          app_context().CallInUIThreadDeferred([this] { OfferSettingsRestart(); });
       } else if (key == "fullscreen") {
         rex::cvar::SetFlagByName(key, config.fullscreen ? "true" : "false");
       } else if (key == "skip_intro_videos") {

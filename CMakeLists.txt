@@ -280,6 +280,8 @@ if(BROKENBOND_NATIVE_RENDERER)
     # The shader cache generated from the local game files (game/xeshader.sdb).
     include(${CMAKE_CURRENT_SOURCE_DIR}/tools/native-renderer/shader-cache.cmake)
     brokenbond_shader_cache(broken_bond src/gpu/shaders/shader_cache_data.cpp ${native_shader_options})
+    # Opt-in crash reports to Sentry, with Crashpad beside the executable.
+    include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/sentry.cmake)
     if(BROKENBOND_NATIVE_TESTS)
         if(NOT BROKENBOND_NATIVE_VULKAN)
             message(FATAL_ERROR "BROKENBOND_NATIVE_TESTS requires BROKENBOND_NATIVE_VULKAN")
@@ -458,6 +460,12 @@ if(BROKENBOND_NATIVE_RENDERER)
             target_include_directories(broken_bond_launch_restart_test PRIVATE src)
             add_test(NAME launch_restart COMMAND broken_bond_launch_restart_test
                 "${CMAKE_CURRENT_BINARY_DIR}/test-data/launch-restart")
+            # The SDK's signal chain as patched (patches/rexglue-sentry-signal-chain.patch),
+            # compiled from its source, without a guest image or a graphics device.
+            add_executable(broken_bond_signal_chain_test tests/signal_chain_test.cpp
+                sdk/src/core/exception_handler_posix.cpp)
+            target_link_libraries(broken_bond_signal_chain_test PRIVATE rex::runtime)
+            add_test(NAME signal_chain COMMAND broken_bond_signal_chain_test)
         endif()
     endif()
     # The SDK runtime next to the executable on Linux, where the executable finds
