@@ -85,26 +85,19 @@ check((appdir / '.DirIcon').is_file() and (appdir / 'broken_bond.desktop').is_fi
 report['glibc_required'] = info['glibc_required']
 report['host_libraries'] = sorted(info['host_libraries'])
 
-# The AppRun over a stub game: the copy, the seed, the arguments and an update.
+# The AppRun over a stub game: the game runs from the image with the caller's
+# arguments and folder, and the copy an earlier image made in the data folder
+# goes while the player's files stay.
 stub = work / 'stub.AppDir'
 stub_payload = stub / 'usr/lib/broken_bond'
 (stub_payload / 'defaults').mkdir(parents=True)
-(stub_payload / 'licenses').mkdir()
-(stub_payload / 'licenses/README.txt').write_text('notices\n')
 (stub_payload / 'defaults/broken_bond.toml').write_text('native_backend = "vulkan"\n')
+(stub / 'build-id').write_text('build-new\n')
 (stub / 'AppRun').write_bytes((root / 'packaging/appimage/AppRun').read_bytes())
 (stub / 'AppRun').chmod(0o755)
-
-
-def stub_build(build):
-    (stub / 'build-id').write_text(build + '\n')
-    (stub_payload / 'broken_bond').write_text(
-        f'#!/bin/sh\n# {build}\nprintf "%s\\0" "$@" > "$CAPTURE/argv"\npwd > "$CAPTURE/cwd"\n'
-        'printf "%s" "$0" > "$CAPTURE/exe"\n')
-    (stub_payload / 'broken_bond').chmod(0o755)
-    for name in ('librexruntime.so', 'broken_bond.version', 'README.txt'):
-        (stub_payload / name).write_text(f'{name} {build}\n')
-
+(stub_payload / 'broken_bond').write_text(
+    '#!/bin/sh\nprintf "%s\\0" "$@" > "$CAPTURE/argv"\npwd > "$CAPTURE/cwd"\nprintf "%s" "$0" > "$CAPTURE/exe"\n')
+(stub_payload / 'broken_bond').chmod(0o755)
 
 capture = work / 'capture'
 capture.mkdir()
@@ -113,38 +106,54 @@ cwd.mkdir()
 stub_env = {**env, 'APPDIR': str(stub), 'APPIMAGE': str(work / 'apps/Broken Bond.AppImage'), 'CAPTURE': str(capture)}
 arguments = ['--game_data_root=relative game', '--user_data_root=saves with spaces', 'literal;$value']
 data = home / 'data/broken_bond'
-copied = ('broken_bond', 'librexruntime.so', 'broken_bond.version', 'README.txt')
 
-stub_build('build-a')
 check(run([stub / 'AppRun', *arguments], 'stub-first', env=stub_env, cwd=cwd).returncode == 0, 'the AppRun starts the game')
 check((capture / 'argv').read_bytes().split(b'\0')[:-1] == [value.encode() for value in arguments],
       'the arguments pass unchanged')
 check((capture / 'cwd').read_text().strip() == str(cwd), "the working folder stays the caller's")
-check((capture / 'exe').read_text() == str(data / 'broken_bond'), 'the game runs from the data folder')
-check((data / '.build-id').read_text().strip() == 'build-a', 'the copy records its build')
-check(all((data / name).read_bytes() == (stub_payload / name).read_bytes() for name in copied) and
-      (data / 'licenses/README.txt').is_file(), "the copy has the payload's files")
-check((data / 'broken_bond.toml').read_text() == 'native_backend = "vulkan"\n', 'the first start seeds the settings')
+check((capture / 'exe').read_text() == str(stub_payload / 'broken_bond'), 'the game runs from the image')
+check(not data.exists(), 'the AppRun makes no data folder; the game prepares it')
 
-(data / 'broken_bond.toml').write_text('native_backend = "vulkan"\nfullscreen = false\n')
-(data / 'user').mkdir()
-(data / 'user/save.bin').write_bytes(b'save')
-before = (data / 'broken_bond').stat().st_ino
-check(run([stub / 'AppRun'], 'stub-same-build', env=stub_env, cwd=cwd).returncode == 0, 'a second start')
-check((data / 'broken_bond').stat().st_ino == before, 'the same build is not copied again')
 
-stub_build('build-b')
-check(run([stub / 'AppRun'], 'stub-new-build', env=stub_env, cwd=cwd).returncode == 0, 'a start after an update')
-check((data / '.build-id').read_text().strip() == 'build-b' and
-      all((data / name).read_bytes() == (stub_payload / name).read_bytes() for name in copied),
-      'an update replaces the copy')
-check((data / 'broken_bond.toml').read_text().endswith('fullscreen = false\n') and
-      (data / 'user/save.bin').read_bytes() == b'save', 'an update keeps the settings and the saves')
-check(not [path.name for path in data.iterdir() if path.name.endswith('.new')], 'no partial files are left')
+def earlier_copy(folder, marked=True):
+    """A data folder as the earlier AppRun left it (D-52), with the player's files."""
+    program = {'broken_bond': b'old program', 'librexruntime.so': b'old runtime', 'broken_bond.version': b'0.1.1-s10\n',
+               'README.txt': b'old readme', 'licenses/README.txt': b'old notices', 'licenses/volk.txt': b'volk',
+               '.appimage.lock': b''}
+    if marked:
+        program['.build-id'] = b'0123456789abcdef01234567\n'
+    player = {'broken_bond.toml': b'native_backend = "vulkan"\nfullscreen = false\n',
+              'user/0000000000000000/55530825/00000001/save.bin': b'save', 'logs/broken_bond_001.log': b'log',
+              'mods/community/mod.toml': b"[mod]\ntype = 'translation'\n", 'dlc/pending.bin': b'package',
+              '.broken_bond-migration/state.json': b'{"version":1}', '.broken_bond.lock': b''}
+    for name, content in {**program, **player}.items():
+        (folder / name).parent.mkdir(parents=True, exist_ok=True)
+        (folder / name).write_bytes(content)
+    return program, player
 
+
+program, player = earlier_copy(data)
+check(run([stub / 'AppRun'], 'stub-earlier-copy', env=stub_env, cwd=cwd).returncode == 0, 'a start over an earlier copy')
+check(not any((data / name).exists() for name in program) and not (data / 'licenses').exists(),
+      "the earlier image's program files are removed")
+check(all((data / name).read_bytes() == content for name, content in player.items()), "the player's files stay")
+check((capture / 'exe').read_text() == str(stub_payload / 'broken_bond'), 'and the game runs from the image')
+
+unmarked = work / 'unmarked'
+(unmarked / 'broken_bond').mkdir(parents=True)
+program, player = earlier_copy(unmarked / 'broken_bond', marked=False)
+check(run([stub / 'AppRun'], 'stub-unmarked', env={**stub_env, 'XDG_DATA_HOME': str(unmarked)}, cwd=cwd).returncode == 0,
+      'a start over a folder without .build-id')
+check(all((unmarked / 'broken_bond' / name).read_bytes() == content for name, content in {**program, **player}.items()),
+      'without .build-id nothing is removed')
+
+default_home = home / '.local/share/broken_bond'
+default_home.mkdir(parents=True)
+program, player = earlier_copy(default_home)
 default_env = {key: value for key, value in stub_env.items() if key != 'XDG_DATA_HOME'}
 check(run([stub / 'AppRun'], 'stub-default-data', env=default_env, cwd=cwd).returncode == 0 and
-      (home / '.local/share/broken_bond/broken_bond').is_file(), 'without XDG_DATA_HOME: ~/.local/share/broken_bond')
+      not (default_home / 'broken_bond').exists() and (default_home / 'broken_bond.toml').is_file(),
+      'without XDG_DATA_HOME: ~/.local/share/broken_bond')
 
 (work / 'result.json').write_text(json.dumps(report, indent=2))
 print(json.dumps({'status': 'PASS', 'checks': len(report['checks']), 'fuse': report['fuse'],

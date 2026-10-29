@@ -124,6 +124,13 @@ class BridgeTests(unittest.TestCase):
             'dlc/pending.bin': b'pending STFS',
             'mods/community/mod.toml': b'name = "mine"\r\n', 'mods/community/texts.json': b'{"1":"My translation"}',
             'assets/personal.png': b'personal picture', 'personal.txt': b'personal file',
+            # A data folder a newer game made, and its portable location.
+            'data/broken_bond.toml': b'launcher_language = "ru"\nunknown_option = "kept"\n',
+            'data/user/E000000000000001/55530825/00000001/save.bin': b'data folder save',
+            'data/logs/broken_bond_001.log': b'data folder log', 'data/dlc/pending.bin': b'data folder staging',
+            'data/mods/community/texts.json': b'{"1":"Active translation"}',
+            'data/.broken_bond-migration/state.json': b'{"version":1,"completed":[]}',
+            'data_location.json': b'{"version":1,"mode":"portable"}',
         }
         for name, data in files.items():
             path = self.dest / name
@@ -135,8 +142,12 @@ class BridgeTests(unittest.TestCase):
         for name, data in files.items():
             self.assertEqual((self.dest / name).read_bytes(), data, name)
 
-    def current(self):
-        for name in ('broken_bond.exe', 'rexruntime.dll', 'README.txt', 'licenses/README.txt'):
+    def current(self, factory_defaults=True):
+        # An update keeps the defaults as packaged; a new copy writes its language there.
+        names = ['broken_bond.exe', 'rexruntime.dll', 'README.txt', 'licenses/README.txt']
+        if factory_defaults:
+            names.append('defaults/broken_bond.toml')
+        for name in names:
             self.assertEqual(hashlib.sha256((self.dest / name).read_bytes()).digest(),
                              hashlib.sha256((self.package / name).read_bytes()).digest(), name)
         self.assertEqual((self.dest / 'broken_bond.version').read_text().strip(), self.version)
@@ -236,10 +247,13 @@ if ($p.target) { $s.TargetPath=$p.target; $s.WorkingDirectory=(Split-Path $p.tar
                 self.dest.mkdir()
                 self.uninstalled = False
                 self.assertEqual(self.install(mode='install', language=language), 0)
-                self.current()
-                config = tomllib.loads((self.dest / 'broken_bond.toml').read_text(encoding='utf-8-sig'))
+                self.current(factory_defaults=False)
+                config = tomllib.loads((self.dest / 'defaults/broken_bond.toml').read_text(encoding='utf-8-sig'))
                 self.assertEqual(config['launcher_language'], code)
                 self.assertEqual(config['translation_mod'], '')
+                # The game makes the data folder and its settings from the defaults.
+                self.assertFalse((self.dest / 'broken_bond.toml').exists())
+                self.assertFalse((self.dest / 'data').exists())
                 self.uninstall()
 
 

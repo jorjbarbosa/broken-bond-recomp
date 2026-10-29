@@ -4,9 +4,11 @@
 Usage: python3 packaging/package-linux-appimage.py [--version V] [--output-root DIR]
                                                     [--tools-dir DIR] [--jobs N]
 
-The payload is the game, the SDK runtime, the POSIX wait check, a .toml seed
-on Vulkan, the version, a README and the licenses. The AppRun copies the
-binaries into the data folder at start (packaging/appimage/AppRun). No system
+The payload is the game, the SDK runtime, the POSIX wait check, the defaults
+a new data folder starts from (on Vulkan), the version, a README and the
+licenses. The game runs from the image and prepares its data folder itself;
+the AppRun removes the program copy that earlier images ran from the data
+folder (packaging/appimage/AppRun). No system
 library is bundled: the binaries need the host's glibc, X11 or Wayland
 client libraries and Vulkan loader. appimagetool and the type2 runtime are
 pinned by SHA-256 and kept in --tools-dir once downloaded.
@@ -229,7 +231,7 @@ def build_appdir(appdir, build, version, values):
     (appdir / '.DirIcon').symlink_to('broken_bond.png')
 
     material = {'binaries': hashes, 'defaults': sha256(payload / 'defaults/broken_bond.toml'),
-                'apprun': sha256(appdir / 'AppRun'), 'version': version, 'layout': 'data-folder-copy-1'}
+                'apprun': sha256(appdir / 'AppRun'), 'version': version, 'layout': 'image-1'}
     build_id = hashlib.sha256(json.dumps(material, sort_keys=True).encode()).hexdigest()[:24]
     (appdir / 'build-id').write_text(build_id + '\n', encoding='ascii', newline='\n')
     dirty = git('.', 'status', '--porcelain', '--untracked-files=no', '--', '.', ':!sdk')

@@ -1,50 +1,30 @@
 #!/bin/sh
-# The AppImage's entry point. The game writes beside its executable (its .toml,
-# logs/, user/ with the saves), and the image is read only, so the game runs
-# from a copy of its binaries in the data folder, refreshed when the image's
-# build changes. The settings, saves, logs, mods and DLC next to that copy are
-# never touched here.
+# The AppImage's entry point: the game runs from the image. It keeps its
+# settings, saves, logs, mods and DLC in its data folder,
+# ${XDG_DATA_HOME:-~/.local/share}/broken_bond, which it prepares itself.
 set -eu
 
 appdir=${APPDIR:-$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)}
 payload="$appdir/usr/lib/broken_bond"
 
-# The SDK's POSIX wait check, run from the image, without the game or a copy.
+# The SDK's POSIX wait check, without the game.
 if [ "${1:-}" = "--test-posix-wait" ]; then
     shift
     LD_LIBRARY_PATH="$payload${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
         exec "$payload/broken_bond_posix_wait_test" "$@"
 fi
 
+# Earlier images copied the program into the data folder and ran it there,
+# recording the copy in .build-id. That copy goes, by name and only when
+# .build-id marks it; the player's files beside it stay.
 data="${XDG_DATA_HOME:-$HOME/.local/share}/broken_bond"
-build_id=$(cat "$appdir/build-id")
-mkdir -p -- "$data"
-
-# One start at a time refreshes the copy. Each file is renamed into place, so
-# a game still running keeps the files it opened.
-exec 9>"$data/.appimage.lock"
-if command -v flock >/dev/null 2>&1; then
-    flock 9
-fi
-if [ "$(cat "$data/.build-id" 2>/dev/null || true)" != "$build_id" ]; then
-    for name in broken_bond librexruntime.so broken_bond.version README.txt; do
-        cp -p -- "$payload/$name" "$data/.$name.new"
-        mv -f -- "$data/.$name.new" "$data/$name"
-    done
-    rm -rf -- "$data/.licenses.new"
-    cp -R -- "$payload/licenses" "$data/.licenses.new"
+if [ -f "$data/.build-id" ]; then
+    rm -f -- "$data/broken_bond" "$data/librexruntime.so" "$data/broken_bond.version" "$data/README.txt" \
+        "$data/.appimage.lock"
     rm -rf -- "$data/licenses"
-    mv -- "$data/.licenses.new" "$data/licenses"
-    printf '%s\n' "$build_id" > "$data/.build-id.new"
-    mv -f -- "$data/.build-id.new" "$data/.build-id"
+    rm -f -- "$data/.build-id"
 fi
-# The first start's settings; later ones keep the player's.
-if [ ! -e "$data/broken_bond.toml" ]; then
-    cp -- "$payload/defaults/broken_bond.toml" "$data/.broken_bond.toml.new"
-    mv -- "$data/.broken_bond.toml.new" "$data/broken_bond.toml"
-fi
-exec 9>&-
 
 # The working folder and the arguments stay the caller's. The game finds a
 # game/ folder beside the AppImage itself ($APPIMAGE).
-exec "$data/broken_bond" "$@"
+exec "$payload/broken_bond" "$@"

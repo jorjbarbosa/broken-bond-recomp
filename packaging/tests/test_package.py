@@ -14,7 +14,7 @@ def main():
     staged = archive.with_suffix('')
     forbidden = {'broken_bond_launcher.exe', 'broken_bond_setup_helper.exe', 'extract-xiso.exe',
                  'BrokenBondInstaller.exe', 'install.ps1', 'default.xex'}
-    required = {'broken_bond.exe', 'rexruntime.dll', 'broken_bond.toml', 'broken_bond.version',
+    required = {'broken_bond.exe', 'rexruntime.dll', 'defaults/broken_bond.toml', 'broken_bond.version',
                 'README.txt', 'licenses/README.txt', 'licenses/broken-bond-recomp.txt',
                 'licenses/rmlui.txt', 'licenses/freetype.txt', 'licenses/roboto-condensed.txt',
                 'licenses/volk.txt', 'licenses/vulkan-headers.txt', 'licenses/d3d12memoryallocator.txt'}
@@ -24,14 +24,19 @@ def main():
         assert required <= names, sorted(required - names)
         assert not {Path(name).name for name in names} & forbidden, sorted({Path(n).name for n in names} & forbidden)
         assert not any(name.startswith(('game/', 'user/', 'assets/', 'mods/')) for name in names)
-        assert not any(name.lower().endswith(('.iso', '.xex', '.sdb', '.bf', '.sra')) for name in names)
+        # Nothing the data folder or a 0.1.0-beta copy holds: extracting an
+        # update over a copy never replaces the settings or data in use.
+        assert 'broken_bond.toml' not in names and 'data_location.json' not in names
+        assert not any(name.startswith(('data/', 'logs/', 'dlc/', 'cache/')) for name in names)
+        assert not any(name.lower().endswith(('.iso', '.xex', '.sdb', '.bf', '.sra', '.pdb')) for name in names)
         for name in names:
             assert '\\' not in name and not Path(name).is_absolute() and '..' not in Path(name).parts, name
             assert hashlib.sha256(package.read(name)).digest() == hashlib.sha256((staged / name).read_bytes()).digest(), name
         assert names == {path.relative_to(staged).as_posix() for path in staged.rglob('*') if path.is_file()}
-        config = tomllib.loads(package.read('broken_bond.toml').decode('utf-8-sig'))
+        config = tomllib.loads(package.read('defaults/broken_bond.toml').decode('utf-8-sig'))
         assert not config.get('custom_game_root')
         assert not config.get('user_data_root')
+        assert not any(config.get(key) for key in ('data_root', 'cache_root', 'log_file'))
         assert not config.get('dlc_source_path', '').startswith('C:')
         version = package.read('broken_bond.version').decode('ascii').strip()
         assert version, 'empty version'
@@ -40,7 +45,8 @@ def main():
     line = f'{hashlib.sha256(archive.read_bytes()).hexdigest()}  {archive.name}'
     assert line in sums, sums
     print(f'PASS: {len(names)} ZIP files match the published folder; required files and notices, '
-          f'clean defaults, version {version}, no launcher, installer or game data, SHA256SUMS.txt matches')
+          f'clean defaults in defaults/, no data folder or settings in use, version {version}, '
+          f'no launcher, installer or game data, SHA256SUMS.txt matches')
 
 
 if __name__ == '__main__':

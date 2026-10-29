@@ -88,7 +88,10 @@ Source: "{#PackageDir}\rexruntime.dll"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#PackageDir}\amd_fidelityfx_dx12.dll"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
 Source: "{#PackageDir}\README.txt"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#PackageDir}\licenses\*"; DestDir: "{app}\licenses"; Flags: ignoreversion
-Source: "{#PackageDir}\broken_bond.toml"; DestDir: "{app}"; Flags: onlyifdoesntexist uninsneveruninstall
+; The settings a new data folder starts from. The settings in use, beside the
+; executable in a 0.1.0-beta copy or in data\, are never installed over; the
+; game copies a 0.1.0-beta copy's into data\ at its first start.
+Source: "{#PackageDir}\defaults\broken_bond.toml"; DestDir: "{app}\defaults"; Flags: ignoreversion
 
 [Dirs]
 Name: "{app}\game"; Flags: uninsneveruninstall
@@ -379,7 +382,8 @@ begin
     RemoveLauncherFiles;
     if not HadConfig then
     begin
-      ConfigPath := ExpandConstant('{app}\broken_bond.toml');
+      { A new copy: the menus start in the installer's language. }
+      ConfigPath := ExpandConstant('{app}\defaults\broken_bond.toml');
       if ActiveLanguage = 'brazilianportuguese' then LanguageValue := 'pt_BR'
       else if ActiveLanguage = 'french' then LanguageValue := 'fr'
       else if ActiveLanguage = 'german' then LanguageValue := 'de'
@@ -450,7 +454,8 @@ begin
   Result := DestinationError;
   if Result <> '' then Exit;
   ReleaseLauncher;
-  HadConfig := FileExists(ExpandConstant('{app}\broken_bond.toml'));
+  HadConfig := FileExists(ExpandConstant('{app}\broken_bond.toml')) or
+    FileExists(ExpandConstant('{app}\data\broken_bond.toml'));
   if FileExists(ExpandConstant('{app}\{#MyAppLauncher}')) and (LauncherHandle = -1) then
   begin
     { Write access is refused while the launcher runs, and the open handle keeps

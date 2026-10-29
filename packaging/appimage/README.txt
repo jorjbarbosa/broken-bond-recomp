@@ -15,12 +15,17 @@ The startup menu opens before the game; it can be turned off under
 Settings > Advanced. Run with --setup to return to the setup screen.
 
 WHERE THE DATA GOES:
-The first start copies the game's program files (about 145 MB) into
-~/.local/share/broken_bond ($XDG_DATA_HOME/broken_bond when it is set) and
-runs them from there. A new AppImage replaces that copy at its first start.
-The same folder holds the settings (broken_bond.toml), the saves and caches
-(user), the logs (logs), translation packages (mods) and DLC packages (dlc);
-updates keep them.
+The game runs from the AppImage. Its data folder is ~/.local/share/broken_bond
+($XDG_DATA_HOME/broken_bond when it is set): the settings (broken_bond.toml),
+the saves (user), the logs (logs), translation packages (mods) and DLC
+packages (dlc). Caches go to ~/.cache/broken_bond ($XDG_CACHE_HOME).
+Settings > Advanced shows the data folder, opens it and can choose another
+folder, the portable one (data beside the AppImage) or the default: the
+change happens at the next start, which copies the data there and keeps the
+old folder. --data_root or REX_DATA_ROOT chooses a folder for one session.
+Earlier AppImages copied the program files (about 145 MB) into the data
+folder and ran them from there; the first start of this one removes that
+copy and keeps everything else.
 
 IN GAME:
 Press F1 or Back+Start to open Settings, DLC and Exit game.
@@ -28,7 +33,9 @@ Translation packages in mods/<name> appear under Settings > Game > Game
 language.
 
 UPDATES:
-Close the game and replace the AppImage file.
+Close the game and replace the AppImage file. The data folder, and
+data_location.json beside the AppImage when the portable folder is used,
+stay as they are; back them up before updating.
 
 WITHOUT FUSE:
   ./broken-bond-recomp-linux-x86_64.AppImage --appimage-extract-and-run
@@ -44,5 +51,6 @@ KNOWN LIMITATIONS:
 No update check or desktop shortcut on Linux. Holding Shift at start does
 nothing; use --setup.
 
-Game files are not included. License and third-party notices:
-licenses/README.txt in the data folder.
+Game files are not included. License and third-party notices are inside the
+AppImage: run it with --appimage-extract and read
+squashfs-root/usr/lib/broken_bond/licenses/README.txt.

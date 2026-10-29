@@ -97,7 +97,10 @@ $portable = Join-Path $stage $portableName
 New-Item -ItemType Directory -Path $portable -Force | Out-Null
 try {
     foreach ($name in $binaries) { Copy-Item -LiteralPath (Join-Path $buildRoot $name) -Destination $portable }
-    Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'broken_bond.toml') -Destination $portable
+    # Only the defaults: the settings in use live in the data folder, which an
+    # update extracted over the package never reaches.
+    New-Item -ItemType Directory -Path (Join-Path $portable 'defaults') | Out-Null
+    Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'broken_bond.toml') -Destination (Join-Path $portable 'defaults')
     Set-Content -LiteralPath (Join-Path $portable 'broken_bond.version') -Value $Version -Encoding ascii
     $licenses = Join-Path $portable 'licenses'
     New-Item -ItemType Directory -Path $licenses | Out-Null
@@ -153,24 +156,38 @@ interface languages. Graphics options that need a restart say so.
 Configure controls, under Controls, sets up four players.
 Create a desktop shortcut from Settings > Advanced.
 
+WHERE THE DATA GOES:
+The settings (broken_bond.toml), saves (user), logs, translation packages
+(mods), DLC packages (dlc) and caches (cache) live in the data folder, data
+beside broken_bond.exe. Settings > Advanced shows it, opens it and can choose
+another folder: the change happens at the next start, which copies the data
+there and keeps the old folder. --data_root or REX_DATA_ROOT chooses a folder
+for one session. defaults\broken_bond.toml holds the settings a new data
+folder starts from; the game never writes it.
+A copy of version 0.1.0-beta keeps broken_bond.toml, user, logs and mods
+beside broken_bond.exe, and its saves may be in Documents\broken_bond: the
+first start copies them into data and leaves the originals. If two copies of
+a file differ, the game stops and names them; keep the one you want and start
+again.
+
 UPDATES:
 The game tells you about new releases and opens the release page.
-Close the game, keep your broken_bond.toml, and replace the other files with
-those of the new ZIP. Keep game, user (saves), DLC and mods.
+Close the game, back up the data folder, and extract the new ZIP over the old
+files. The ZIP holds no data folder and no settings in use: data,
+data_location.json, game and a data folder chosen elsewhere stay as they are.
 A broken_bond_launcher.exe left by version 0.1.0-beta can be deleted.
 Copies installed with the 0.1.0-beta installer can use the separately
 distributed BrokenBondInstaller.exe instead: it updates the port files, removes
 the launcher and points the shortcuts at broken_bond.exe, keeping game files,
-saves and settings. Later updates use the ZIP.
+saves and settings for the game to copy into data. Later updates use the ZIP.
 
 TRANSLATIONS:
-Translation packages in mods\<name> appear under Settings > Game > Game
-language.
+Translation packages in the data folder's mods\<name> appear under Settings >
+Game > Game language.
 
 Requires Windows x64, a Direct3D 12 or Vulkan 1.2 GPU and the Microsoft Visual
 C++ 2015-2022 Redistributable (x64). Direct3D 12 is the default; Vulkan can be
 chosen under Settings > Display.
-Settings: broken_bond.toml. Saves and cache: user, unless user_data_root is set.
 Alt+F4 closes the game.
 
 Game files are not included. License and third-party notices: licenses\README.txt.

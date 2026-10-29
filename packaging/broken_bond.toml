@@ -1,4 +1,7 @@
-# Portable defaults. Relative user data paths resolve beside the game.
+# The settings a new data folder starts from. The first start copies this file
+# into the data folder, where the game keeps the settings in use; this copy is
+# never written. Settings > Advanced shows the data folder and can choose
+# another; --data_root or REX_DATA_ROOT chooses one for a session.
 renderer = "native"
 native_backend = "d3d12"
 launcher_language = "en"

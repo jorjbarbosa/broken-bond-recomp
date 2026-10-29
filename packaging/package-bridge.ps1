@@ -13,7 +13,7 @@ if (-not $OutputRootDir) { $OutputRootDir = Join-Path $projectRoot 'dist' }
 $OutputRootDir = [IO.Path]::GetFullPath($OutputRootDir)
 if (-not $PackageDir) { $PackageDir = Join-Path $OutputRootDir 'broken-bond-recomp-win-amd64' }
 $PackageDir = (Resolve-Path -LiteralPath $PackageDir).Path
-foreach ($name in @('broken_bond.exe', 'rexruntime.dll', 'broken_bond.toml', 'broken_bond.version', 'README.txt', 'licenses\README.txt')) {
+foreach ($name in @('broken_bond.exe', 'rexruntime.dll', 'defaults\broken_bond.toml', 'broken_bond.version', 'README.txt', 'licenses\README.txt')) {
     if (-not (Test-Path -LiteralPath (Join-Path $PackageDir $name) -PathType Leaf)) {
         throw "Missing package file: $name. Run package-release.ps1 first."
     }
