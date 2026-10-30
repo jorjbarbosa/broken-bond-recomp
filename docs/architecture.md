@@ -31,6 +31,8 @@ PowerPC code is translated ahead of time into C++. The ReXGlue runtime provides 
 | `generated/` | Local code generation output, ignored by Git |
 | `src/main.cpp`, `src/broken_bond_app.h` | Runtime integration: the app, its input system, and the native renderer's setup and close |
 | `src/input_replay.cpp` | Controller input recording and replay for repeatable test runs |
+| `src/app_entry.cpp`, `src/diagnostics/` | The entry point, which runs the game under the session supervisor, and the local session records; see [Diagnostics](#diagnostics) |
+| `src/sentry_reporting.*`, `src/crash_report.*`, `cmake/sentry.cmake` | The opt-in crash reports to Sentry, and the report of a crash in the game code |
 | `src/gpu/` | Native renderer (built with `BROKENBOND_NATIVE_RENDERER=ON`); see [Native renderer](#native-renderer) |
 | `src/studies/` | Study hooks, inactive unless their environment variable is set; see [Studies](#studies) |
 | `src/menu/` | The setup screen and the game menu over RmlUi, and the settings code: the configuration file, languages, graphics cards, DLC, the update check |
@@ -102,6 +104,10 @@ The shader cache is generated at build time from the local `xeshader.sdb` by `to
 ## Setup screen and menus
 
 `broken_bond.exe` starts without a launcher. First `SetupEnvironment` prepares the [data folder](data-folder.md) (`src/data_paths.*` chooses it; `src/data_migration.*` locks it and copies earlier copies' files into it). Then, before the runtime starts, `OnConfigurePaths` takes the settings, logs, saves and cache folders from it and finds the game (the command line, `custom_game_root`, or a `game/` folder beside the executable or in the repository), and `OnFinalizePaths` opens the setup screen when it is needed. The screen runs on a temporary engine of the native renderer and hands the window to the game on **Play**. An ISO is mounted in place by an SDK patch. In game, the menu draws over the frame through the renderer's UI layer, and graphics settings reach the renderer between frames. The [packaging](../packaging/README.md) builds the ZIP and the bridge for 0.1.0-beta installations, which used a launcher. `scripts/extract-game.ps1` remains available for source builds.
+
+## Diagnostics
+
+In the native build, `src/app_entry.cpp` replaces the SDK's entry point. The first process becomes the supervisor (`src/diagnostics/supervisor.cpp`): it creates the session's folder in the data folder's `incidents/` and its shared memory, `channel.bin` (`channel.h`), starts the game as a second process of the same executable, and completes the record when the game ends. The game publishes its phases, failures and the context of a guest crash to the channel (`incident.cpp`); `src/crash_report.cpp` writes the registers, the return chain and the heap summary of a guest fault as fixed text, without allocation, locks or the logger. `src/sentry_reporting.cpp` starts Crashpad for every session, so the crash dump is written locally whatever the player answered, and lets uploads through only with consent. `export.cpp` packs a session into a ZIP. Three SDK patches, `rexglue-sentry-close-hook`, `rexglue-sentry-signal-chain` and `rexglue-seh-signal-chain`, let the reports flush at close and let Crashpad receive fatal signals on Linux. See [Local diagnostics](crash-reports.md) and [Crash reports](sentry.md).
 
 ## Areas to address
 

@@ -9,6 +9,8 @@
 - [Renderers](renderers.md)
 - [Project architecture](architecture.md)
 - [Troubleshooting](troubleshooting.md)
+- [Local diagnostics](crash-reports.md)
+- [Crash reports (Sentry)](sentry.md)
 - [Recompilation notes](recompilation-notes.md)
 - [Automatic function discovery](automatic-function-discovery.md)
 

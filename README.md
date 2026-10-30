@@ -57,6 +57,7 @@ The Xbox Live features and most of the story have not been tested yet. Other gra
 - **DLC:** the DLC page installs the game's marketplace packages. See [DLC](docs/dlc.md).
 - **Data folder:** settings, saves, logs, translation packages and DLC packages live in one data folder, apart from the program: `data\` beside `broken_bond.exe`, or the XDG data folder for the AppImage. The first start copies a 0.1.0-beta copy's files into it and keeps the originals; Settings → Advanced shows it and can move it. See [Data folder](docs/data-folder.md).
 - **Translation mods:** packages in the data folder's `mods/` replace the game's English texts by ID without changing the game files, and the menus list them as game languages. See [Translation mods](docs/translation-mods.md).
+- **Diagnostics:** each session leaves a record in the data folder, with the crash dump when the game crashes, and Settings → Advanced exports it to share. Crash reports go to the developers through Sentry only if you agree when the game asks, at its first start. See [Local diagnostics](docs/crash-reports.md) and [Crash reports](docs/sentry.md).
 - **Portable ZIP:** the release is a ZIP to extract and run. Installations of 0.1.0-beta, which used a launcher and an installer, move to it with a bridge installer that keeps game files, saves and settings. See [Release packaging](packaging/README.md).
 - **Automatic function discovery:** a ReXGlue patch finds the functions the game reaches only through pointer tables or addresses built in code, so the port needs no hand-written function list. See [Automatic function discovery](docs/automatic-function-discovery.md).
 
@@ -114,6 +115,8 @@ The [build guide](docs/build-and-run.md) explains each step, the native renderer
 | [Release packaging](packaging/README.md) | The ZIP, the bridge for 0.1.0-beta installations, and their tests |
 | [Architecture](docs/architecture.md) | Project structure, SDK patches, and areas to address |
 | [Troubleshooting](docs/troubleshooting.md) | Build failures, runtime issues, and diagnostics |
+| [Local diagnostics](docs/crash-reports.md) | The session records, thread snapshots, exports, and retention |
+| [Crash reports](docs/sentry.md) | The consent question, what is sent to Sentry, the build, and the symbols |
 | [Recompilation notes](docs/recompilation-notes.md) | Executable identity, function boundaries, and validation evidence |
 | [Automatic function discovery](docs/automatic-function-discovery.md) | The discovery patch, its rules, and its tests |
 

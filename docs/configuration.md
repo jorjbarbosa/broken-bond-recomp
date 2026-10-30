@@ -98,6 +98,8 @@ The menus also use these keys:
 | `game_menu_chord` | `"Back+Start"` | Controller buttons that open it: `Back+Start`, `LB+RB+Start` or `L3+R3` |
 | `show_shader_indicator` | `true` | Shows a notice while pipelines compile |
 | `check_for_updates` | `true` | Checks the project's latest release at start and notifies when it is newer; Settings > Advanced also checks on request |
+| `crash_reporting` | `false` | Sends crash reports to Sentry ([Crash reports](sentry.md)); set by the question at the first start or under Settings > Advanced > Diagnostics |
+| `crash_reporting_asked` | `false` | The crash report question was answered; `true` keeps it from showing |
 | `dlc_source_path` | `"dlc"` | Folder whose DLC packages the game installs at start; `"dlc"` is the data folder's `dlc/`; the game menu's **DLC** page stages packages there ([DLC](dlc.md)) |
 
 ### Native renderer options

@@ -47,11 +47,15 @@ Outputs, in `dist/` or `-OutputRootDir`:
 - `SHA256SUMS.txt`.
 
 The payload is `broken_bond.exe`, `rexruntime.dll` (and
-`amd_fidelityfx_dx12.dll` when the SDK provides it),
+`amd_fidelityfx_dx12.dll` when the SDK provides it), the crash reports'
+`sentry.dll`, `crashpad_handler.exe` and `crashpad_wer.dll`,
 `defaults/broken_bond.toml` (the settings a new data folder starts from, from
 `packaging/broken_bond.toml`), `broken_bond.version`, a quick-start
 `README.txt`, and `licenses/`. `third-party-licenses.psd1` lists the components; their notices
-and the source revisions of the LGPL libraries go to `licenses/README.txt`.
+and the source revisions of the LGPL libraries go to `licenses/README.txt`, and
+the notices of Sentry Native and what it bundles to `licenses/sentry-native.txt`.
+The defaults leave the [crash report](../docs/sentry.md) question to the player,
+and the `README.txt` says what the reports send.
 The menus, their fonts, the shaders and the icon are embedded in the
 executable; the icon's source is `ui/broken_bond.ico`.
 
@@ -64,6 +68,16 @@ its data folder, `data\`, from the defaults or from a 0.1.0-beta copy's files;
 see [Data folder](../docs/data-folder.md). The game
 needs the Microsoft Visual C++ x64 runtime. `scripts/extract-game.ps1` remains
 a developer tool for the code generation inputs, outside the release.
+
+### Symbols
+
+The script also archives the exact binaries of the ZIP with their PDBs, GUID
+and age checked, in `out/release-symbols/<version>-<id>`, outside the ZIP and
+`dist/`; a missing PDB stops the release. Upload the archive to Sentry with
+`scripts/upload-sentry-symbols.py` before publishing the release; see
+[Symbols](../docs/sentry.md#symbols). On Linux,
+`scripts/archive-native-symbols.py build/linux <new folder>` makes the archive
+of the AppImage's binaries.
 
 ## Build the Linux AppImage
 
@@ -89,7 +103,8 @@ Outputs, in `dist/` or `--output-root`: `broken-bond-recomp-linux-x86_64.AppImag
 its `README.txt` and `SHA256SUMS.txt`. Existing ones move to
 `previous-release-*`. The image is assembled in a unique staging folder.
 
-The image holds `broken_bond`, `librexruntime.so`, the wait check,
+The image holds `broken_bond`, `librexruntime.so`, Crashpad's
+`crashpad_handler`, the wait check,
 `broken_bond.version`, the README, `defaults/broken_bond.toml` (the ZIP's
 defaults on Vulkan) and `licenses/` (the components of
 `third-party-licenses.psd1` without the Windows-only ones), with the
@@ -97,7 +112,8 @@ defaults on Vulkan) and `licenses/` (the components of
 `packaging-info.json` (the binaries' hashes, the build id, the commit, the glibc
 the binaries need and the host libraries they load). No system library is
 bundled: the script stops if the binaries need anything beyond glibc, the C++
-runtime, the X11 and xcb client libraries and the Wayland client. The binaries
+runtime, the X11 and xcb client libraries, the Wayland client and libcurl
+(`libcurl.so.4`, for the crash reports' uploads). The binaries
 need the build system's glibc or newer (2.43 on Ubuntu 26.04).
 
 The `AppRun` runs the game from the image with the caller's arguments and

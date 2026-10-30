@@ -43,11 +43,11 @@ Update it with the bridge installer, `BrokenBondInstaller.exe`, which removes th
 
 ### The game closes at startup or during play
 
-`run-game.ps1` reports the exit code and the log path. Look for these lines near the end of the log:
+`run-game.ps1` reports the exit code and the log path. The session's record in the data folder's `incidents/` classifies how it ended, and the next start's log names a failed session in a `Previous session did not end normally` line; see [Local diagnostics](crash-reports.md). Look for these lines near the end of the log:
 
 - **A missing function** (an indirect call to an address with no recompiled function). The message has the guest target, return address, and stack pointer. Discovery is conservative, and such a miss is worth an issue with the log.
-- **`Unhandled guest access violation`**: a crash in the game code. The `crash report` lines after it name the faulting address, the guest thread, its registers, and the chain of return addresses; for an address in the game's heap they also describe that heap and the memory around the fault. Report it with the log and what you were doing.
-- **A native renderer stop**: the renderer closes the game with a message and writes the reason in the log and the journal. Report it with both.
+- **`Unhandled guest access violation`**: a crash in the game code. The session's `guest-context.json` names the faulting address, the guest thread, its registers, and the chain of return addresses, and for an address in the game's heap it also summarizes that heap; the next start's log repeats the return chain and the heap summary. Report it with the session's export and what you were doing.
+- **A native renderer stop**: the renderer closes the game with a message and writes the reason in the log, the journal and the session's record. Report it with the session's export.
 
 ### No sound
 
@@ -75,7 +75,9 @@ Expected: the game picks Konoha's time of day at random each time the title load
 
 For more detail, use `run-game.ps1 -LogLevel debug`, or set `log_level = "debug"` in the data folder's `broken_bond.toml` and restore `"info"` afterwards.
 
-For a crash with the native renderer, set the environment variable `REX_NATIVE_CRASH_DUMP=stack` before starting the game: the crash then writes `crash-stack.txt`, the host stack, which follows the game's call chain. `REX_NATIVE_CRASH_DUMP=1` also writes a full minidump (`crash.dmp`). The files go to the run's folder in `build/pipeline-runs/` with `run-game.ps1`, or to the folder in `REX_NATIVE_FRAME_DIR`, or to the working directory.
+Every session also leaves a record in the data folder's `incidents/`: the log, the crash dump when the game crashes, and how the session ended. **Settings → Advanced → Diagnostics → Export previous session** packs the latest one in a ZIP to attach to a report, and **Capture thread snapshot** records the threads of a game that stutters or seems stuck. See [Local diagnostics](crash-reports.md).
+
+Crashpad writes the crash dump whenever its handler starts, whether or not reports are sent; `REX_NATIVE_CRASH_DUMP` is then ignored, and the session's `events.jsonl` records `legacy-full-dump` as skipped. In a build without crash reports (`-DBROKENBOND_ENABLE_SENTRY=OFF`) or without `crashpad_handler.exe` on Windows, set `REX_NATIVE_CRASH_DUMP=stack` before starting the game: the crash then writes `crash-stack.txt`, the host stack, which follows the game's call chain. `REX_NATIVE_CRASH_DUMP=1` also writes a full minidump (`crash.dmp`). The files go to the run's folder in `build/pipeline-runs/` with `run-game.ps1`, or to the folder in `REX_NATIVE_FRAME_DIR`, or to the working directory.
 
 `python -I tools/native-renderer/summarize-native-journal.py <journal>` summarizes a native renderer journal.
 
@@ -85,4 +87,4 @@ When reporting a problem, include:
 - the renderer, and the native renderer's options if you changed them;
 - reproduction steps and the expected result;
 - the voice language and the game language;
-- the log, reviewing personal paths before sharing.
+- the log, or for a crash, a hang or a stop, the session's export, reviewing personal paths before sharing.

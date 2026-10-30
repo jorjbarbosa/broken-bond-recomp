@@ -17,7 +17,7 @@ This guide describes the project's **Windows x64 / Release** workflow. Run the c
 | Python | 3.x on `PATH`, only for the native renderer |
 | Game files | An ISO or an extracted copy of the supported revision (see [the README](../README.md#requirements)) |
 
-The SDK is built for x86-64-v2 processors (SSE4.2). The first SDK configuration and the extraction script download dependencies, so an internet connection is required.
+The SDK is built for x86-64-v2 processors (SSE4.2). The first SDK configuration, the extraction script and the game's first configuration (Sentry Native, for the [crash reports](sentry.md)) download dependencies, so an internet connection is required.
 
 Check your environment:
 
@@ -90,8 +90,11 @@ The script applies the patches in `patches/` to the `sdk` submodule, in the orde
 | `rexglue-data-log-directory.patch` | The application can name the folder of its sequential logs (`PathConfig::log_dir`); the logs, the `.toml` and its log levels are read and written under non-ASCII paths, with wide log file names on Windows |
 | `rexglue-data-achievements-unicode.patch` | The achievement metadata and unlock files are read and written under non-ASCII paths |
 | `rexglue-input-system-lock.patch` | The input system takes one call at a time, so guest threads reading the controllers together never see its device list rebuilt under them |
+| `rexglue-sentry-close-hook.patch` | The application can act when the window closes before the SDK's hard exit; the game flushes its crash reports there |
+| `rexglue-sentry-signal-chain.patch` | On POSIX, a fatal signal the runtime does not resume reaches the handler installed before it, such as Crashpad's, with its original information and context |
+| `rexglue-seh-signal-chain.patch` | On POSIX, the runtime's SEH emulation keeps the handlers it replaces and passes them a fault outside its regions, so Crashpad still writes the dump once the runtime has started |
 
-Rebuild the SDK with this script after changing any patch. On Linux, `scripts/build-sdk.sh` applies the same list and builds the SDK with the `linux-amd64` preset into the same folders.
+The SDK builds with line tables, and on Windows `rexruntime.dll` gets a PDB, so the crash reports' stacks can be read ([Symbols](sentry.md#symbols)). Rebuild the SDK with this script after changing any patch. On Linux, `scripts/build-sdk.sh` applies the same list and builds the SDK with the `linux-amd64` preset into the same folders.
 
 ## 5. Generate the C++
 
@@ -128,6 +131,8 @@ foreach ($name in 'fmt', 'dxc-bin', 'smol-v', 'xxHash', 'zstd') {
 
 ./scripts/build-game-native.ps1 -PlumeSource out/plume -XenosRecompThirdparty tools/xenosrecomp/thirdparty
 ```
+
+The build also includes the opt-in [crash reports](sentry.md): `sentry.dll`, `crashpad_handler.exe` and `crashpad_wer.dll` go beside `broken_bond.exe`, which also needs them to write the crash dumps of its [local diagnostics](crash-reports.md). `-DBROKENBOND_ENABLE_SENTRY=OFF` at configuration leaves them out.
 
 The game is built with both graphics APIs, Direct3D 12 and Vulkan. Direct3D 12 is the default; **Settings → Display → Graphics API** switches to the other one. `-Backend d3d12` or `-Backend vulkan` builds only one of them, for development; packaging requires both.
 
@@ -201,7 +206,7 @@ The packages installed on the build system:
 sudo apt install clang cmake ninja-build git pkg-config python3 spirv-tools nasm \
   libssl-dev libgtk-3-dev libsdl2-dev libasound2-dev libpulse-dev libwayland-dev \
   libxkbcommon-dev libxrandr-dev libxcursor-dev libxi-dev libxinerama-dev libxss-dev \
-  libudev-dev libvulkan-dev
+  libudev-dev libvulkan-dev libcurl4-openssl-dev
 ```
 
 Running the game needs a Vulkan 1.2 driver (Mesa or the NVIDIA driver) and the Vulkan loader, which desktop distributions install by default. DXC for Linux comes with `dxc-bin`, one of XenosRecomp's dependencies, so the shaders are translated and compiled on Linux too; the SPIR-V is the same as on Windows.
@@ -234,7 +239,7 @@ cmake --build build/linux
 
 ### Run
 
-`build/linux/` holds `broken_bond` and the SDK runtime `librexruntime.so`. Copy them together: the executable finds the library next to itself.
+`build/linux/` holds `broken_bond`, the SDK runtime `librexruntime.so` and Crashpad's `crashpad_handler`. Copy them together: the executable finds the library and the handler next to itself. Both executables need the system's `libcurl.so.4` (the `libcurl4` package on Ubuntu).
 
 ```bash
 ./build/linux/broken_bond --game_data_root="$PWD/game"
@@ -244,7 +249,7 @@ cmake --build build/linux
 
 ### Known limitations
 
-- The diagnostics that need Windows (minidumps, the stack sampler, the heap watch, the swap-chain proof) are not built. The crash report in the log works; a fault inside the report itself ends the process.
+- The diagnostics that need Windows (the stack sampler, the heap watch, the swap-chain proof, `REX_NATIVE_CRASH_DUMP`) are not built. Crashpad writes the crash dumps and the session records work as on Windows; a thread snapshot needs gdb at `/usr/bin/gdb` ([Local diagnostics](crash-reports.md)).
 - The update check and the desktop shortcut are Windows-only.
 - Without the XDG desktop portal or zenity, the file dialog cannot open; choose the game with `--game_data_root` or `custom_game_root` in the data folder's `broken_bond.toml`.
 - Holding Shift at start does not open the setup screen; pass `--setup`.
