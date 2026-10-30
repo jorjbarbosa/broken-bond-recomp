@@ -61,18 +61,26 @@ info = json.loads((appdir / 'packaging-info.json').read_text())
 check((appdir / 'build-id').read_text().strip() == info['build_id'], 'the build id is recorded')
 for name, digest in info['binaries'].items():
     check(sha256(payload / name) == digest, 'unchanged binary ' + name)
-check(all(os.access(path, os.X_OK) for path in (appdir / 'AppRun', payload / 'broken_bond',
-                                                payload / 'broken_bond_posix_wait_test')), 'executables keep their mode')
+sentry = 'crashpad_handler' in info['binaries']
+executables = [appdir / 'AppRun', payload / 'broken_bond', payload / 'broken_bond_posix_wait_test']
+check(all(os.access(path, os.X_OK) for path in executables + ([payload / 'crashpad_handler'] if sentry else [])),
+      'executables keep their mode')
 check((appdir / 'AppRun').read_bytes() == (root / 'packaging/appimage/AppRun').read_bytes(), "the repository's AppRun")
 check(sorted(path.name for path in payload.iterdir()) ==
       sorted(['broken_bond', 'librexruntime.so', 'broken_bond_posix_wait_test', 'broken_bond.version', 'README.txt',
-              'defaults', 'licenses']), 'the payload holds the game files only')
+              'defaults', 'licenses'] + (['crashpad_handler'] if sentry else [])),
+      'the payload holds the game files only')
+if sentry:
+    check((payload / 'licenses/sentry-native.txt').is_file(), "Crashpad's notices")
+    check('libcurl.so.4' in info['host_libraries'], 'libcurl is the crash reports\' host library')
 check(not [path for path in appdir.rglob('*') if '.so' in path.name and path.name != 'librexruntime.so'],
       'no system library is bundled')
 seed = tomllib.loads((payload / 'defaults/broken_bond.toml').read_text(encoding='utf-8'))
 check(seed.get('native_backend') == 'vulkan', 'the settings seed runs on Vulkan')
 check(not any(seed.get(key) for key in ('custom_game_root', 'user_data_root', 'cache_root', 'log_file')),
       'no personal path in the seed')
+check(not seed.get('crash_reporting', False) and not seed.get('crash_reporting_asked', False),
+      'the seed leaves the crash report question to the player')
 version = (payload / 'broken_bond.version').read_text().strip()
 check(version and version in (payload / 'README.txt').read_text(encoding='utf-8'), 'the README names the version')
 notices = (payload / 'licenses/README.txt').read_text(encoding='utf-8')

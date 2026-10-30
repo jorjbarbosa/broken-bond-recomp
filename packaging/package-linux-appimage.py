@@ -35,12 +35,15 @@ TOOLS = {
     'runtime': ('https://github.com/AppImage/type2-runtime/releases/download/continuous/runtime-x86_64',
                 '617aa77314d57c8b8e4fae9c3f0b35af7b30d5529cb69e98f64f92510ed98a46'),
 }
-# The payload's binaries and their modes.
+# The payload's binaries and their modes; Crashpad's handler joins them when the
+# build has the crash reports (sentry-notices.txt beside the game).
 BINARIES = {'broken_bond': 0o755, 'librexruntime.so': 0o644, 'broken_bond_posix_wait_test': 0o755}
-# What a Linux desktop provides; the binaries may need nothing else.
+SENTRY_BINARIES = {'crashpad_handler': 0o755}
+# What a Linux desktop provides, and libcurl for the crash reports' uploads (D-85):
+# the binaries may need nothing else directly.
 HOST_LIBRARIES = {'linux-vdso.so.1', 'ld-linux-x86-64.so.2', 'libc.so.6', 'libm.so.6', 'libstdc++.so.6',
                   'libgcc_s.so.1', 'libX11.so.6', 'libX11-xcb.so.1', 'libxcb.so.1', 'libXau.so.6',
-                  'libXdmcp.so.6', 'libwayland-client.so.0', 'libffi.so.8'}
+                  'libXdmcp.so.6', 'libwayland-client.so.0', 'libffi.so.8', 'libcurl.so.4'}
 
 
 def sha256(path):
@@ -115,7 +118,7 @@ def components():
     return [item for item in parsed if item.get('Condition') in (None, 'NativeVulkan')]
 
 
-def write_licenses(folder, version):
+def write_licenses(folder, version, build):
     folder.mkdir()
     if not (ROOT / 'LICENSE').is_file():
         raise SystemExit('Missing project LICENSE.')
@@ -129,6 +132,14 @@ def write_licenses(folder, version):
         usage = item['Usage'].replace('broken_bond.exe', 'broken_bond').replace('rexruntime.dll', 'librexruntime.so')
         entries.append(f"{item['Name']}\n  License: {item['License']} ({item['Target']})\n"
                        f"  Source:  {item['Url']}\n  Used in: {usage}")
+    if (build / 'sentry-notices.txt').is_file():
+        # The notices of the fetched release, as the build wrote them.
+        shutil.copyfile(build / 'sentry-notices.txt', folder / 'sentry-native.txt')
+        entries.append('Sentry Native 0.17.4 with Crashpad and their bundled libraries\n'
+                       "  License: MIT (Sentry Native), Apache-2.0 (Crashpad) and the bundled libraries' "
+                       'licenses (sentry-native.txt)\n'
+                       '  Source:  https://github.com/getsentry/sentry-native\n'
+                       '  Used in: broken_bond, crashpad_handler (opt-in crash reports)')
     # The LGPL libraries are statically linked into librexruntime.so: name the
     # exact source revisions it is built from, so it can be rebuilt with modified copies.
     sources = []
@@ -162,10 +173,15 @@ replace the librexruntime.so of the game's data folder with it.
 """, encoding='utf-8', newline='\n')
 
 
-def host_libraries(payload):
+def host_libraries(payload, binaries):
     found = {}
     env = {**os.environ, 'LD_LIBRARY_PATH': str(payload)}
-    for name in BINARIES:
+    for name in binaries:
+        # The libraries a binary names itself (DT_NEEDED); what those load in turn
+        # comes with them on the host.
+        dynamic = subprocess.run(['readelf', '-d', str(payload / name)], capture_output=True, text=True,
+                                 check=True).stdout
+        needed = set(re.findall(r'\(NEEDED\)\s+Shared library: \[([^\]]+)\]', dynamic))
         output = subprocess.run(['ldd', str(payload / name)], env=env, capture_output=True, text=True,
                                 check=True).stdout
         if 'not found' in output:
@@ -175,6 +191,8 @@ def host_libraries(payload):
             if not parts:
                 continue
             soname = Path(parts[0]).name
+            if soname not in needed:
+                continue
             resolved = parts[2] if len(parts) > 2 and parts[1] == '=>' else parts[0]
             if soname == 'librexruntime.so':
                 if Path(resolved).resolve().parent != payload.resolve():
@@ -200,7 +218,10 @@ def build_appdir(appdir, build, version, values):
     payload = appdir / 'usr/lib/broken_bond'
     payload.mkdir(parents=True)
     hashes = {}
-    for name, mode in BINARIES.items():
+    binaries = dict(BINARIES)
+    if (build / 'sentry-notices.txt').is_file():
+        binaries.update(SENTRY_BINARIES)
+    for name, mode in binaries.items():
         source = build / name
         if not source.is_file() or source.stat().st_size == 0:
             raise SystemExit(f'Missing or empty binary: {source}')
@@ -221,7 +242,7 @@ def build_appdir(appdir, build, version, values):
     (payload / 'broken_bond.version').write_text(version + '\n', encoding='ascii', newline='\n')
     readme = (ROOT / 'packaging/appimage/README.txt').read_text(encoding='utf-8').replace('@VERSION@', version)
     (payload / 'README.txt').write_text(readme, encoding='utf-8', newline='\n')
-    write_licenses(payload / 'licenses', version)
+    write_licenses(payload / 'licenses', version, build)
 
     shutil.copyfile(ROOT / 'packaging/appimage/AppRun', appdir / 'AppRun')
     (appdir / 'AppRun').chmod(0o755)
@@ -239,7 +260,7 @@ def build_appdir(appdir, build, version, values):
             'commit': git('.', 'rev-parse', 'HEAD') + ('-dirty' if dirty else ''),
             'compiler': values.get('CMAKE_CXX_COMPILER', ''),
             'glibc_required': glibc_required([payload / 'broken_bond', payload / 'librexruntime.so']),
-            'host_libraries': host_libraries(payload),
+            'host_libraries': host_libraries(payload, binaries),
             'tools': {key: {'url': TOOLS[key][0], 'sha256': TOOLS[key][1]} for key in TOOLS}}
     (appdir / 'packaging-info.json').write_text(json.dumps(info, indent=2) + '\n', encoding='utf-8', newline='\n')
     return info, readme

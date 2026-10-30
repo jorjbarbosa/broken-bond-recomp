@@ -27,6 +27,16 @@ Earlier AppImages copied the program files (about 145 MB) into the data
 folder and ran them from there; the first start of this one removes that
 copy and keeps everything else.
 
+CRASH REPORTS:
+Each start keeps a local record in the data folder's incidents, with a crash
+dump when the game crashes; nothing leaves the computer unless you allow it.
+The first game frame asks whether to send crash reports to the developers
+through Sentry: a memory dump, the session log, system and graphics details,
+file paths that may include your user name, and the startup time of one start
+in ten. Saves and game files are never sent. Settings > Advanced > Diagnostics
+changes the answer, opens the local records and exports a session to share
+(the thread snapshot there needs gdb).
+
 IN GAME:
 Press F1 or Back+Start to open Settings, DLC and Exit game.
 Translation packages in mods/<name> appear under Settings > Game > Game
@@ -43,7 +53,8 @@ A check that needs no game: --test-posix-wait (it ends with PASS).
 
 REQUIREMENTS:
 Linux x86-64 with glibc 2.43 or newer, the Vulkan loader and a Vulkan 1.2
-driver (Mesa or NVIDIA), and an X11 or Wayland desktop. The game runs on
+driver (Mesa or NVIDIA), libcurl (libcurl.so.4, for the crash reports), and an
+X11 or Wayland desktop. The game runs on
 Vulkan only. The file dialog of the setup screen and the DLC page needs the
 XDG desktop portal or zenity.
 

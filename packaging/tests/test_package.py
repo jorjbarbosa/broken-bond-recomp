@@ -38,6 +38,11 @@ def main():
         assert not config.get('user_data_root')
         assert not any(config.get(key) for key in ('data_root', 'cache_root', 'log_file'))
         assert not config.get('dlc_source_path', '').startswith('C:')
+        # The player answers the crash report question; the defaults never do.
+        assert not config.get('crash_reporting', False) and not config.get('crash_reporting_asked', False)
+        if 'crashpad_handler.exe' in names:
+            assert {'crashpad_wer.dll', 'licenses/sentry-native.txt'} <= names, 'Missing crash report files'
+            assert 'CRASH REPORTS:' in package.read('README.txt').decode('utf-8-sig')
         version = package.read('broken_bond.version').decode('ascii').strip()
         assert version, 'empty version'
         assert version in package.read('README.txt').decode('utf-8-sig')

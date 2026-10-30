@@ -92,6 +92,11 @@ Source: "{#PackageDir}\licenses\*"; DestDir: "{app}\licenses"; Flags: ignorevers
 ; executable in a 0.1.0-beta copy or in data\, are never installed over; the
 ; game copies a 0.1.0-beta copy's into data\ at its first start.
 Source: "{#PackageDir}\defaults\broken_bond.toml"; DestDir: "{app}\defaults"; Flags: ignoreversion
+; The crash reports, when the build has them: Crashpad's handler and WER
+; module, and the SDK's DLL (their notices are in licenses).
+Source: "{#PackageDir}\crashpad_handler.exe"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
+Source: "{#PackageDir}\crashpad_wer.dll"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
+Source: "{#PackageDir}\sentry.dll"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
 
 [Dirs]
 Name: "{app}\game"; Flags: uninsneveruninstall

@@ -38,7 +38,17 @@ FetchContent_Declare(sentry_native
     URL https://github.com/getsentry/sentry-native/releases/download/0.17.4/sentry-native.zip
     URL_HASH SHA256=804811557b5d42ddd51cb1241bf851964d75547a4eb7b5ad97b73a4de965ab25
     DOWNLOAD_EXTRACT_TIMESTAMP TRUE ${_sentry_source_subdir})
+# Line tables in the static SDK and Crashpad's handler where they build in this
+# tree (Linux), for their symbols; the separate Windows build is RelWithDebInfo.
+set(_sentry_c_flags "${CMAKE_C_FLAGS}")
+set(_sentry_cxx_flags "${CMAKE_CXX_FLAGS}")
+if(NOT _sentry_external_windows AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+    string(APPEND CMAKE_C_FLAGS " -gline-tables-only")
+    string(APPEND CMAKE_CXX_FLAGS " -gline-tables-only")
+endif()
 FetchContent_MakeAvailable(sentry_native)
+set(CMAKE_C_FLAGS "${_sentry_c_flags}")
+set(CMAKE_CXX_FLAGS "${_sentry_cxx_flags}")
 if(_sentry_external_windows)
     include(ExternalProject)
     get_filename_component(_sentry_compiler_dir "${CMAKE_CXX_COMPILER}" DIRECTORY)
@@ -81,29 +91,25 @@ endif()
 target_compile_definitions(broken_bond_reporting PRIVATE BROKENBOND_ENABLE_SENTRY=1
     BROKENBOND_SENTRY_DSN="${BROKENBOND_SENTRY_DSN}"
     BROKENBOND_SENTRY_ENVIRONMENT="${BROKENBOND_SENTRY_ENVIRONMENT}")
-# The revision in the release name, with -dirty for tracked changes outside the
-# Markdown files (the local documents do not change the binaries).
+# The revision in the release name, read at every build (cmake/revision.cmake):
+# the header changes, and the reporting code compiles again, only with it.
 find_package(Git QUIET)
-if(GIT_FOUND)
-    execute_process(COMMAND "${GIT_EXECUTABLE}" rev-parse --short=12 HEAD
-        WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
-        OUTPUT_VARIABLE _sentry_revision OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
-    execute_process(COMMAND "${GIT_EXECUTABLE}" diff --quiet --ignore-submodules -- . ":(exclude)*.md"
-        WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}" RESULT_VARIABLE _sentry_dirty)
-    if(_sentry_dirty EQUAL 1)
-        string(APPEND _sentry_revision "-dirty")
-    endif()
-endif()
-if(NOT _sentry_revision)
-    set(_sentry_revision unknown)
-endif()
-target_compile_definitions(broken_bond_reporting PRIVATE BROKENBOND_BUILD_REVISION="${_sentry_revision}")
+set(_revision_dir "${CMAKE_CURRENT_BINARY_DIR}/revision")
+add_custom_target(broken_bond_revision
+    COMMAND ${CMAKE_COMMAND} "-DGIT=${GIT_EXECUTABLE}" "-DSOURCE=${CMAKE_CURRENT_SOURCE_DIR}"
+            "-DOUTPUT=${_revision_dir}/broken_bond_revision.h" -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/revision.cmake"
+    BYPRODUCTS "${_revision_dir}/broken_bond_revision.h" VERBATIM)
+add_dependencies(broken_bond_reporting broken_bond_revision)
+target_include_directories(broken_bond_reporting PRIVATE "${_revision_dir}")
 
-# Source and line information for the reporting code and the entry point; the
-# generated guest code already has line tables. The executable already links
-# with /DEBUG on Windows.
+# Source and line information for the reporting code and the entry point, and
+# line tables for the game's own code (the renderer, the menus' host side, the
+# incidents); the generated guest code already has them. The executable already
+# links with /DEBUG on Windows.
 set_property(SOURCE src/sentry_reporting.cpp src/main.cpp APPEND PROPERTY COMPILE_OPTIONS
     "$<$<CXX_COMPILER_ID:Clang,AppleClang,GNU>:-g>")
+target_compile_options(broken_bond PRIVATE "$<$<CXX_COMPILER_ID:Clang,AppleClang>:-gline-tables-only>")
+target_compile_options(broken_bond_incidents PRIVATE "$<$<CXX_COMPILER_ID:Clang,AppleClang>:-gline-tables-only>")
 if(NOT WIN32)
     target_link_options(broken_bond PRIVATE "LINKER:--build-id")
 endif()

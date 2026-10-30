@@ -17,6 +17,7 @@
 
 #ifdef BROKENBOND_ENABLE_SENTRY
 #include <sentry.h>
+#include "broken_bond_revision.h"  // BROKENBOND_BUILD_REVISION, at every build.
 #endif
 
 namespace broken_bond::reporting {

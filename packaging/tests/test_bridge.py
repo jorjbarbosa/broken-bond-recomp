@@ -145,6 +145,9 @@ class BridgeTests(unittest.TestCase):
     def current(self, factory_defaults=True):
         # An update keeps the defaults as packaged; a new copy writes its language there.
         names = ['broken_bond.exe', 'rexruntime.dll', 'README.txt', 'licenses/README.txt']
+        # The crash reports' files, when the package has them.
+        names += [name for name in ('crashpad_handler.exe', 'crashpad_wer.dll', 'sentry.dll',
+                                    'licenses/sentry-native.txt') if (self.package / name).is_file()]
         if factory_defaults:
             names.append('defaults/broken_bond.toml')
         for name in names:

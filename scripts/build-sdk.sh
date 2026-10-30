@@ -45,7 +45,9 @@ if [ "$(head -n 1 "$sdk_source/thirdparty/libmspack/cabextract/mspack/lzxd.c")" 
   exit 1
 fi
 
+# Line tables in librexruntime.so, for readable crash reports.
 cmake --preset linux-amd64 -S "$sdk_source" -B "$sdk_build" \
+  "-DCMAKE_C_FLAGS=-march=x86-64-v2 -gline-tables-only" "-DCMAKE_CXX_FLAGS=-march=x86-64-v2 -gline-tables-only" \
   "-DCMAKE_INSTALL_PREFIX=$sdk_install" -DREXGLUE_BUILD_TESTS=OFF
 cmake --build "$sdk_build" --config Release --target rexglue --parallel "$jobs"
 

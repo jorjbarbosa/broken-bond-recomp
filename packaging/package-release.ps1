@@ -50,6 +50,15 @@ if (-not (Test-Path -LiteralPath $spirvPackage -PathType Leaf) -or (Get-Item -Li
 
 $binaries = @('broken_bond.exe', 'rexruntime.dll')
 if (Test-Path -LiteralPath (Join-Path $buildRoot 'amd_fidelityfx_dx12.dll')) { $binaries += 'amd_fidelityfx_dx12.dll' }
+# The crash reports (cmake/sentry.cmake): Crashpad's handler and WER module, the
+# SDK's DLL of the separate Windows build, and their notices.
+$sentry = $cache -match '(?m)^BROKENBOND_ENABLE_SENTRY:BOOL=(ON|TRUE|YES|1)\s*$'
+$sentryNotices = Join-Path $buildRoot 'sentry-notices.txt'
+if ($sentry) {
+    $binaries += @('crashpad_handler.exe', 'crashpad_wer.dll')
+    if ($cache -match '(?m)^BROKENBOND_SENTRY_SHARED:INTERNAL=(ON|TRUE|YES|1)\s*$') { $binaries += 'sentry.dll' }
+    if (-not (Test-Path -LiteralPath $sentryNotices -PathType Leaf)) { throw "Missing Sentry notices: $sentryNotices" }
+}
 $inspect = (Get-Command llvm-readobj.exe -ErrorAction Stop).Source
 foreach ($name in $binaries) {
     $path = Join-Path $buildRoot $name
@@ -64,6 +73,13 @@ foreach ($name in $binaries) {
     if (($imports -match 'Name:\s+amd_fidelityfx_dx12\.dll') -and
         ($binaries -notcontains 'amd_fidelityfx_dx12.dll')) { throw 'Missing FidelityFX runtime DLL.' }
 }
+# The exact symbols of this build, outside the ZIP, for readable crash reports
+# (scripts/upload-sentry-symbols.py sends them); a missing PDB stops the release.
+$symbolArchive = Join-Path $projectRoot ('out/release-symbols/' + $Version + '-' + [guid]::NewGuid().ToString('N'))
+& python (Join-Path $projectRoot 'scripts/archive-native-symbols.py') $buildRoot $symbolArchive `
+    --symbol-root (Join-Path $projectRoot 'sdk/out/win-amd64/Release')
+if ($LASTEXITCODE -ne 0) { throw 'Matching native symbols are required: rebuild the SDK with scripts/build-sdk.ps1. Existing releases were not changed.' }
+Write-Host "Native symbols archived in $symbolArchive"
 $releaseParts = @{
     FidelityFX = $binaries -contains 'amd_fidelityfx_dx12.dll'
     NativeD3D12 = $true
@@ -111,6 +127,14 @@ try {
     $componentText = ($components | ForEach-Object {
         "$($_.Name)`r`n  License: $($_.License) ($($_.Target))`r`n  Source:  $($_.Url)`r`n  Used in: $($_.Usage)"
     }) -join "`r`n`r`n"
+    if ($sentry) {
+        # The notices of the fetched release, as the build wrote them.
+        Copy-Item -LiteralPath $sentryNotices -Destination (Join-Path $licenses 'sentry-native.txt')
+        $componentText += "`r`n`r`nSentry Native 0.17.4 with Crashpad and their bundled libraries`r`n" +
+            "  License: MIT (Sentry Native), Apache-2.0 (Crashpad) and the bundled libraries' licenses (sentry-native.txt)`r`n" +
+            "  Source:  https://github.com/getsentry/sentry-native`r`n" +
+            "  Used in: crashpad_handler.exe, crashpad_wer.dll, sentry.dll (opt-in crash reports)"
+    }
     $sourceText = $sourceRevisions -join "`r`n"
     Set-Content -LiteralPath (Join-Path $licenses 'README.txt') -Encoding utf8 -Value @"
 THIRD-PARTY NOTICES - NARUTO: THE BROKEN BOND PC PORT ($Version)
@@ -180,6 +204,15 @@ Copies installed with the 0.1.0-beta installer can use the separately
 distributed BrokenBondInstaller.exe instead: it updates the port files, removes
 the launcher and points the shortcuts at broken_bond.exe, keeping game files,
 saves and settings for the game to copy into data. Later updates use the ZIP.
+
+CRASH REPORTS:
+Each start keeps a local record in the data folder's incidents, with a crash
+dump when the game crashes; nothing leaves the computer unless you allow it.
+The first game frame asks whether to send crash reports to the developers
+through Sentry: a memory dump, the session log, system and graphics details,
+file paths that may include your user name, and the startup time of one start
+in ten. Saves and game files are never sent. Settings > Advanced > Diagnostics
+changes the answer, opens the local records and exports a session to share.
 
 TRANSLATIONS:
 Translation packages in the data folder's mods\<name> appear under Settings >
