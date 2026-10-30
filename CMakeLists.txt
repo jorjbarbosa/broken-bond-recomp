@@ -479,10 +479,11 @@ if(BROKENBOND_NATIVE_RENDERER)
             target_include_directories(broken_bond_launch_restart_test PRIVATE src)
             add_test(NAME launch_restart COMMAND broken_bond_launch_restart_test
                 "${CMAKE_CURRENT_BINARY_DIR}/test-data/launch-restart")
-            # The SDK's signal chain as patched (patches/rexglue-sentry-signal-chain.patch),
-            # compiled from its source, without a guest image or a graphics device.
+            # The SDK's signal chain and the runtime's SEH handler as patched
+            # (patches/rexglue-sentry-signal-chain.patch, rexglue-seh-signal-chain.patch),
+            # compiled from their sources, without a guest image or a graphics device.
             add_executable(broken_bond_signal_chain_test tests/signal_chain_test.cpp
-                sdk/src/core/exception_handler_posix.cpp)
+                sdk/src/core/exception_handler_posix.cpp sdk/src/core/seh_posix.cpp)
             target_link_libraries(broken_bond_signal_chain_test PRIVATE rex::runtime)
             add_test(NAME signal_chain COMMAND broken_bond_signal_chain_test)
         endif()

@@ -312,7 +312,10 @@ int RunSupervised(std::vector<std::string> arguments, const fs::path& executable
     return Observe(mapping, directory, executable, arguments);
   } catch (const std::exception& error) {
     std::fprintf(stderr, "Local incident collection degraded: %s\n", error.what());
-    if (options.warn)
+    // A data folder that cannot be made at all is the game's to report (its
+    // bootstrap message names the cause); the warning is for the incidents alone.
+    std::error_code ignored;
+    if (options.warn && fs::is_directory(paths.value->data_root, ignored))
       options.warn("Local diagnostics could not start. Check write access to the selected data folder. "
                    "The game will continue without the incident supervisor.");
     return run(arguments);

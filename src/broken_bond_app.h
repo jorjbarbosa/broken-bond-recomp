@@ -30,6 +30,7 @@
 #include "dlc_install.h"
 #include "fps_overlay.h"
 #include "game_image.h"
+#include "gpu/common/platform.h"
 #include "graphics_device.h"
 #include "launch_arguments.h"
 #include "input_replay.h"
@@ -416,7 +417,8 @@ class BrokenBondApp : public rex::ReXApp {
 
  private:
   // The data folder could not be prepared: the error in a bootstrap log in the
-  // temporary folder (never in another data folder) and in a message box.
+  // temporary folder (never in another data folder) and in a message box, on
+  // every system.
   bool FailDataBootstrap(const std::string& error) {
     std::string message = "Could not prepare the data folder.\n" + Utf8Text(error);
     try {
@@ -441,7 +443,8 @@ class BrokenBondApp : public rex::ReXApp {
                "writable folder for one session.";
     std::fprintf(stderr, "%s\n", message.c_str());
     std::fflush(stderr);
-    rex::ShowSimpleMessageBox(rex::SimpleMessageBoxType::Error, message);
+    // The platform's box: the SDK's only writes stderr outside Windows.
+    gpu::platform::ShowError("Naruto: The Broken Bond", message);
     return false;
   }
   // On Windows the system's error texts come in the ANSI code page, mixed with
