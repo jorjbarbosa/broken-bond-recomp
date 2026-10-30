@@ -21,7 +21,7 @@ With consent, a crash report holds:
 
 When the native renderer stops on a failure, the game sends an error event with the failed operation and up to 4 KiB of its evidence text. It also sends the startup time of one start in ten, and the start and end of each session (Sentry's release health). Saves, game files and the settings file are never sent.
 
-The reports go to the Sentry organization `naruto-rise`, project `brokenbond`, in Sentry's US region (`ingest.us.sentry.io`). They carry the release `broken_bond@<version>+<commit>` and the environment `production`. To stop sending, choose **Don't send** at the question or turn the setting off; local reports stay on the computer either way.
+The reports go to the Sentry organization `naruto-rise`, project `brokenbond`, in Sentry's US region (`ingest.us.sentry.io`). Sentry receives the connection's IP address; the project is set not to store IP addresses. The user ID in a report is a random value that Sentry Native makes for each session. They carry the release `broken_bond@<version>+<commit>` and the environment `production`. To stop sending, choose **Don't send** at the question or turn the setting off; local reports stay on the computer either way.
 
 ## Build
 
