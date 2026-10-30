@@ -53,6 +53,7 @@ bool ConfigManager::Load(const std::filesystem::path& toml_path, GameConfig& out
     if (auto v = tbl["show_fps_overlay"].value<bool>()) config.show_fps_overlay = *v;
     if (auto v = tbl["show_startup_menu"].value<bool>()) config.show_startup_menu = *v;
     if (auto v = tbl["crash_reporting"].value<bool>()) config.crash_reporting = *v;
+    if (auto v = tbl["crash_reporting_asked"].value<bool>()) config.crash_reporting_asked = *v;
     if (auto v = tbl["mnk_sensitivity"].value<double>()) if (std::isfinite(*v)) config.mnk_sensitivity = *v;
     if (auto v = tbl["video_mode_refresh_rate"].value<double>()) if (std::isfinite(*v)) config.video_mode_refresh_rate = *v;
     if (auto v = tbl["aspect_ratio"].value<double>()) if (std::isfinite(*v)) config.aspect_ratio = *v;
@@ -149,6 +150,7 @@ bool ConfigManager::Save(const std::filesystem::path& toml_path, const GameConfi
   tbl.insert_or_assign("show_fps_overlay", config.show_fps_overlay);
   tbl.insert_or_assign("show_startup_menu", config.show_startup_menu);
   tbl.insert_or_assign("crash_reporting", config.crash_reporting);
+  tbl.insert_or_assign("crash_reporting_asked", config.crash_reporting_asked);
   tbl.insert_or_assign("mnk_sensitivity", config.mnk_sensitivity);
   tbl.insert_or_assign("video_mode_refresh_rate", config.video_mode_refresh_rate);
   tbl.insert_or_assign("anisotropic_override", config.anisotropic_override);

@@ -195,6 +195,14 @@ int main(int argc, char** argv) {
     key(rex::ui::VirtualKey::kReturn);
     frame("dialog-cancel", modal);
     check("dialog-cancel-default", canceled == 1 && confirmed == 0, "{}");
+    // A dialog alone over the game: the native mode draws frames only while
+    // something shows, and the answer runs on the next one.
+    int answered = 0;
+    const bool shown_before = menu.Shown();
+    menu.ShowDialog("Send crash reports?", "Local reports stay.", {{"Send", {}}, {"Local only", [&] { ++answered; }}});
+    check("standalone-dialog-shown", !shown_before && menu.Shown(), "{}");
+    key(rex::ui::VirtualKey::kReturn); frame("standalone-dialog-answered", modal);
+    check("standalone-dialog-answered", answered == 1 && !menu.Shown(), "{}");
 
     // A panel: the arrows change a value, Page Down the tab, Esc closes.
     int changed = -1, tab = -1, closed = 0;

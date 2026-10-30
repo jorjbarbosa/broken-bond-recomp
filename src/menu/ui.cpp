@@ -341,6 +341,7 @@ void Ui::HideDialog() {
     dialog_->Close();
   }
   dialog_ = nullptr;
+  dialog_shown_ = false;
   dialog_events_.reset();
   UpdateDocuments();
 }
@@ -367,6 +368,7 @@ void Ui::ShowDialog(const std::string& title, const std::string& message,
   dialog_->AddEventListener("keydown", dialog_events_.get());
   dialog_->Show(Rml::ModalFlag::Modal, Rml::FocusFlag::Document);
   if (buttons->GetNumChildren()) buttons->GetChild(0)->Focus();
+  dialog_shown_ = true;
   UpdateDocuments();
 }
 

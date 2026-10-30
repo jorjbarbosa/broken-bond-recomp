@@ -86,6 +86,11 @@ int main(int argc, char** argv) {
     Require(ConfigManager::Save(reporting_path, opted_in) && ConfigManager::Load(reporting_path, opted_in) &&
                 !opted_in.crash_reporting,
             "Reporting revocation did not survive reload");
+    Require(!opted_in.crash_reporting_asked, "The first-start question must not count as answered");
+    opted_in.crash_reporting_asked = true;
+    Require(ConfigManager::Save(reporting_path, opted_in) && ConfigManager::Load(reporting_path, opted_in) &&
+                opted_in.crash_reporting_asked && !opted_in.crash_reporting,
+            "The answer to the first-start question did not survive reload");
 
     Write(path, "renderer = 'native'\nuser_data_root = 'my saves'\nkeybind_a = 'J,K,L'\n"
                 "ultrawide_target_aspect = 2.3889\n");

@@ -18,5 +18,6 @@ vsync = true
 fullscreen = true
 # Optional uploads of native crash dumps, technical details and startup timing
 # to Sentry. Dumps may contain personal data; saves and game files are never
-# attached. Also in Settings > Advanced; turning it on needs a restart.
+# attached. Asked over the first frame of the game, then crash_reporting_asked = true;
+# also in Settings > Advanced, where turning it on after a refusal needs a restart.
 crash_reporting = false

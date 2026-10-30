@@ -45,6 +45,9 @@ class Settings {
   void SetLiveSettings(std::function<uint64_t(const std::string&, const GameConfig&)> request,
                        std::function<LiveResult()> result) { request_live_ = std::move(request); result_live_ = std::move(result); }
   void PollLive();
+  // The answer of the crash report question at the first start, saved with
+  // crash_reporting; false when the configuration could not be written.
+  bool AnswerCrashReporting(bool consent);
   // The rows that apply while the game runs once SetLiveSettings is set; the
   // others keep RESTART.
   static bool Live(const std::string& key);
