@@ -14,9 +14,10 @@ if(WIN32)
 else()
     target_sources(native_engine_test_units PRIVATE src/gpu/common/platform_posix.cpp)
 endif()
-# rex::runtime: the SDK logging of backend/lifecycle.h.
+# rex::runtime: the SDK logging of backend/lifecycle.h; the incidents: the
+# phase events of the engine (no channel in a test, so they do nothing).
 target_link_libraries(native_engine_test_units PUBLIC native_renderer_plume_vulkan
-                      broken_bond_smolv libzstd_static fmt::fmt rex::runtime)
+                      broken_bond_smolv libzstd_static fmt::fmt rex::runtime broken_bond_incidents)
 if(BROKENBOND_NATIVE_D3D12)
     target_sources(native_engine_test_units PRIVATE src/gpu/backend/d3d12/backend.cpp)
     target_link_libraries(native_engine_test_units PUBLIC native_renderer_plume)

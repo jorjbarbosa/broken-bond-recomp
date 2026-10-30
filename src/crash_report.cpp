@@ -14,22 +14,26 @@
 // A __try does not guard a plain load in this build (clang without
 // -fasync-exceptions covers only the calls inside it), so a walk that reached
 // a guard page would end the process inside the handler.
+//
+// The texts are written into a buffer on the handler's stack with fixed-width
+// hex and decimal digits: the handler runs before Crashpad's, and a fault in
+// the heap or with the logger's lock held must not stop it.
 
 #include "crash_report.h"
 
+#include <array>
 #include <atomic>
 #include <bit>
 #include <cstdint>
-#include <cstring>
-#include <string>
+#include <string_view>
 
-#include <fmt/format.h>
 #include <rex/exception_handler.h>
-#include <rex/logging.h>
 #include <rex/ppc/context.h>
 #include <rex/system/thread_state.h>
 #include <rex/system/xmemory.h>
 
+#include "diagnostics/channel.h"
+#include "diagnostics/incident.h"
 #include "gpu/common/platform.h"
 
 namespace broken_bond::crash_report {
@@ -52,7 +56,7 @@ constexpr uint32_t kMaxHeaps = 16;
 
 std::atomic<uint32_t> reports{0};
 std::atomic<uint32_t> heaps[kMaxHeaps]{};
-thread_local bool reporting = false;
+thread_local bool observing = false;
 thread_local uint32_t last_heap = 0;
 
 uint32_t Load32(const uint8_t* base, uint32_t address) {
@@ -85,6 +89,46 @@ class Reader {
   uintptr_t begin_ = 0, end_ = 0;
 };
 
+// A text in a fixed buffer, as long as the channel's slot holds; what does
+// not fit ends in "...".
+class Text {
+ public:
+  Text& operator<<(std::string_view text) {
+    for (char c : text) Put(c);
+    return *this;
+  }
+  // Eight hex digits, the width of a guest address.
+  Text& Hex(uint32_t value) {
+    constexpr char digits[] = "0123456789ABCDEF";
+    for (int n = 7; n >= 0; --n) Put(digits[(value >> (n * 4)) & 15]);
+    return *this;
+  }
+  Text& Dec(uint32_t value) {
+    char digits[10];
+    int count = 0;
+    do {
+      digits[count++] = char('0' + value % 10);
+      value /= 10;
+    } while (value);
+    while (count) Put(digits[--count]);
+    return *this;
+  }
+  std::string_view View() const { return {data_.data(), size_}; }
+
+ private:
+  void Put(char c) {
+    if (size_ < data_.size() - 4) {
+      data_[size_++] = c;
+    } else if (!full_) {
+      full_ = true;
+      for (char dot : {'.', '.', '.'}) data_[size_++] = dot;
+    }
+  }
+  std::array<char, incident::kPayload - 1> data_{};
+  size_t size_ = 0;
+  bool full_ = false;
+};
+
 struct Run {
   uint32_t address, count;
 };
@@ -98,8 +142,7 @@ void StackRange(Reader& reader, const PPCContext& ctx, uint32_t* end, uint32_t* 
 
 // The return addresses of a guest thread, from its lr and then the ones its
 // frames saved, inside [stack_end, stack_base) when that range is known.
-std::string ReturnChain(Reader& reader, uint32_t lr, uint32_t sp, uint32_t stack_end, uint32_t stack_base,
-                        uint32_t* frames_out) {
+void ReturnChain(Reader& reader, uint32_t lr, uint32_t sp, uint32_t stack_end, uint32_t stack_base, Text& text) {
   Run runs[kMaxRuns]{};
   uint32_t run_count = 0, frames = 0, beyond = 0;
   auto add = [&](uint32_t address) {
@@ -122,20 +165,24 @@ std::string ReturnChain(Reader& reader, uint32_t lr, uint32_t sp, uint32_t stack
     add(address);
     sp = next;
   }
-  std::string text;
+  text.Dec(frames) << " return addresses from the top (lr, then the saved ones):";
   for (uint32_t i = 0; i < run_count; ++i) {
-    if (!text.empty()) text += ' ';
-    text += runs[i].count > 1 ? fmt::format("{:08X}x{}", runs[i].address, runs[i].count)
-                              : fmt::format("{:08X}", runs[i].address);
+    text << " ";
+    text.Hex(runs[i].address);
+    if (runs[i].count > 1) {  // A repeated address with its count: 8221ABCDx12.
+      text << "x";
+      text.Dec(runs[i].count);
+    }
   }
-  if (beyond) text += fmt::format(" ...+{}", beyond);
-  *frames_out = frames;
-  return text;
+  if (beyond) {
+    text << " ...+";
+    text.Dec(beyond);
+  }
 }
 
 // The segments of a heap's state, with the one that holds the fault marked;
 // false when the state is unreadable.
-bool Segments(Reader& reader, uint32_t state, uint32_t fault, std::string* text, bool* holds_fault) {
+bool Segments(Reader& reader, uint32_t state, uint32_t fault, Text* text, bool* holds_fault) {
   uint32_t segment = state + 444;
   for (uint32_t i = 0; i < kMaxSegments && segment; ++i) {
     uint32_t sbase = 0, size = 0, next = 0, flags = 0;
@@ -145,7 +192,12 @@ bool Segments(Reader& reader, uint32_t state, uint32_t fault, std::string* text,
     if (!sbase && !size) break;
     const bool holds = fault >= sbase && fault - sbase < size;
     *holds_fault = *holds_fault || holds;
-    *text += fmt::format("{}{:08X}..{:08X}/{:X}{}", i ? " " : "", sbase, sbase + size, flags, holds ? "<-fault" : "");
+    if (text) {
+      if (i) *text << " ";
+      text->Hex(sbase) << "..";
+      text->Hex(sbase + size) << "/";
+      text->Hex(flags) << (holds ? "<-fault" : "");
+    }
     segment = next;
   }
   return true;
@@ -157,123 +209,136 @@ bool Segments(Reader& reader, uint32_t state, uint32_t fault, std::string* text,
 // failed check traps, and a later pointer above least_addr is written through
 // (fd at +8, bk at +12), so a fault at +12 of a garbage pointer names the bin
 // whose head holds it. Then the chunk fields around the fault.
-void HeapReport(Reader& reader, uint32_t fault) {
+void HeapReport(Reader& reader, uint32_t fault, Text& text) {
   uint32_t seen = 0, holder = 0;
-  std::string listed, segments;
   for (auto& slot : heaps) {
     const uint32_t heap = slot.load(std::memory_order_relaxed);
     if (!heap) continue;
     ++seen;
-    listed += fmt::format("{}{:08X}", listed.empty() ? "" : " ", heap);
-    std::string text;
     bool holds = false;
-    if (!holder && Segments(reader, heap + kHeapState, fault, &text, &holds) && holds) {
-      holder = heap;
-      segments = text;
-    }
+    if (!holder && Segments(reader, heap + kHeapState, fault, nullptr, &holds) && holds) holder = heap;
   }
   if (!holder) {
-    REXLOG_ERROR("[broken_bond] crash report: fault outside the segments of the {} heaps seen{}{}", seen,
-                 seen ? ": " : " (the allocator is followed in the native build)", listed);
+    text << "fault outside the segments of the ";
+    text.Dec(seen) << " heaps seen" << (seen ? ":" : " (the allocator is followed in the native build on Windows)");
+    for (auto& slot : heaps) {
+      if (const uint32_t heap = slot.load(std::memory_order_relaxed)) {
+        text << " ";
+        text.Hex(heap);
+      }
+    }
   } else {
     const uint32_t state = holder + kHeapState;
     uint32_t smallmap = 0, treemap = 0, dvsize = 0, topsize = 0, least = 0, dv = 0, top = 0;
+    text << "heap 0x";
+    text.Hex(holder) << " (of ";
+    text.Dec(seen) << " seen)";
     if (reader.Get32(state, &smallmap) && reader.Get32(state + 4, &treemap) && reader.Get32(state + 8, &dvsize) &&
         reader.Get32(state + 12, &topsize) && reader.Get32(state + 16, &least) && reader.Get32(state + 20, &dv) &&
         reader.Get32(state + 24, &top)) {
-      REXLOG_ERROR(
-          "[broken_bond] crash report: heap 0x{:08X} (of {} seen): smallmap 0x{:08X} treemap 0x{:08X} least_addr "
-          "0x{:08X} dv 0x{:08X} ({}) top 0x{:08X} ({}); segments: {}",
-          holder, seen, smallmap, treemap, least, dv, dvsize, top, topsize, segments);
+      text << ": smallmap 0x";
+      text.Hex(smallmap) << " treemap 0x";
+      text.Hex(treemap) << " least_addr 0x";
+      text.Hex(least) << " dv 0x";
+      text.Hex(dv) << " (";
+      text.Dec(dvsize) << ") top 0x";
+      text.Hex(top) << " (";
+      text.Dec(topsize) << ")";
     }
-    std::string bins;
+    text << "; segments: ";
+    bool holds = false;
+    Segments(reader, state, fault, &text, &holds);
+    text << "; small bins (size:fd/bk):";
+    bool any = false;
     for (uint32_t index = 0; index < kSmallBins; ++index) {
       const uint32_t head = state + 36 + index * 8;
       uint32_t fd = 0, bk = 0;
       if (!reader.Get32(head + 8, &fd) || !reader.Get32(head + 12, &bk)) break;
       if (fd == head && bk == head) continue;
+      any = true;
       const bool names = fd == fault - 12 || fd == fault - 8 || bk == fault - 12 || bk == fault - 8;
-      bins += fmt::format("{}{}:{:08X}/{:08X}{}", bins.empty() ? "" : " ", index * 8, fd, bk, names ? "<-fault" : "");
+      text << " ";
+      text.Dec(index * 8) << ":";
+      text.Hex(fd) << "/";
+      text.Hex(bk) << (names ? "<-fault" : "");
     }
-    REXLOG_ERROR("[broken_bond] crash report: small bins (size:fd/bk): {}", bins.empty() ? "none" : bins);
+    if (!any) text << " none";
   }
   for (uint32_t offset : {8u, 12u}) {
     const uint32_t chunk = fault - offset;
     uint32_t foot = 0, head = 0, fd = 0, bk = 0;
+    text << "; chunk at fault-";
+    text.Dec(offset) << " 0x";
+    text.Hex(chunk);
     if (reader.Get32(chunk, &foot) && reader.Get32(chunk + 4, &head) && reader.Get32(chunk + 8, &fd) &&
-        reader.Get32(chunk + 12, &bk))
-      REXLOG_ERROR("[broken_bond] crash report: chunk at fault-{} 0x{:08X}: prev_foot 0x{:08X} head 0x{:08X} fd "
-                   "0x{:08X} bk 0x{:08X}",
-                   offset, chunk, foot, head, fd, bk);
-    else
-      REXLOG_ERROR("[broken_bond] crash report: chunk at fault-{} 0x{:08X}: no memory", offset, chunk);
+        reader.Get32(chunk + 12, &bk)) {
+      text << ": prev_foot 0x";
+      text.Hex(foot) << " head 0x";
+      text.Hex(head) << " fd 0x";
+      text.Hex(fd) << " bk 0x";
+      text.Hex(bk);
+    } else {
+      text << ": no memory";
+    }
   }
-}
-
-void Report(const char* kind, uint32_t code, uint64_t host_fault) {
-  auto* state = rex::runtime::ThreadState::Get();
-  if (!state || !state->context() || !state->memory()) {
-    REXLOG_ERROR("[broken_bond] crash report: {} (code 0x{:08X}) on a host thread without a guest context", kind,
-                 code);
-    return;
-  }
-  PPCContext* ctx = state->context();
-  const uint8_t* base = state->memory()->virtual_membase();
-  const uint64_t host_base = reinterpret_cast<uint64_t>(base);
-  const bool guest = host_fault >= host_base && host_fault < host_base + kGuestArena;
-  const std::string fault = guest ? fmt::format("guest 0x{:08X}", uint32_t(host_fault - host_base))
-                                  : fmt::format("host 0x{:016X}", host_fault);
-  Reader reader(base);
-  uint32_t stack_end = 0, stack_base = 0;
-  StackRange(reader, *ctx, &stack_end, &stack_base);
-  REXLOG_ERROR(
-      "[broken_bond] crash report: {} of {} (code 0x{:08X}) on guest thread 0x{:X}: r1 0x{:08X}, lr 0x{:08X}, "
-      "r3 0x{:08X}, r4 0x{:08X}, r12 0x{:08X}, stack 0x{:08X}..0x{:08X}",
-      kind, fault, code, state->thread_id(), ctx->r1.u32, uint32_t(ctx->lr), ctx->r3.u32, ctx->r4.u32, ctx->r12.u32,
-      stack_end, stack_base);
-  rex::FlushLogging();
-  uint32_t frames = 0;
-  const std::string chain = ReturnChain(reader, uint32_t(ctx->lr), ctx->r1.u32, stack_end, stack_base, &frames);
-  REXLOG_ERROR("[broken_bond] crash report: {} return addresses from the top (lr, then the saved ones): {}", frames,
-               chain);
-  rex::FlushLogging();
-  if (guest) HeapReport(reader, uint32_t(host_fault - host_base));
-  rex::FlushLogging();
 }
 
 // In the SDK's handler chain (rex::arch::ExceptionHandler: a vectored handler on
 // Windows, the signal handlers elsewhere), after its own handlers, which
 // resume the faults they handle (the write watch, the MMIO windows); the
-// report sees only the rest and never handles the fault. A fault of the
-// report itself passes on Windows; elsewhere the signal is blocked while its
-// handler runs, so the system ends the process there. The chain gives access
-// violations and illegal instructions only (not an integer division by zero
-// or a host stack overflow); the report keeps their Windows codes on every
-// system.
+// report sees only the rest and never handles the fault, which goes on to
+// Crashpad. The chain gives access violations and illegal instructions only.
 bool Handler(rex::arch::Exception* ex, void*) {
-  if (!ex) return false;
-  const char* kind = nullptr;
-  uint32_t code = 0;
-  switch (ex->code()) {
-    case rex::arch::Exception::Code::kAccessViolation:
-      switch (ex->access_violation_operation()) {
-        case rex::arch::Exception::AccessViolationOperation::kRead: kind = "read"; break;
-        case rex::arch::Exception::AccessViolationOperation::kWrite: kind = "write"; break;
-        default: kind = "access"; break;
+  using Code = rex::arch::Exception::Code;
+  if (!ex || (ex->code() != Code::kAccessViolation && ex->code() != Code::kIllegalInstruction)) return false;
+  if (observing) return false;  // A fault of the report itself passes on.
+  observing = true;
+  const bool violation = ex->code() == Code::kAccessViolation;
+  const uint64_t address = violation ? ex->fault_address() : 0;
+  const uint32_t access = violation ? uint32_t(ex->access_violation_operation()) : 0;
+  // The fault first, before anything reads possibly damaged guest state.
+  incident::GuestFault(ex->pc(), address, uint32_t(ex->code()), 0, 0, {}, 0, 0, access);
+  auto* state = rex::runtime::ThreadState::Get();
+  const PPCContext* ctx = state ? state->context() : nullptr;
+  const uint8_t* base = ctx && state->memory() ? state->memory()->virtual_membase() : nullptr;
+  if (ctx && base) {
+    std::array<uint64_t, 32> gpr{};
+    const PPCRegister* registers[32] = {&ctx->r0,  &ctx->r1,  &ctx->r2,  &ctx->r3,  &ctx->r4,  &ctx->r5,  &ctx->r6,
+                                        &ctx->r7,  &ctx->r8,  &ctx->r9,  &ctx->r10, &ctx->r11, &ctx->r12, &ctx->r13,
+                                        &ctx->r14, &ctx->r15, &ctx->r16, &ctx->r17, &ctx->r18, &ctx->r19, &ctx->r20,
+                                        &ctx->r21, &ctx->r22, &ctx->r23, &ctx->r24, &ctx->r25, &ctx->r26, &ctx->r27,
+                                        &ctx->r28, &ctx->r29, &ctx->r30, &ctx->r31};
+    for (size_t i = 0; i < gpr.size(); ++i) gpr[i] = registers[i]->u64;
+    incident::GuestFault(ex->pc(), address, uint32_t(ex->code()), state->thread_id(),
+                         reinterpret_cast<uint64_t>(base), gpr, ctx->lr, ctx->ctr.u64, access);
+    if (reports.fetch_add(1) < kMaxReports) {
+      const uint64_t host_base = reinterpret_cast<uint64_t>(base);
+      const bool guest = violation && address >= host_base && address < host_base + kGuestArena;
+      Reader reader(base);
+      uint32_t stack_end = 0, stack_base = 0;
+      StackRange(reader, *ctx, &stack_end, &stack_base);
+      Text stack;
+      stack << (violation ? (access == 1 ? "read" : access == 2 ? "write" : "access") : "illegal instruction");
+      if (guest) {
+        stack << " of guest 0x";
+        stack.Hex(uint32_t(address - host_base));
       }
-      code = 0xC0000005;  // EXCEPTION_ACCESS_VIOLATION
-      break;
-    case rex::arch::Exception::Code::kIllegalInstruction:
-      kind = "illegal instruction";
-      code = 0xC000001D;  // EXCEPTION_ILLEGAL_INSTRUCTION
-      break;
-    default:
-      return false;
+      stack << " on guest thread 0x";
+      stack.Hex(state->thread_id()) << ": r1 0x";
+      stack.Hex(ctx->r1.u32) << ", lr 0x";
+      stack.Hex(uint32_t(ctx->lr)) << ", stack 0x";
+      stack.Hex(stack_end) << "..0x";
+      stack.Hex(stack_base) << "; ";
+      ReturnChain(reader, uint32_t(ctx->lr), ctx->r1.u32, stack_end, stack_base, stack);
+      incident::GuestStack(stack.View());
+      if (guest) {
+        Text heap;
+        HeapReport(reader, uint32_t(address - host_base), heap);
+        incident::GuestHeap(heap.View());
+      }
+    }
   }
-  if (reporting || reports.fetch_add(1) >= kMaxReports) return false;
-  reporting = true;
-  Report(kind, code, ex->code() == rex::arch::Exception::Code::kAccessViolation ? ex->fault_address() : 0);
-  reporting = false;
+  observing = false;
   return false;
 }
 }  // namespace
@@ -287,6 +352,15 @@ void NoteHeap(uint32_t heap) {
     }
     if (!seen || seen == heap) return;
   }
+}
+
+namespace {
+std::atomic<uint64_t> guest_fault_swap{0};
+}  // namespace
+void ArmGuestFault(uint64_t swap) { guest_fault_swap.store(swap, std::memory_order_relaxed); }
+bool GuestFaultDue(uint64_t swap) {
+  const uint64_t due = guest_fault_swap.load(std::memory_order_relaxed);
+  return due && swap >= due;
 }
 
 void Install() {

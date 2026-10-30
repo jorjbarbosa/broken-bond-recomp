@@ -2,6 +2,7 @@
 #include "menu/settings.h"
 #include "menu/ui.h"
 #include "menu/text.h"
+#include "diagnostics/incident.h"
 #include "wine.h"
 #include "controls/runtime.h"
 #include "../menu/game_languages.h"
@@ -371,6 +372,35 @@ std::vector<PanelRow> Settings::Rows(int group) {
     rows.push_back({"crash_reporting", Text("crash-reporting"), Bool(config_.crash_reporting), Text("crash-reporting-help"),
         config_.crash_reporting != initial_.crash_reporting, true, {Text("off"), Text("on")}, config_.crash_reporting ? 1 : 0,
         [this](int value) { Change("crash_reporting", [value](GameConfig& config) { config.crash_reporting = value != 0; }); }, {}});
+    if (!incident::Directory().empty()) {
+      rows.push_back({"diagnostics-open", Text("diagnostics-open"), "", Text("diagnostics-help"), false, false, {}, 0, {},
+          [] { launcher_ui::OpenFolder(incident::ReportsDirectory()); }});
+      rows.push_back({"diagnostics-snapshot", Text("diagnostics-snapshot"), "", Text("diagnostics-snapshot-help"), false, false, {}, 0, {},
+          [this] {
+            // On Linux the capture runs gdb, which most systems lack.
+            if (!incident::LiveSnapshotAvailable()) { ui_->Notify(Text("diagnostics-needs-gdb")); return; }
+            incident::RequestSnapshot();
+            ui_->Notify(Text("diagnostics-requested"));
+          }});
+      rows.push_back({"diagnostics-export", Text("diagnostics-export"), "", Text("diagnostics-export-help"), false, false, {}, 0, {},
+          [this] {
+            // The newest session, and the newest failed one when that is older:
+            // a player often reopens the game a few times before exporting.
+            const auto latest = incident::Latest();
+            if (latest.empty()) { ui_->Notify(Text("diagnostics-none")); return; }
+            std::vector<std::filesystem::path> sessions{latest};
+            if (const auto failed = incident::Latest(true); !failed.empty() && failed != latest) sessions.push_back(failed);
+            const auto exports = incident::ReportsDirectory().parent_path() / "incident-exports";
+            for (const auto& session : sessions) {
+              const auto destination = exports / (session.filename().string() + ".zip");
+              std::string error;
+              if (!std::filesystem::exists(destination) && !incident::Export(session, destination, error)) {
+                ui_->Notify(Text("diagnostics-export-failed") + std::string(" ") + error); return;
+              }
+            }
+            launcher_ui::OpenFolder(exports);
+          }});
+    }
     if (data_paths_) {
       // The session's folder, and a change of location, copied at the next
       // start; a --data_root or REX_DATA_ROOT session cannot change it.

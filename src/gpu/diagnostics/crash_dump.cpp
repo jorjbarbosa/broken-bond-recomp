@@ -8,6 +8,7 @@
 // thread, the lr and the time of the last 1024 frees, to match the corrupted
 // chunk of the dump with the free that released it.
 #include "gpu/diagnostics/crash_dump.h"
+#include "diagnostics/incident.h"
 #include "gpu/diagnostics/heap_watch.h"
 #include <windows.h>
 #include <dbghelp.h>
@@ -175,6 +176,10 @@ LONG WINAPI Filter(EXCEPTION_POINTERS* pointers) {
 void Install() {
   const char* text = std::getenv("REX_NATIVE_CRASH_DUMP");
   if (!text || (std::string_view(text) != "1" && std::string_view(text) != "stack") || installed) return;
+  if (broken_bond::incident::CollectorReady()) {
+    broken_bond::incident::Event("legacy-full-dump", "skipped", "Crashpad owns the fatal exception filter");
+    return;
+  }
   stack_only = std::string_view(text) == "stack";
   SetUnhandledExceptionFilter(Filter);
   installed = true;

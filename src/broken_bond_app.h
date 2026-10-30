@@ -26,6 +26,7 @@
 
 #include "crash_report.h"
 #include "data_migration.h"
+#include "diagnostics/incident.h"
 #include "dlc_install.h"
 #include "fps_overlay.h"
 #include "game_image.h"
@@ -56,6 +57,7 @@ REXCVAR_DEFINE_STRING(data_root, "", "broken_bond/Storage",
 #include "gpu/ui/screen.h"
 #include "intro_skip.h"
 #include "menu/dlc.h"
+#include "menu/folders.h"
 #include "menu/game_choice.h"
 #include "menu/input_gate.h"
 #include "menu/settings.h"
@@ -80,6 +82,9 @@ REXCVAR_DEFINE_BOOL(crash_reporting, false, "broken_bond/Reporting",
                     "Allow crash reports and startup timing to be sent to Sentry");
 REXCVAR_DEFINE_STRING(sentry_test, "", "broken_bond/Internal",
                       "Developer verification: error or crash; requires crash_reporting=true")
+    .lifecycle(rex::cvar::Lifecycle::kInitOnly);
+REXCVAR_DEFINE_STRING(incident_test, "", "broken_bond/Internal",
+                      "Disposable-process local capture verification; no game data required")
     .lifecycle(rex::cvar::Lifecycle::kInitOnly);
 #endif
 
@@ -133,6 +138,7 @@ class BrokenBondApp : public rex::ReXApp {
   // session. A failed preparation stops the start with its error instead of
   // starting on a partial folder.
   bool SetupEnvironment() override {
+    broken_bond::incident::Event("data-and-configuration", "begin");
 #ifdef _WIN32
     // A restart for saved settings (RestartForSettings): the previous process
     // closes first, so it neither holds the data folder's lock nor writes the .toml.
@@ -176,9 +182,17 @@ class BrokenBondApp : public rex::ReXApp {
       broken_bond::reporting::Close();
       return false;
     }
+    if (const auto test = REXCVAR_GET(incident_test); !test.empty()) {
+      // Each mode ends the process, except guest-av, which lets the game run.
+      if (!broken_bond::incident::VerifyIncident(test) || test != "guest-av") {
+        broken_bond::reporting::Close();
+        std::_Exit(2);
+      }
+    }
     if (const auto test = REXCVAR_GET(sentry_test); !test.empty()) {
       const bool verified = broken_bond::reporting::Verify(test);
       broken_bond::reporting::Close();
+      if (verified) broken_bond::incident::ExpectedExit("sentry-verification");
       rex::FlushLogging();
       std::_Exit(verified ? 0 : 2);
     }
@@ -235,10 +249,20 @@ class BrokenBondApp : public rex::ReXApp {
   // the default.xex it was generated from (game_image.h).
   void OnPostInitLogging() override {
     const auto& active = prepared_data_->paths;
+    broken_bond::incident::Event("data-and-configuration", "end");
 #ifdef BROKENBOND_NATIVE_RENDERER_BOOTSTRAP
+    broken_bond::incident::SetMetadata("renderer_requested", rex::cvar::GetFlagByName("renderer"));
+    broken_bond::incident::SetMetadata("native_backend_requested", rex::cvar::GetFlagByName("native_backend"));
     broken_bond::reporting::Initialize(rex::filesystem::GetExecutableFolder(), active.cache_root,
                                        broken_bond::PortVersion(), REXCVAR_GET(crash_reporting));
 #endif
+    broken_bond::incident::Event("runtime-and-xex", "begin");
+    for (const auto* key : {"renderer", "native_backend", "graphics_device", "resolution_scale", "msaa_samples",
+                            "frame_rate", "aspect_ratio", "translation_mod", "skip_intro_videos", "log_level"})
+      broken_bond::incident::SetMetadata(key, rex::cvar::GetFlagByName(key));
+    // A failed previous session in this log too: the log is what players attach.
+    if (const auto previous = broken_bond::incident::Latest(true, true); !previous.empty())
+      REXLOG_WARN("[broken_bond] Previous session did not end normally: {}", broken_bond::incident::Summary(previous));
     REXLOG_INFO("[broken_bond] Data folder: {} ({}); settings {}, cache {} ({})", rex::path_to_utf8(active.data_root),
                 SourceName(active.data_source), rex::path_to_utf8(active.config_path),
                 rex::path_to_utf8(active.cache_root), SourceName(active.cache_source));
@@ -290,6 +314,7 @@ class BrokenBondApp : public rex::ReXApp {
 #endif
 
   void OnPostSetup() override {
+    broken_bond::incident::Event("runtime-and-xex", "end");
 #ifdef BROKENBOND_NATIVE_RENDERER_BOOTSTRAP
     broken_bond::reporting::FinishStartup();
 #endif
@@ -384,6 +409,7 @@ class BrokenBondApp : public rex::ReXApp {
     // The SDK ends the process with _Exit here: neither destructors nor
     // OnShutdown run, so the crash reports flush first.
     broken_bond::reporting::Close();
+    broken_bond::incident::ExpectedExit("window-close");
     rex::ReXApp::OnClosing(event);
   }
 #endif
@@ -512,6 +538,12 @@ class BrokenBondApp : public rex::ReXApp {
     // Below the window shortcuts (fullscreen), above the SDK's overlays.
     if (window()) window()->AddInputListener(&ui_, std::numeric_limits<size_t>::max() - 1);
     ui_.SetInputActive([this] { return window() && window()->HasFocus(); });
+    // A previous session that did not end normally: its folder, once.
+    if (const auto previous = broken_bond::incident::Latest(true, true); !previous.empty()) {
+      ui_.Notify(broken_bond::menu::Text("diagnostics-recovered"), broken_bond::menu::Text("diagnostics-open"),
+                 [previous] { launcher_ui::OpenFolder(previous); });
+      broken_bond::incident::Acknowledge(previous);
+    }
     ui_.SetTick([this] { ServiceMenu(); });
     menu_settings_.SetUtilities([this] { CreateDesktopShortcut(); }, [this] { CheckUpdates(); });
     if (REXCVAR_GET(check_for_updates))
@@ -668,6 +700,7 @@ class BrokenBondApp : public rex::ReXApp {
     setup_paths_ = paths;
     setup_reason_ = reason;
     setup_resume_ = std::move(resume);
+    setup_operation_ = broken_bond::incident::BeginOperation("setup-screen", broken_bond::menu::SetupReasonName(reason));
     return true;
   }
   void RefreshSetup() {
@@ -695,6 +728,8 @@ class BrokenBondApp : public rex::ReXApp {
   // The screen's engine goes before the game's; the UI layer keeps the frame
   // of what still shows (the frame rate) for it.
   void CloseSetupScreen() {
+    if (setup_operation_)
+      broken_bond::incident::Event("setup-screen", "end", {}, std::exchange(setup_operation_, uint64_t{0}));
     ui_.HideSetup();
     if (!setup_screen_.IsOpen()) return;
     if (native_drawer_) DrawNativeUi();
@@ -886,7 +921,9 @@ class BrokenBondApp : public rex::ReXApp {
   // The game's first frame on the screen: the start succeeded (the launch
   // marker goes), and the menu's shortcut hint shows a few seconds later.
   void ArmFirstPresentation() {
-    gpu::ui::UiLayer().SetFirstPresentCallback([this] {  // Engine owner, after a game Present.
+    const auto incident_operation = broken_bond::incident::BeginOperation("first-game-present");
+    gpu::ui::UiLayer().SetFirstPresentCallback([this, incident_operation] {  // Engine owner, after a game Present.
+      broken_bond::incident::Event("first-game-present", "end", {}, incident_operation);
       if (closing_.load()) return;
       app_context().CallInUIThread([this] {
         if (closing_.load()) return;
@@ -970,6 +1007,9 @@ class BrokenBondApp : public rex::ReXApp {
   rex::PathConfig setup_paths_;
   broken_bond::menu::SetupReason setup_reason_ = broken_bond::menu::SetupReason::kNone;
   std::function<void(rex::PathConfig)> setup_resume_;  // While the setup screen shows.
+  // The setup screen as an incident operation: the supervisor reads no stall
+  // in the time the runtime waits for the player there.
+  uint64_t setup_operation_ = 0;
   broken_bond::menu::GameChoice game_choice_;
   uint64_t game_choice_view_ = 0;
   bool checking_game_ = false;

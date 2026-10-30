@@ -1,4 +1,5 @@
 #include "gpu/backend/dispatcher.h"
+#include "diagnostics/incident.h"
 #include "gpu/backend/lifecycle.h"
 #include "gpu/backend/pipeline_set.h"
 #include <chrono>
@@ -77,7 +78,9 @@ struct Dispatcher::State {
           task = std::move(work.front());
           work.pop_front();
         }
+        broken_bond::incident::Activity activity(broken_bond::incident::Role::kGpu);
         task();
+        broken_bond::incident::Progress(broken_bond::incident::Role::kGpu);
       }
     });
   }
@@ -132,7 +135,9 @@ struct Dispatcher::State {
           }
           stage_run.fetch_add(1);
           try {
+            broken_bond::incident::Activity activity(broken_bond::incident::Role::kTranslator);
             task->Run();
+            broken_bond::incident::Progress(broken_bond::incident::Role::kTranslator);
           } catch (const TranslationStopped&) {
             discarding.store(true, std::memory_order_release);
             stage_stops.fetch_add(1);
@@ -277,7 +282,10 @@ Dispatcher::Dispatcher(bool dedicatedOwner, bool deferredTranslation)
 }
 Dispatcher::~Dispatcher() {
   std::string evidence;
-  if (!Shutdown(evidence)) ExitUnreleased("dispatcher-destructor", evidence);
+  if (!Shutdown(evidence)) {
+    broken_bond::incident::FirstFailure("dispatcher-destructor", evidence);
+    ExitUnreleased("dispatcher-destructor", evidence);
+  }
 }
 
 bool Dispatcher::Initialize(std::string& evidence, const RenderMode& mode) {
@@ -574,6 +582,7 @@ bool Dispatcher::WithEngine(const std::function<void(Engine&)>& operation) {
 }
 
 bool Dispatcher::Shutdown(std::string& evidence) {
+  broken_bond::incident::Event("dispatcher-shutdown", "begin");
   std::lock_guard lifecycle(state_->lifecycle);
   // The stage stops first: its pending tasks are dropped (a pending Run
   // fails), the task in flight finishes, the translator is joined.
@@ -603,7 +612,9 @@ bool Dispatcher::Shutdown(std::string& evidence) {
   };
   {
     std::unique_lock lock(state_->mutex);
-    if (!state_->initialized || state_->stopped) { evidence.clear(); return true; }
+    if (!state_->initialized || state_->stopped) {
+      evidence.clear(); broken_bond::incident::Event("dispatcher-shutdown", "end", "already-stopped"); return true;
+    }
     state_->FlushDrawsLocked(lock, State::Flush::Close);  // Before the engine goes.
     state_->closing = true;
     if (state_->dedicated) state_->Queue(shutdown);
@@ -626,6 +637,7 @@ bool Dispatcher::Shutdown(std::string& evidence) {
         state_->work.size(), state_->posted_pending, !state_->engine));
   }
   // Failed draining leaves the engine and owner alive for retry or fatal stop.
+  broken_bond::incident::Event("dispatcher-shutdown", ok ? "end" : "failed", evidence);
   return ok;
 }
 }  // namespace gpu

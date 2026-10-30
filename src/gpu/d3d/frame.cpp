@@ -28,7 +28,9 @@
 //     each frame fence when its lot completed on the own queue.
 
 #include "gpu/d3d/frame.h"
+#include "diagnostics/incident.h"
 #include "port_version.h"
+#include "crash_report.h"
 #include "gpu/diagnostics/diagnostics.h"
 #include "gpu/d3d/hooks.h"
 #include "gpu/d3d/device.h"
@@ -287,6 +289,7 @@ extern "C" void __imp__VdGetCurrentDisplayInformation(PPCContext& __restrict, ui
 extern "C" void __imp__VdPersistDisplay(PPCContext& __restrict, uint8_t*);
 extern "C" void __imp__MmFreePhysicalMemory(PPCContext& __restrict, uint8_t*);
 REX_HOOK_RAW(sub_821B1DD0) {
+  broken_bond::incident::Activity activity(broken_bond::incident::Role::kGuest);
   if (!gpu::Active()) {
     PacingAtSwap(ctx, base, ctx.r3.u32, false);  // Pacing samples of the Xenos mode.
     // Frame state; a front buffer to capture is read after the original.
@@ -354,6 +357,9 @@ REX_HOOK_RAW(sub_821B1DD0) {
   const uint32_t front_base = f1 & 0xFFFFF000u;
   CallGuest(ctx, base, __imp__sub_821BB4A0, frame, dev, front);
   const uint64_t n = swaps.fetch_add(1) + 1;
+  broken_bond::incident::Progress(broken_bond::incident::Role::kGuest);
+  // --incident_test=guest-av: a guest write fault on this guest thread.
+  if (broken_bond::crash_report::GuestFaultDue(n)) *reinterpret_cast<volatile uint32_t*>(base + 4) = n;
   if (n == 1) AttachPresentation(ctx);  // Own swapchain on the SDK window.
   MaybePostClose(n);  // REX_NATIVE_CLOSE_AFTER_SWAPS, the window close without a person.
   // START evidence: after the first own draw of the START lot, three more

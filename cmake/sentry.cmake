@@ -7,7 +7,7 @@ set(BROKENBOND_SENTRY_DSN "https://dc3332e7033568d15768fe1e258b6530@o45123254524
     CACHE STRING "Public Sentry ingestion DSN (not an auth token)")
 set(BROKENBOND_SENTRY_ENVIRONMENT "production" CACHE STRING "Sentry environment of this build")
 add_library(broken_bond_reporting STATIC src/sentry_reporting.cpp)
-target_link_libraries(broken_bond_reporting PRIVATE rex::runtime)
+target_link_libraries(broken_bond_reporting PRIVATE rex::runtime broken_bond_incidents)
 if(WIN32)
     # std::getenv for the SENTRY_* overrides.
     target_compile_definitions(broken_bond_reporting PRIVATE _CRT_SECURE_NO_WARNINGS)

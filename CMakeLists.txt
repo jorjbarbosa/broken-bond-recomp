@@ -175,6 +175,19 @@ if(WIN32)
     target_link_libraries(broken_bond_data_migration PRIVATE shell32 ole32)
 endif()
 target_link_libraries(broken_bond PRIVATE broken_bond_data_migration)
+# The local incidents (src/diagnostics/incident.h): the channel the game
+# publishes into, the session supervisor and the export of a session. The
+# crash report publishes into it in both renderer modes; only the native
+# build starts the supervisor.
+add_library(broken_bond_incidents STATIC
+    src/diagnostics/incident.cpp src/diagnostics/supervisor.cpp src/diagnostics/export.cpp)
+target_include_directories(broken_bond_incidents PUBLIC src)
+target_compile_features(broken_bond_incidents PUBLIC cxx_std_23)
+target_link_libraries(broken_bond_incidents PUBLIC broken_bond_data_paths PRIVATE broken_bond::json)
+if(WIN32)
+    target_link_libraries(broken_bond_incidents PRIVATE shell32)
+endif()
+target_link_libraries(broken_bond PRIVATE broken_bond_incidents)
 # The settings a new data folder starts from, beside the executable. The active
 # .toml lives in the data folder, so a rebuild never replaces it.
 add_custom_target(broken_bond_default_config ALL
@@ -214,7 +227,7 @@ if(BROKENBOND_NATIVE_RENDERER)
     # The bounded zlib decoder of the SDK's stb (game_logo.cpp).
     target_include_directories(broken_bond_menu_components PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/sdk/thirdparty/stb)
     target_link_libraries(broken_bond_menu_components PUBLIC SDL3::SDL3-static rex::tomlplusplus broken_bond::json
-                          rex::runtime RmlUi::Core)
+                          rex::runtime RmlUi::Core broken_bond_incidents)
     if(WIN32)
         # The Wine check, the graphics cards of DXGI, the update check over
         # WinHTTP, the shortcut and the folder picker over COM.
@@ -282,6 +295,12 @@ if(BROKENBOND_NATIVE_RENDERER)
     brokenbond_shader_cache(broken_bond src/gpu/shaders/shader_cache_data.cpp ${native_shader_options})
     # Opt-in crash reports to Sentry, with Crashpad beside the executable.
     include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/sentry.cmake)
+    # The supervised entry (src/app_entry.cpp) in place of the SDK's SDL entry,
+    # and the developer modes of the incidents (--incident_test).
+    get_target_property(_broken_bond_sources broken_bond SOURCES)
+    list(FILTER _broken_bond_sources EXCLUDE REGEX "windowed_app_main_sdl\\.cpp$")
+    set_property(TARGET broken_bond PROPERTY SOURCES "${_broken_bond_sources}")
+    target_sources(broken_bond PRIVATE src/app_entry.cpp src/diagnostics/verification.cpp)
     if(BROKENBOND_NATIVE_TESTS)
         if(NOT BROKENBOND_NATIVE_VULKAN)
             message(FATAL_ERROR "BROKENBOND_NATIVE_TESTS requires BROKENBOND_NATIVE_VULKAN")
@@ -466,6 +485,37 @@ if(BROKENBOND_NATIVE_RENDERER)
                 sdk/src/core/exception_handler_posix.cpp)
             target_link_libraries(broken_bond_signal_chain_test PRIVATE rex::runtime)
             add_test(NAME signal_chain COMMAND broken_bond_signal_chain_test)
+        endif()
+        # The local incidents: the supervisor and the export with a disposable
+        # game (tests/incident_fixture.cpp), then the game's own capture without
+        # game data. Every SENTRY_DSN of these tests points at a local endpoint.
+        add_executable(broken_bond_incident_fixture tests/incident_fixture.cpp src/gpu/backend/failure_channel.cpp)
+        target_link_libraries(broken_bond_incident_fixture PRIVATE broken_bond_incidents fmt::fmt)
+        find_package(Python3 COMPONENTS Interpreter)
+        if(Python3_Interpreter_FOUND)
+            set(_incidents "${CMAKE_CURRENT_BINARY_DIR}/test-data/incidents")
+            add_test(NAME incidents_clean COMMAND "${CMAKE_COMMAND}" -E rm -rf "${_incidents}")
+            set_tests_properties(incidents_clean PROPERTIES FIXTURES_SETUP incidents_dir)
+            add_test(NAME incident_supervisor COMMAND Python3::Interpreter
+                "${CMAKE_CURRENT_SOURCE_DIR}/tests/incident_test.py"
+                $<TARGET_FILE:broken_bond_incident_fixture> "${_incidents}/supervisor")
+            add_test(NAME incident_export COMMAND Python3::Interpreter
+                "${CMAKE_CURRENT_SOURCE_DIR}/tests/incident_export_test.py"
+                $<TARGET_FILE:broken_bond_incident_fixture> "${_incidents}/export")
+            add_test(NAME incident_boot COMMAND Python3::Interpreter
+                "${CMAKE_CURRENT_SOURCE_DIR}/tests/incident_boot_test.py"
+                $<TARGET_FILE_DIR:broken_bond> "${_incidents}/boot")
+            add_test(NAME incident_consent COMMAND Python3::Interpreter
+                "${CMAKE_CURRENT_SOURCE_DIR}/tests/incident_consent_test.py"
+                $<TARGET_FILE_DIR:broken_bond> "${_incidents}/consent")
+            set(_incident_tests incident_supervisor incident_export incident_boot incident_consent)
+            if(WIN32)
+                add_test(NAME incident_degraded COMMAND Python3::Interpreter
+                    "${CMAKE_CURRENT_SOURCE_DIR}/tests/incident_degraded_test.py"
+                    $<TARGET_FILE_DIR:broken_bond> "${_incidents}/degraded")
+                list(APPEND _incident_tests incident_degraded)
+            endif()
+            set_tests_properties(${_incident_tests} PROPERTIES FIXTURES_REQUIRED incidents_dir TIMEOUT 600)
         endif()
     endif()
     # The SDK runtime next to the executable on Linux, where the executable finds
