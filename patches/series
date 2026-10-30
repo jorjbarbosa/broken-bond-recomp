@@ -20,3 +20,4 @@ rexglue-input-system-lock.patch
 rexglue-sentry-close-hook.patch
 rexglue-sentry-signal-chain.patch
 rexglue-seh-signal-chain.patch
+rexglue-physical-heap-release-order.patch

@@ -93,6 +93,7 @@ The script applies the patches in `patches/` to the `sdk` submodule, in the orde
 | `rexglue-sentry-close-hook.patch` | The application can act when the window closes before the SDK's hard exit; the game flushes its crash reports there |
 | `rexglue-sentry-signal-chain.patch` | On POSIX, a fatal signal the runtime does not resume reaches the handler installed before it, such as Crashpad's, with its original information and context |
 | `rexglue-seh-signal-chain.patch` | On POSIX, the runtime's SEH emulation keeps the handlers it replaces and passes them a fault outside its regions, so Crashpad still writes the dump once the runtime has started |
+| `rexglue-physical-heap-release-order.patch` | A physical heap releases its own region before its parent's pages, so another thread that takes those pages in between no longer loses its new region to this release; an address that is not a region start leaves the parent untouched |
 
 The SDK builds with line tables, and on Windows `rexruntime.dll` gets a PDB, so the crash reports' stacks can be read ([Symbols](sentry.md#symbols)). Rebuild the SDK with this script after changing any patch. On Linux, `scripts/build-sdk.sh` applies the same list and builds the SDK with the `linux-amd64` preset into the same folders.
 
