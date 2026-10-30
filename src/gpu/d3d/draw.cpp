@@ -1503,9 +1503,10 @@ DrawTranslation TranslateDraw(DrawCapture& c, GuardSink& sink) {
     // the dither offsets of bits 24..31.
     s.ps_spec = 0;
     s.alpha_invert = 0;
+    s.alpha_edge = false;  // A material layer switched off has reference byte 255 (sub_82154C38).
     if (color_control & 8) {
       const uint32_t func = color_control & 7;
-      if (func == 4 || func == 6) s.ps_spec = 2;  // SPEC_CONSTANT_ALPHA_TEST
+      if (func == 4 || func == 6) s.ps_spec = 2, s.alpha_edge = s.alpha_ref < 1.0f;  // SPEC_CONSTANT_ALPHA_TEST
       else if (func == 1 || func == 3) s.ps_spec = 2, s.alpha_invert = 1;
       else if (func != 7) guard(fmt::format("alpha-func-uncovered-{}", func), state_record);
     }
@@ -1577,14 +1578,14 @@ DrawTranslation TranslateDraw(DrawCapture& c, GuardSink& sink) {
       if (bounds && (*bounds)[axis] <= -0.99f && (*bounds)[axis + 1] >= 0.99f) request.screen_area = false;
     }
   }
-  // Transparency antialiasing in multisampled targets (TransparencySpec);
-  // the threshold at +272 serves the alpha to coverage variant too. A test
-  // below the threshold keeps the clip: with the title's alpha to mask (as in
-  // Broken Bond's title sky draw) the SDK keeps only the pixels that pass both
-  // the test and the coverage of their own alpha, which the sharpened variant
-  // would turn into full coverage.
+  // Transparency antialiasing in multisampled targets (TransparencySpec), for
+  // an alpha_edge test only; the threshold at +272 serves the alpha to
+  // coverage variant too. A test below the threshold keeps the clip: with the
+  // title's alpha to mask (as in Broken Bond's title sky draw) the SDK keeps
+  // only the pixels that pass both the test and the coverage of their own
+  // alpha, which the sharpened variant would turn into full coverage.
   uint32_t ps_spec = s.ps_spec;
-  if (ps_spec && !depth_only && !s.alpha_invert) {
+  if (ps_spec && !depth_only && s.alpha_edge) {
     ps_spec = TransparencySpec(ps_spec, ps_cached->spec_mask, resources.Samples(c.targets[0]), request.blend_control);
     if (ps_spec != s.ps_spec) request.alpha_to_coverage = true;
   }

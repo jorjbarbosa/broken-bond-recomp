@@ -93,6 +93,7 @@ struct StateShadow {
   float alpha_ref = 0;
   uint32_t ps_spec = 0;
   uint32_t alpha_invert = 0;  // Shared +276: the alpha test passes below the threshold (LESS, LEQUAL).
+  bool alpha_edge = false;  // GREATER or GEQUAL from a threshold under 1: an edge inside the alpha range.
   uint32_t clip_planes = 0;  // PA_CL_CLIP_CNTL.ucp_ena of the state (planes read every draw).
   const char* uncovered_field = nullptr;  // Re-raised every draw while the state holds.
   // Translated request fields.
