@@ -331,6 +331,8 @@ struct Backend::State {
   bool EnsureDrawLayer(const char*& reason, HRESULT& hr);
   // A free SRV slot of the draw heap; false when all are taken.
   bool AllocateDrawView(uint32_t& slot);
+  // The holders of the draw heap, for the evidence of an exhausted heap.
+  std::string DrawViewCounts() const;
   // The constant blocks of the draw layer, on the owner thread: the requests
   // bring the whole block or the registers written since the previous request.
   std::array<uint8_t, 4096> vs_block{}, ps_block{};
@@ -2666,8 +2668,9 @@ bool Backend::ResolveSurface(const ResolveRequest& request, uint64_t& fenceValue
                                           std::string& evidence) {
   profile::Timer profile(profile::kEngineResolve);
   fenceValue = 0;
-  auto fail = [&](const char* reason, HRESULT hr = E_FAIL) {
-    evidence = fmt::format("{{\"resolved\":false,\"reason\":\"{}\",\"hresult\":{}}}", reason, static_cast<uint32_t>(hr));
+  auto fail = [&](const char* reason, HRESULT hr = E_FAIL, const std::string& fields = {}) {
+    evidence = fmt::format("{{\"resolved\":false,\"reason\":\"{}\",\"hresult\":{}{}{}}}", reason,
+                           static_cast<uint32_t>(hr), fields.empty() ? "" : ",", fields);
     return false;
   };
   if (!state_->ready || state_->owner_thread != GetCurrentThreadId() || state_->operation_poisoned ||
@@ -2794,7 +2797,7 @@ bool Backend::ResolveSurface(const ResolveRequest& request, uint64_t& fenceValue
     const char* layer_reason = nullptr;
     if (!state_->EnsureDrawLayer(layer_reason, hr)) return fail(layer_reason, hr);
     uint32_t slot = 0;
-    if (!state_->AllocateDrawView(slot)) return fail("native-draw-views-exhausted");
+    if (!state_->AllocateDrawView(slot)) return fail("native-draw-views-exhausted", E_FAIL, state_->DrawViewCounts());
     state_->batch.views.push_back(slot);  // Free again once this batch completed.
     D3D12_SHADER_RESOURCE_VIEW_DESC srv{};
     // The depth plane of D32_FLOAT_S8X24, or the color surface.
@@ -3048,6 +3051,12 @@ bool Backend::State::AllocateDrawView(uint32_t& slot) {
   return true;
 }
 
+std::string Backend::State::DrawViewCounts() const {
+  return fmt::format("\"views\":{{\"capacity\":{},\"allocated\":{},\"free\":{},\"sampled\":{},\"retired_sampled\":{},"
+                     "\"sampled_released\":{},\"in_batch\":{}}}", kDrawViews, next_view - 1, free_views.size(),
+                     sampled.size(), retired_sampled.size(), sampled_released, batch.views.size());
+}
+
 bool Backend::State::EnsureDrawLayer(const char*& reason, HRESULT& hr) {
   if (draw_root) return true;
   auto* device = static_cast<plume::D3D12Device*>(this->device.get());
@@ -3111,8 +3120,9 @@ bool Backend::State::EnsureDrawLayer(const char*& reason, HRESULT& hr) {
 bool Backend::DrawIndexed(const DrawRequest& r, uint64_t& fenceValue, std::string& evidence) {
   profile::Timer profile(profile::kEngineDraw);
   fenceValue = 0;
-  auto fail = [&](const char* reason, HRESULT hr = E_FAIL) {
-    evidence = fmt::format("{{\"drawn\":false,\"reason\":\"{}\",\"hresult\":{}}}", reason, static_cast<uint32_t>(hr));
+  auto fail = [&](const char* reason, HRESULT hr = E_FAIL, const std::string& fields = {}) {
+    evidence = fmt::format("{{\"drawn\":false,\"reason\":\"{}\",\"hresult\":{}{}{}}}", reason,
+                           static_cast<uint32_t>(hr), fields.empty() ? "" : ",", fields);
     return false;
   };
   if (!state_->ready || state_->owner_thread != GetCurrentThreadId() || state_->operation_poisoned ||
@@ -3276,7 +3286,7 @@ bool Backend::DrawIndexed(const DrawRequest& r, uint64_t& fenceValue, std::strin
         state_->batch.views.push_back(texture.view);
         texture.view = 0;
       }
-      if (!allocate_view(texture.view)) return fail("native-draw-views-exhausted");
+      if (!allocate_view(texture.view)) return fail("native-draw-views-exhausted", E_FAIL, state_->DrawViewCounts());
       write_view = texture.view_of != use.resource;
       texture.view_of = use.resource;
       view = texture.view;
@@ -3323,7 +3333,7 @@ bool Backend::DrawIndexed(const DrawRequest& r, uint64_t& fenceValue, std::strin
         s.last_use_fence = 0;
         s.view_of = nullptr;
       }
-      if (!allocate_view(s.view)) return fail("native-draw-views-exhausted");
+      if (!allocate_view(s.view)) return fail("native-draw-views-exhausted", E_FAIL, state_->DrawViewCounts());
       use.resource = s.resource.Get();
       use.state = &s.state;
       use.last_use = &s.last_use_fence;

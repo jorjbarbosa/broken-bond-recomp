@@ -391,6 +391,12 @@ REX_HOOK_RAW(sub_821B1DD0) {
       FrameTraceRearm();  // The key mode traces again at the next F10.
     }
   }
+  // Texture copies of memory the title freed without destroying the headers
+  // leave every 64 swaps.
+  if (n % 64 == 0) {
+    std::string freed;
+    if (!ReleaseFreedTextureBases(freed)) StopInOrder(ctx, "Swap-freed-texture-release-unproved", 88);
+  }
   Put32(base, dev + 23348, 0);
   uint32_t flags = Get32(base, dev + 16708);
   const uint32_t pending = flags;
