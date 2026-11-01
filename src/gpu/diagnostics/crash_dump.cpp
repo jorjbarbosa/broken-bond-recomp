@@ -76,15 +76,12 @@ void WriteStack(const char* path, EXCEPTION_POINTERS* pointers) {
   std::fprintf(f, "\n");
   if (auto* ts = rex::runtime::ThreadState::Get(); ts && ts->context()) {
     const PPCContext& c = *ts->context();
-    std::fprintf(f, "guest thread %u lr %08X ctr %08X r1 %08X r2 %08X r13 %08X\n", ts->thread_id(),
-                 uint32_t(c.lr), c.ctr.u32, c.r1.u32, c.r2.u32, c.r13.u32);
-    const PPCRegister* gpr[] = {&c.r3, &c.r4, &c.r5, &c.r6, &c.r7, &c.r8, &c.r9, &c.r10, &c.r11, &c.r12,
-                                &c.r14, &c.r15, &c.r16, &c.r17, &c.r18, &c.r19, &c.r20, &c.r21, &c.r22,
-                                &c.r23, &c.r24, &c.r25, &c.r26, &c.r27, &c.r28, &c.r29, &c.r30, &c.r31};
-    const int names[] = {3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27,
-                         28, 29, 30, 31};
+    // CTR and r14-r31 are locals of the recompiled functions: not in the context.
+    std::fprintf(f, "guest thread %u lr %08X r1 %08X r2 %08X r13 %08X (ctr, r14-r31: locals)\n", ts->thread_id(),
+                 uint32_t(c.lr), c.r1.u32, c.r2.u32, c.r13.u32);
+    const PPCRegister* gpr[] = {&c.r3, &c.r4, &c.r5, &c.r6, &c.r7, &c.r8, &c.r9, &c.r10, &c.r11, &c.r12};
     for (size_t i = 0; i < std::size(gpr); ++i)
-      std::fprintf(f, "r%d %08X%s", names[i], gpr[i]->u32, i % 7 == 6 ? "\n" : " ");
+      std::fprintf(f, "r%zu %08X%s", i + 3, gpr[i]->u32, i % 5 == 4 ? "\n" : " ");
   } else {
     std::fprintf(f, "no guest thread state\n");
   }

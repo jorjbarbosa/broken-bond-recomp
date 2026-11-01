@@ -17,7 +17,7 @@ If the incident folder cannot be written, a message says that local diagnostics 
 | `session.log` | The session's log, its last 2 MiB |
 | `stderr.log` | The game's standard error, its first 2 MiB |
 | `native-dumps/*.dmp` | The crash dump, written by Crashpad |
-| `guest-context.json` | For a crash in the game code: the faulting address, the guest thread, the registers r0–r31, LR and CTR, the chain of return addresses, and for an address in the game's heap a summary of that heap |
+| `guest-context.json` | For a crash in the game code: the faulting address, the guest thread, the registers r0–r13 and LR (CTR and r14–r31 live inside the recompiled functions and are not recorded), the chain of return addresses (a frame whose function saved its registers through the shared helper keeps no return address, so the chain can stop early), and for an address in the game's heap a summary of that heap |
 | `snapshot-<n>.dmp` (Windows), `snapshot-<n>.core` (Linux) | Thread snapshots, see below |
 | `capture/` | Crashpad's own database and upload queue; the supervisor copies its dumps to `native-dumps/` |
 | `channel.bin` | The memory the game and the supervisor share during the session |

@@ -449,15 +449,15 @@ int Observe(Mapping& mapping, const fs::path& directory, const fs::path& executa
             const bool guest = words[4] != 0;
             Json context{{"native_pc", words[0]}, {"fault_address", words[1]}, {"sdk_exception_kind", words[2]},
                 {"guest_thread", words[3]}, {"guest_memory_base", words[4]},
-                {"lr", guest ? Json(words[5]) : Json(nullptr)}, {"ctr", guest ? Json(words[6]) : Json(nullptr)},
+                {"lr", guest ? Json(words[5]) : Json(nullptr)}, {"ctr", nullptr},
                 {"guest_context_available", guest},
-                {"register_origin", "published PPCContext r0-r31, CTR and LR: the recompiled functions keep them "
-                    "in the context"},
+                {"register_origin", "published PPCContext r0-r13 and LR; CTR and r14-r31 are locals of the "
+                    "recompiled functions, not published"},
                 {"access_operation", words[39] == 1 ? "read" : words[39] == 2 ? "write" : "unknown"},
                 {"fatal_correlation", "not-confirmed; match native PC and host thread against the exception dump"},
                 {"guest_stack_bounds", "read from the thread's PCR with page-checked reads; see return_chain"},
                 {"lr_is_native_pc", false}, {"gpr", Json::array()}};
-            for (size_t i = 7; i < 39; ++i) context["gpr"].push_back(guest ? Json(words[i]) : Json(nullptr));
+            for (size_t i = 7; i < 39; ++i) context["gpr"].push_back(guest && i < 21 ? Json(words[i]) : Json(nullptr));
             // A new fault replaces the registers; its return chain and heap follow it.
             guest_context = context;
             manifest[field]["data"] = context;

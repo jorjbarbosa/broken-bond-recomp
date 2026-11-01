@@ -52,9 +52,9 @@ def main():
             guest = manifest['guest_context']['data']
             assert guest['native_pc'] == 0x2222 and guest['access_operation'] == 'write', guest
             assert guest['gpr'][1] == 0x7010fc00 and len(guest['gpr']) == 32, guest
-            # Every register is in the context of the recompiled functions: all are recorded.
-            assert guest['gpr'][13] == 0x80010000 and guest['gpr'][20] == 0x82abcdef, guest
-            assert guest['lr'] == 0x82130004 and guest['ctr'] == 0x82140004, guest
+            # CTR and r14-r31 are locals of the recompiled functions: recorded as unavailable.
+            assert guest['gpr'][13] == 0x80010000 and guest['gpr'][14] is None and guest['gpr'][20] is None, guest
+            assert guest['lr'] == 0x82130004 and guest['ctr'] is None, guest
             # The second fault's return chain and heap, not the first's.
             assert guest['return_chain'].startswith('write of guest 0x00005678'), guest
             assert guest['heap'] == 'heap 0x40001000 (of 1 seen)', guest
