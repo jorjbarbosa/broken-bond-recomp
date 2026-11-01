@@ -6,6 +6,7 @@
 #include "gpu/common/title_loading.h"
 #include "gpu/d3d/d3d.h"
 #include "gpu/d3d/frame.h"
+#include "gpu/diagnostics/sampler.h"
 #include "gpu/host/services.h"
 #include "gpu/settings.h"
 #include <fmt/format.h>
@@ -328,6 +329,7 @@ void WorldChangeStep(PPCContext& ctx, uint8_t* base) {
 }
 
 void MainStep(PPCContext& ctx, uint8_t* base) {
+  gpu::sampler::RegisterThread("main");  // The main loop, REX_NATIVE_SAMPLE_PERIOD_US.
   if (gpu::Active()) NoteStep(base);
   if (!Gating()) {
     __imp__sub_827F73F0(ctx, base);
