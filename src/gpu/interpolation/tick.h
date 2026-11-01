@@ -46,6 +46,15 @@
 // come back. The effects' work thread gets its dt as an argument (82BE45F0).
 // REX_NATIVE_INTERPOLATION_VIEW_TIME=0 leaves the tick's dt; =tick gives the
 // tick's dt in the ticks and 0 between them (a probe).
+//
+// The particle generators of the display (82BAB048, per object) get the
+// tick's dt in the ticks and 0 between them, as at 30 fps. A generator
+// accumulates its emission by the dt but takes the emitter's velocity from
+// its displacement since its previous emission (82BA8F68), not divided by
+// the dt: emitting in every frame, its particles inherit a fraction of that
+// velocity (at 120 Hz the chakra around the balloon in Jiraiya's training
+// barely leaves the hand). REX_NATIVE_INTERPOLATION_PARTICLE_TIME=0 gives
+// them the image's dt like the rest of the view block.
 #include <cstdint>
 
 namespace gpu::tick {
