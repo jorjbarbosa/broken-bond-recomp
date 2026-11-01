@@ -6,7 +6,15 @@ name = "broken_bond"
 sdk_version = "0.10.0"
 game_root = "game"
 
+# The executable keeps CTR, XER, the reservation and the CR fields as locals of
+# each recompiled function instead of context fields: they live within a
+# function and no host hook reads them. LR (the hooks identify callers by it),
+# MSR and the GPRs/FPRs stay in the context.
 [entrypoint]
 file_path = "game/default.xex"
 out_directory_path = "generated/default"
 includes = ["config/codegen.toml"]
+ctr_as_local = true
+xer_as_local = true
+reserved_as_local = true
+cr_as_local = true
