@@ -195,7 +195,7 @@ VkResult Backend::State::HeapSampler(const VkSamplerCreateInfo& info, uint32_t& 
 }
 
 bool Backend::PreparePipelines(std::string& evidence) {
-  if (!state_->ready || state_->owner_thread != GetCurrentThreadId())
+  if (!state_->ready || state_->owner_thread != rex::thread::current_thread_system_id())
     return GraphicsError(evidence, "native-prepare-owner");
   if (!state_->EnsureGraphics(evidence)) return false;
   evidence = "{\"prepared\":true,\"backend\":\"vulkan\"}";
@@ -205,7 +205,7 @@ bool Backend::PrecompilePipeline(const PipelineDesc& desc, bool& present, std::s
   present = false;
   if (!state_->draw_layout || !desc.elements) return GraphicsError(evidence, "native-precompile-not-prepared");
   PipelineDesc d = desc;
-  d.state[8] = state_->render_mode.Samples(d.state[8]);
+  d.state[8] = state_->PipelineSamples(d.state[8]);
   const auto result = state_->pipeline_set.Precompile(VulkanPipelineKey(d), d, present);
   if (!result.ok) return GraphicsError(evidence, result.reason, VkResult(result.code));
   evidence = fmt::format("{{\"precompiled\":true,\"present\":{}}}", present);
@@ -213,7 +213,7 @@ bool Backend::PrecompilePipeline(const PipelineDesc& desc, bool& present, std::s
 }
 bool Backend::PostPipeline(const PipelineDesc& desc) {
   if (!state_->draw_layout || !desc.elements) return false;
-  PipelineDesc d = desc; d.state[8] = state_->render_mode.Samples(d.state[8]);
+  PipelineDesc d = desc; d.state[8] = state_->PipelineSamples(d.state[8]);
   const uint64_t key = VulkanPipelineKey(d);
   return state_->pipeline_set.Post(key, std::move(d), true, false);
 }
@@ -258,7 +258,7 @@ bool Backend::DrawIndexed(const DrawRequest& r, uint64_t& fence, std::string& ev
   fence = 0;
   auto fail = [&](const char* reason, VkResult code = VK_ERROR_UNKNOWN) { return GraphicsError(evidence, reason, code); };
   auto& s = *state_;
-  if (!s.ready || s.owner_thread != GetCurrentThreadId() || s.operation_poisoned || s.unproved_execution)
+  if (!s.ready || s.owner_thread != rex::thread::current_thread_system_id() || s.operation_poisoned || s.unproved_execution)
     return fail("native-draw-owner-or-state");
   State::Surface *color = nullptr, *depth = nullptr;
   if (!r.depth_only || r.color_key) {
@@ -490,12 +490,14 @@ bool Backend::DrawIndexed(const DrawRequest& r, uint64_t& fence, std::string& ev
   }
   if (color) color->last_use = s.batch.sequence;
   if (depth) depth->last_use = s.batch.sequence;
-  VkViewport viewport{r.viewport[0] * scale.x, r.viewport[1] * scale.y, r.viewport[2] * scale.x,
-                       r.viewport[3] * scale.y, r.viewport[4], r.viewport[5]};
-  const int32_t left = std::clamp(scale.X(r.scissor[0]), 0, int32_t(target.desc.width));
-  const int32_t top = std::clamp(scale.Y(r.scissor[1]), 0, int32_t(target.desc.height));
-  VkRect2D scissor{{left, top}, {uint32_t(std::max(0, std::min(scale.X(r.scissor[2]), int32_t(target.desc.width)) - left)),
-                                uint32_t(std::max(0, std::min(scale.Y(r.scissor[3]), int32_t(target.desc.height)) - top))}};
+  // The screen layer's into the centered 16:9 area (regions.h, ScreenArea).
+  const ScreenArea area(scale, r.screen_area);
+  const ScreenArea::Viewport host = area.ViewportInHost(r.viewport);  // regions.h
+  VkViewport viewport{host.x, host.y, host.width, host.height, r.viewport[4], r.viewport[5]};
+  const int32_t left = std::clamp(area.EdgeX(r.scissor[0]), 0, int32_t(target.desc.width));
+  const int32_t top = std::clamp(area.EdgeY(r.scissor[1]), 0, int32_t(target.desc.height));
+  VkRect2D scissor{{left, top}, {uint32_t(std::max(0, std::min(area.EdgeX(r.scissor[2]), int32_t(target.desc.width)) - left)),
+                                uint32_t(std::max(0, std::min(area.EdgeY(r.scissor[3]), int32_t(target.desc.height)) - top))}};
   auto& bound = s.batch;
   const bool valid = bound.draw_bindings_valid;
   if (!valid || bound.draw_pipeline != p->pipeline) {

@@ -1,0 +1,30 @@
+#!/bin/sh
+# The AppImage's entry point: the game runs from the image. It keeps its
+# settings, saves, logs, mods and DLC in its data folder,
+# ${XDG_DATA_HOME:-~/.local/share}/broken_bond, which it prepares itself.
+set -eu
+
+appdir=${APPDIR:-$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)}
+payload="$appdir/usr/lib/broken_bond"
+
+# The SDK's POSIX wait check, without the game.
+if [ "${1:-}" = "--test-posix-wait" ]; then
+    shift
+    LD_LIBRARY_PATH="$payload${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
+        exec "$payload/broken_bond_posix_wait_test" "$@"
+fi
+
+# Earlier images copied the program into the data folder and ran it there,
+# recording the copy in .build-id. That copy goes, by name and only when
+# .build-id marks it; the player's files beside it stay.
+data="${XDG_DATA_HOME:-$HOME/.local/share}/broken_bond"
+if [ -f "$data/.build-id" ]; then
+    rm -f -- "$data/broken_bond" "$data/librexruntime.so" "$data/broken_bond.version" "$data/README.txt" \
+        "$data/.appimage.lock"
+    rm -rf -- "$data/licenses"
+    rm -f -- "$data/.build-id"
+fi
+
+# The working folder and the arguments stay the caller's. The game finds a
+# game/ folder beside the AppImage itself ($APPIMAGE).
+exec "$payload/broken_bond" "$@"

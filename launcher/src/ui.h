@@ -23,6 +23,8 @@ class LauncherUI {
 
   static void SetupTheme();
   void Render(GameConfig& config, bool& request_launch, std::string& status_message);
+  // Lists the translation packages in mods/ again (on opening, focus and launch).
+  void RefreshTranslationMods();
 
  private:
   void RenderCover(float width, float height) const;
@@ -34,4 +36,5 @@ class LauncherUI {
   Cover cover_;
   std::string version_;
   launcher_ui::Page page_ = launcher_ui::Page::kPlay;
+  std::vector<launcher_ui::TranslationMod> translation_mods_;
 };

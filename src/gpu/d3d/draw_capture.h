@@ -12,6 +12,7 @@
 #include <vector>
 #include "gpu/backend/engine.h"
 #include "gpu/buffers/vertex_layout.h"
+#include "gpu/d3d/screen_layer.h"
 #include "gpu/d3d/state.h"
 #include "gpu/diagnostics/start_evidence.h"
 #include "gpu/shaders/shaders.h"
@@ -24,6 +25,10 @@ struct DrawCapture {
   uint8_t* base = nullptr;  // Guest memory base: vertices, indices and textures are read at GPU time.
   bool indexed = false, quad = false;
   uint32_t primitive = 0, lr = 0, thread = 0;
+  // The screen layer the draw belongs to (screen_layer.h) and, for a Flash
+  // draw at another aspect, its g_mWorldViewProj (VS c0..c3, rows).
+  screen_layer::Kind screen_layer = screen_layer::Kind::kNone;
+  std::array<float, 16> screen_matrix{};
   int32_t base_vertex = 0;
   uint32_t start_index = 0, index_count = 0, start_vertex = 0;
   uint32_t quad_vertices = 0;  // The own vertex area of the quad (guest virtual).
@@ -67,7 +72,7 @@ struct DrawCapture {
   // Constants: what the request carries, taken after the guards of the
   // capture, the versions of the shadows and what was pending before the take
   // (given back when the translation skips the draw).
-  std::vector<uint8_t> vs_constants, ps_constants, vs_constants_delta, ps_constants_delta;
+  ConstantBytes vs_constants, ps_constants, vs_constants_delta, ps_constants_delta;
   uint64_t vs_constants_version = 0, ps_constants_version = 0;
   uint64_t vs_pending_before = 0, ps_pending_before = 0;
   std::vector<uint8_t> trace_vs_constants, trace_ps_constants;  // The whole shadows, in a traced frame only.

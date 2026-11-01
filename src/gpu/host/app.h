@@ -16,4 +16,7 @@ bool BeforeExport(const char* name, PPCContext& ctx);
 // before ReXApp::OnClosing). Returns true: the close always proceeds.
 bool CloseRequested();
 void AfterExport(const char* name, PPCContext& ctx);
+// The title's camera ratio for the aspect_ratio option (aspect.cpp), once the
+// image is loaded and before the title runs; nothing at 16:9.
+void ApplyAspectRatio(uint8_t* base);
 }  // namespace gpu::host

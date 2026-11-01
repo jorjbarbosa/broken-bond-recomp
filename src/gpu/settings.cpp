@@ -3,16 +3,23 @@
 // runs, the presenter cvars of rexruntime.dll read by name, and the journal
 // fields of the options in use.
 #include "gpu/settings.h"
+#include "gpu/backend/dispatcher.h"
+#include "gpu/host/services.h"
+#include "gpu/common/platform.h"
+#include "wine.h"
 #include <algorithm>
+#include <atomic>
 #include <cctype>
 #include <charconv>
 #include <cmath>
 #include <deque>
 #include <functional>
+#include <mutex>
 #include <string_view>
 #include <vector>
 #include <fmt/format.h>
 #include <rex/cvar.h>
+#include <rex/logging.h>
 
 // Options of the native renderer without an SDK counterpart: the swapchain
 // latency and buffer count. The defaults: two buffers, frame latency 1.
@@ -51,6 +58,13 @@ REXCVAR_DEFINE_INT32(frame_rate, 30, "broken_bond/Graphics",
                      "between the game's logic steps")
     .range(30, 240)
     .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
+// The aspect ratio of the image: the title's camera covers it (host/aspect.cpp).
+// -1 follows the monitor; 0 keeps the title's 16:9.
+REXCVAR_DEFINE_DOUBLE(aspect_ratio, -1.0, "broken_bond/Graphics",
+                      "Aspect ratio of the native renderer's image, width over height: -1 follows the monitor, "
+                      "0 keeps the game's 16:9; for example 1.6 (16:10), 2.3889 (21:9) or 3.5556 (32:9)")
+    .range(-1.0, 4.0)
+    .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
 REXCVAR_DEFINE_DOUBLE(internal_resolution_scale, 0.0, "broken_bond/Graphics",
                       "Internal resolution scale of the native renderer, 1 to 4 with fractions "
                       "(0 = resolution_scale)")
@@ -72,6 +86,13 @@ REXCVAR_DEFINE_STRING(native_backend, "d3d12", "broken_bond/Graphics", "Native r
 namespace gpu {
 namespace {
 Settings settings;
+Settings requested_settings;
+std::mutex settings_mutex;
+// Bumped under settings_mutex each time settings changes: the threads' copies
+// (CurrentSettings) compare it before taking the lock.
+std::atomic<uint64_t> published{0};
+uint64_t requested_revision = 0;
+SettingsResult last_result;
 std::string evidence;
 
 // The options that the SDK defines in the Xenos plugin (command_processor.cpp,
@@ -141,7 +162,7 @@ rex::cvar::FlagEntry StringOption(const char* name, std::string& value, std::vec
 constexpr std::string_view kOptions[] = {
     "vsync", "anisotropic_override", "swap_post_effect", "resolution_scale", "draw_resolution_scale_x",
     "draw_resolution_scale_y", "max_frame_latency", "triple_buffering", "brightness", "internal_resolution_scale",
-    "msaa_samples", "transparency_antialiasing", "frame_rate", "graphics_device", "native_backend",
+    "msaa_samples", "transparency_antialiasing", "frame_rate", "aspect_ratio", "graphics_device", "native_backend",
     "d3d12_allow_variable_refresh_rate_and_tearing", "present_effect", "present_cas_additional_sharpness",
     "present_fsr_sharpness_reduction", "present_fsr_max_upsampling_passes"};
 
@@ -245,8 +266,32 @@ void LoadSettings() {
   s.msaa_samples = msaa >= 8 ? 8 : msaa >= 4 ? 4 : msaa >= 2 ? 2 : 0;
   s.transparency_antialiasing = REXCVAR_GET(transparency_antialiasing);
   s.frame_rate = uint32_t(std::clamp(REXCVAR_GET(frame_rate), 30, 240));
+  // Within half a percent of 16:9 is the title's own aspect; outside 1.25 to 4, too.
+  // A negative value (the default) follows the primary monitor, where the window opens.
+  double aspect = REXCVAR_GET(aspect_ratio);
+  if (std::isfinite(aspect) && aspect < 0) {
+    uint32_t w = 0, h = 0;
+    aspect = platform::PrimaryDisplaySize(w, h) ? double(w) / double(h) : 0.0;
+  }
+  s.aspect_ratio = std::isfinite(aspect) && aspect >= 1.25 && aspect <= 4.0 &&
+                           std::abs(aspect / (16.0 / 9.0) - 1.0) > 0.005
+                       ? float(aspect)
+                       : 0.0f;
+  // At another aspect the title's surfaces are drawn at the image's aspect.
+  s.resolution_scale = AnamorphicScale(s.resolution_scale, s.aspect_ratio);
   s.graphics_device = REXCVAR_GET(graphics_device);
   s.native_backend = REXCVAR_GET(native_backend);
+#if defined(BROKENBOND_NATIVE_VULKAN)
+  // Under Wine (Proton), Direct3D 12 runs through vkd3d-proton, and the game
+  // closes there at startup; Vulkan goes to the driver directly. So Vulkan,
+  // whatever the configuration says.
+  if (broken_bond::WineVersion()) s.native_backend = "vulkan";
+#endif
+#if defined(BROKENBOND_NATIVE_D3D12_DISABLED) && defined(BROKENBOND_NATIVE_VULKAN)
+  // A build without Direct3D 12 (Linux) runs on Vulkan only, whatever the
+  // configuration says: a .toml written on Windows still starts the game.
+  s.native_backend = "vulkan";
+#endif
   if (rex::cvar::GetFlagInfo("d3d12_allow_variable_refresh_rate_and_tearing"))
     s.allow_tearing = rex::cvar::Query<bool>("d3d12_allow_variable_refresh_rate_and_tearing");
   // fsr2 and fsr3 are the SDK's temporal upscalers, not covered: they keep bilinear.
@@ -257,7 +302,11 @@ void LoadSettings() {
   s.cas_additional_sharpness = PresenterFloat("present_cas_additional_sharpness", 0.0f, 0.0f, 1.0f);
   s.fsr_sharpness_reduction = PresenterFloat("present_fsr_sharpness_reduction", 0.2f, 0.0f, 2.0f);
   s.fsr_max_passes = uint32_t(PresenterFloat("present_fsr_max_upsampling_passes", 4.0f, 1.0f, 4.0f));
-  settings = s;
+  {
+    std::lock_guard lock(settings_mutex);
+    settings = requested_settings = s;
+    published.fetch_add(1, std::memory_order_release);
+  }
 
   std::string sources;
   for (const auto name : kOptions)
@@ -267,12 +316,72 @@ void LoadSettings() {
       "\"present_effect_requested\":{},\"cas_additional_sharpness\":{},\"fsr_sharpness_reduction\":{},"
       "\"swap_post_effect\":\"{}\",\"resolution_scale\":[{},{}],\"max_frame_latency\":{},\"triple_buffering\":{},"
       "\"brightness\":{},\"fsr_max_passes\":{},\"msaa_samples\":{},\"transparency_antialiasing\":{},"
-      "\"frame_rate\":{},\"graphics_device\":{},\"sources\":{{{}}}",
+      "\"frame_rate\":{},\"aspect_ratio\":{},\"graphics_device\":{},\"sources\":{{{}}}",
       s.vsync, s.allow_tearing, s.anisotropic_override, Name(s.present_effect), Quoted(requested),
       s.cas_additional_sharpness, s.fsr_sharpness_reduction, Name(s.swap_post_effect), s.resolution_scale.x,
       s.resolution_scale.y, s.max_frame_latency, s.triple_buffering, s.brightness, s.fsr_max_passes, s.msaa_samples,
-      s.transparency_antialiasing, s.frame_rate, Quoted(s.graphics_device), sources);
+      s.transparency_antialiasing, s.frame_rate, s.aspect_ratio, Quoted(s.graphics_device), sources);
 }
-const Settings& CurrentSettings() { return settings; }
+const Settings& CurrentSettings() {
+  thread_local Settings copy;
+  thread_local uint64_t seen = UINT64_MAX;
+  if (published.load(std::memory_order_acquire) != seen) {
+    std::lock_guard lock(settings_mutex);
+    copy = settings;
+    seen = published.load(std::memory_order_relaxed);
+  }
+  return copy;
+}
+Settings RequestedSettings() { std::lock_guard lock(settings_mutex); return requested_settings; }
+uint64_t RequestSettings(Settings next) {
+  std::lock_guard lock(settings_mutex);
+  // The API, the adapter and the aspect ratio belong to the session, even after a saved restart edit.
+  next.native_backend = settings.native_backend;
+  next.graphics_device = settings.graphics_device;
+  next.aspect_ratio = settings.aspect_ratio;
+  next.resolution_scale = AnamorphicScale(next.resolution_scale, next.aspect_ratio);
+  requested_settings = std::move(next);
+  return ++requested_revision;
+}
+SettingsResult LastSettingsResult() { std::lock_guard lock(settings_mutex); return last_result; }
+void ApplyPendingSettings(Dispatcher& dispatcher) {
+  Settings next;
+  uint64_t revision;
+  {
+    std::lock_guard lock(settings_mutex);
+    if (requested_revision == last_result.revision) return;
+    revision = requested_revision;
+    next = requested_settings;
+  }
+  PresentMode present;
+  present.vsync = next.vsync; present.allow_tearing = next.allow_tearing;
+  present.buffers = next.triple_buffering ? 3 : 2;
+  present.max_frame_latency = next.max_frame_latency;
+  present.brightness = next.brightness; present.effect = next.present_effect;
+  present.post_effect = next.swap_post_effect; present.cas_sharpness = next.cas_additional_sharpness;
+  present.fsr_sharpness_reduction = next.fsr_sharpness_reduction; present.fsr_passes = next.fsr_max_passes;
+  RenderMode render{next.resolution_scale, next.msaa_samples, next.graphics_device, dispatcher.Api()};
+  std::string detail;
+  const bool applied = dispatcher.Run([render, present, next](Engine& engine, std::string& out) {
+    if (!engine.Reconfigure(render, present, out)) return false;
+    // Published before the stage may translate any operation after this Run.
+    std::lock_guard lock(settings_mutex);
+    settings = next;
+    published.fetch_add(1, std::memory_order_release);
+    return true;
+  }, detail);
+  {
+    std::lock_guard lock(settings_mutex);
+    if (!applied && requested_revision == revision) requested_settings = settings;
+    last_result = {revision, applied, detail};
+  }
+  host::Record("native-live-settings", fmt::format("\"revision\":{},\"applied\":{},\"resolution_scale\":[{},{}],"
+      "\"frame_rate\":{},\"anisotropic_override\":{},\"transparency_antialiasing\":{},\"engine\":{}", revision,
+      applied, next.resolution_scale.x, next.resolution_scale.y, next.frame_rate, next.anisotropic_override,
+      next.transparency_antialiasing, detail.empty() ? "null" : detail));
+  REXLOG_INFO("[broken_bond] Live settings revision {}: applied={}, resolution_scale={}x{}, frame_rate={}, "
+      "anisotropy={}, transparency_aa={}, {}", revision, applied, next.resolution_scale.x, next.resolution_scale.y,
+      next.frame_rate, next.anisotropic_override, next.transparency_antialiasing, detail);
+}
 std::string SettingsEvidence() { return evidence; }
 }  // namespace gpu

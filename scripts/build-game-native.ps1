@@ -7,16 +7,16 @@ param(
     [string]$SdkPrefix,
     [string]$BuildDirectory,
     [ValidateSet('d3d12', 'vulkan', 'both')]
-    [string]$Backend = 'd3d12',
+    [string]$Backend = 'both',
     [string]$SpirvVal,
     [switch]$Tests,
     [ValidateRange(1, 128)]
     [int]$Jobs = 6
 )
 
-# Builds the native game and matching launcher in a separate build directory.
-# This release defaults to Direct3D 12; Vulkan remains opt-in for development.
-# No Xenos plugin is staged.
+# Builds the native game in a separate build directory.
+# Both graphics APIs are built by default (Direct3D 12 stays the game's default
+# API); -Backend d3d12 or vulkan builds one. No Xenos plugin is staged.
 $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path -Parent $PSScriptRoot
 if (-not $SdkPrefix) { $SdkPrefix = Join-Path $projectRoot 'build/sdk-install' }
@@ -52,15 +52,15 @@ try {
     # Code generation is shared with the Xenos build (scripts/build-game.ps1).
     & cmake --preset windows-release -B $BuildDirectory "-DCMAKE_PREFIX_PATH=$SdkPrefix" `
         "-Drexglue_DIR=$SdkPrefix/lib/cmake/rexglue" -DBROKENBOND_NATIVE_RENDERER=ON `
-        -DBROKENBOND_BUILD_LAUNCHER=ON -DBROKENBOND_LAUNCHER_NATIVE_RENDERER=ON `
         "-DNATIVE_RENDERER_PLUME_SOURCE=$PlumeSource" "-DBROKENBOND_XENOS_RECOMP_THIRDPARTY=$XenosRecompThirdparty" @backendOptions
     if ($LASTEXITCODE -ne 0) { throw 'Native renderer configuration failed.' }
-    & cmake --build $BuildDirectory --target broken_bond broken_bond_launcher --parallel $Jobs
+    & cmake --build $BuildDirectory --target broken_bond --parallel $Jobs
     if ($LASTEXITCODE -ne 0) { throw 'Native renderer build failed.' }
     if ($Tests) {
-        & cmake --build $BuildDirectory --target broken_bond_native_tests broken_bond_launcher_test --parallel $Jobs
+        # Every test of the tree: the engine, the menus, the setup screen and the controls.
+        & cmake --build $BuildDirectory --parallel $Jobs
         if ($LASTEXITCODE -ne 0) { throw 'Native renderer test build failed.' }
-        & ctest --test-dir $BuildDirectory --output-on-failure -R '^(native_|launcher_config)'
+        & ctest --test-dir $BuildDirectory --output-on-failure
         if ($LASTEXITCODE -ne 0) { throw 'Native renderer tests failed.' }
     }
 } finally {

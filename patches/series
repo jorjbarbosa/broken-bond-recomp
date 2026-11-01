@@ -1,0 +1,24 @@
+# SDK patches in the order scripts/build-sdk.ps1 and scripts/build-sdk.sh apply them.
+rexglue-enable-usbcam.patch
+rexglue-discovery.patch
+rexglue-xma-decoder.patch
+rexglue-mnk-modifiers.patch
+rexglue-d3d12-fence-check.patch
+rexglue-content-unread-header.patch
+rexglue-disc-image-game-root.patch
+rexglue-controls-v4.patch
+rexglue-sdl-initial-gamepads.patch
+rexglue-content-package-path-case.patch
+rexglue-linux-procmap-query.patch
+rexglue-native-window-handle-sdl.patch
+rexglue-present-effect-without-fidelityfx.patch
+rexglue-query-committed-range-access.patch
+rexglue-posix-multiwait-sleep-precision.patch
+rexglue-data-log-directory.patch
+rexglue-data-achievements-unicode.patch
+rexglue-input-system-lock.patch
+rexglue-sentry-close-hook.patch
+rexglue-sentry-signal-chain.patch
+rexglue-seh-signal-chain.patch
+rexglue-physical-heap-release-order.patch
+rexglue-input-user-packet.patch

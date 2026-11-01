@@ -11,7 +11,9 @@ $projectRoot = Split-Path -Parent $PSScriptRoot
 $sdkBuild = Join-Path $projectRoot 'build/sdk'
 $sdkInstall = Join-Path $projectRoot 'build/sdk-install'
 $sdkSource = Join-Path $projectRoot 'sdk'
-foreach ($patchName in @('rexglue-enable-usbcam.patch', 'rexglue-discovery.patch', 'rexglue-xma-decoder.patch', 'rexglue-mnk-modifiers.patch', 'rexglue-d3d12-fence-check.patch')) {
+$patchNames = Get-Content -LiteralPath (Join-Path $projectRoot 'patches/series') |
+    ForEach-Object { $_.Trim() } | Where-Object { $_ -and -not $_.StartsWith('#') }
+foreach ($patchName in $patchNames) {
     $sdkPatch = Join-Path $projectRoot "patches/$patchName"
     & git -C $sdkSource apply --check $sdkPatch 2>&1 | Out-Null
     if ($LASTEXITCODE -eq 0) {
@@ -42,9 +44,12 @@ if ($env:VSCMD_ARG_TGT_ARCH -ne 'x64') {
     & (Join-Path $visualStudio 'Common7/Tools/Launch-VsDevShell.ps1') -Arch amd64 -HostArch amd64 -SkipAutomaticLocation
 }
 
+# Line tables and a PDB for rexruntime.dll, for readable crash reports; /DEBUG
+# keeps lld's /OPT:REF and /OPT:ICF only when they are named.
 & cmake -S (Join-Path $projectRoot 'sdk') -B $sdkBuild -G 'Ninja Multi-Config' `
     '-DCMAKE_C_COMPILER=clang' '-DCMAKE_CXX_COMPILER=clang++' `
-    '-DCMAKE_C_FLAGS=-march=x86-64-v2' '-DCMAKE_CXX_FLAGS=-march=x86-64-v2' `
+    '-DCMAKE_C_FLAGS=-march=x86-64-v2 -gline-tables-only' '-DCMAKE_CXX_FLAGS=-march=x86-64-v2 -gline-tables-only' `
+    '-DCMAKE_SHARED_LINKER_FLAGS=-Xlinker /DEBUG -Xlinker /OPT:REF -Xlinker /OPT:ICF' `
     "-DCMAKE_INSTALL_PREFIX=$sdkInstall" '-DREXGLUE_BUILD_TESTS=OFF'
 if ($LASTEXITCODE -ne 0) { throw 'SDK configuration failed.' }
 

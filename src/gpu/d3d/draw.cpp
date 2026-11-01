@@ -22,6 +22,7 @@
 // draw. After the call +48, +56 and +13444 hold the guard cursor again, so the
 // inline EndVertices keeps every other inline writer on the guarded F608.
 #include "gpu/d3d/draw.h"
+#include "diagnostics/incident.h"
 #include "gpu/d3d/draw_capture.h"
 #include "gpu/d3d/d3d.h"
 #include "gpu/diagnostics/diagnostics.h"
@@ -31,6 +32,8 @@
 #include "gpu/d3d/pass.h"
 #include "gpu/d3d/state.h"
 #include "gpu/d3d/frame.h"
+#include "gpu/d3d/screen_layer.h"
+#include "gpu/settings.h"
 #include "gpu/diagnostics/measure.h"
 #include "gpu/shaders/shaders.h"
 #include "gpu/shaders/pipelines.h"
@@ -50,7 +53,6 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
-#include <dxgiformat.h>
 #include <array>
 #include <chrono>
 #include <atomic>
@@ -59,6 +61,7 @@
 #include <deque>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <span>
 #include <string>
 #include <thread>
@@ -66,9 +69,6 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
-#include <windows.h>
-#include <wrl/client.h>
-#include <dxcapi.h>
 #include <fmt/format.h>
 #include <fmt/ranges.h>
 #include <rex/cvar.h>
@@ -579,7 +579,7 @@ class DeferredGuardSink final : public GuardSink {
 // the next request (the inline route gives them back to the shadow instead).
 ConstantCarry carry_vs, carry_ps;  // Translator only.
 // A capture on the stage, translated and posted by the translator.
-class CaptureTask final : public StageTask {
+class CaptureTask final : public StageTask, public DrawStorageAllocated<CaptureTask> {
  public:
   explicit CaptureTask(DrawCapture&& capture) : capture_(std::move(capture)) {}
   bool Discardable() const override { return true; }
@@ -601,7 +601,7 @@ class CaptureTask final : public StageTask {
 // The quad of BeginVertices on the stage: its capture is translated into
 // the build (the request kept for the take); the take, with the vertices the
 // title wrote (read on the title at the take, as before), posts it.
-class QuadCaptureTask final : public StageTask {
+class QuadCaptureTask final : public StageTask, public DrawStorageAllocated<QuadCaptureTask> {
  public:
   QuadCaptureTask(std::shared_ptr<InlineBuild> build, DrawCapture&& capture)
       : build_(std::move(build)), capture_(std::move(capture)) {}
@@ -757,6 +757,7 @@ void CaptureDraw(PPCContext& ctx, uint8_t* base, bool indexed, InlineBuild* quad
   c.quad = quad != nullptr;
   c.primitive = quad ? 5 : ctx.r4.u32;
   c.lr = ctx.lr;
+  c.screen_layer = screen_layer::Current();
   c.thread = GuestThread();
   c.base_vertex = indexed ? int32_t(ctx.r5.u32) : 0;
   // The quad is drawn as a list: (0, 1, 2) and (0, 2, 3).
@@ -816,8 +817,10 @@ void CaptureDraw(PPCContext& ctx, uint8_t* base, bool indexed, InlineBuild* quad
   if (candidate) ReadStartAfter(base, *c.live);  // START entry after the original commit.
   profile::Timer shaders_time(profile::kDrawShaders);
   std::call_once(shader_cache.once, [] {  // The package of the session's API.
+    broken_bond::incident::Event("shader-package", "begin");
     const auto* dispatcher = host::ActiveDispatcher();
     LoadShaderCache(ShaderFormatOf(dispatcher ? dispatcher->Api() : RenderMode{}.api));
+    broken_bond::incident::Event("shader-package", "end", shader_cache.loaded ? "loaded" : shader_cache.error);
   });
   StartPipelinePrecompileOnce();
   InlineGuardSink sink(saved);
@@ -960,6 +963,10 @@ void CaptureDraw(PPCContext& ctx, uint8_t* base, bool indexed, InlineBuild* quad
   // groups for the batched draws. A draw the translation skips gives them back
   // (ReturnConstants).
   const bool whole = quad != nullptr || c.evidence_draw || candidate || StartVariationMode() == 1;
+  // The matrix of a Flash draw at another aspect, for its extent (TranslateDraw).
+  if (c.screen_layer == screen_layer::Kind::kFlash && CurrentSettings().aspect_ratio > 0 &&
+      vs_shadow.bytes.size() >= sizeof(c.screen_matrix))
+    std::memcpy(c.screen_matrix.data(), vs_shadow.bytes.data(), sizeof(c.screen_matrix));
   c.vs_constants_version = vs_shadow.version;
   c.ps_constants_version = ps_shadow.version;
   c.vs_pending_before = vs_shadow.pending;
@@ -976,6 +983,141 @@ void CaptureDraw(PPCContext& ctx, uint8_t* base, bool indexed, InlineBuild* quad
   }
   c.bind_swap = swaps.load() + 1;
 }
+namespace {
+// One component of a vertex fetch, as vfetchComponent of the XenosRecomp fork.
+float FetchComponent(uint32_t raw, uint32_t shift, uint32_t bits, uint32_t descriptor) {
+  const uint32_t value = (raw >> shift) & ((1u << bits) - 1u);
+  const bool is_signed = (descriptor & 0x40u) != 0;
+  const int32_t signed_value = is_signed ? int32_t(value << (32u - bits)) >> (32u - bits) : int32_t(value);
+  if (descriptor & 0x80u) return float(signed_value);
+  if (is_signed) return std::max(float(signed_value) / float((1u << (bits - 1u)) - 1u), -1.0f);
+  return float(value) / float((1u << bits) - 1u);
+}
+float HalfToFloat(uint32_t half) {
+  const uint32_t sign = (half >> 15) & 1, exponent = (half >> 10) & 0x1F, mantissa = half & 0x3FF;
+  const float magnitude = exponent == 0 ? std::ldexp(float(mantissa), -24)
+                          : exponent == 31 ? (mantissa ? NAN : INFINITY)
+                                           : std::ldexp(float(mantissa | 0x400), int(exponent) - 25);
+  return sign ? -magnitude : magnitude;
+}
+// An element as vfetchNaruto reads it, with the descriptor's swizzle; false
+// for a format it does not read either.
+bool FetchElement(const uint32_t* raw, uint32_t descriptor, std::array<float, 4>& out) {
+  std::array<float, 4> v{};
+  switch (descriptor & 0x3Fu) {
+    case 6:  // 8_8_8_8
+      for (uint32_t k = 0; k < 4; ++k) v[k] = FetchComponent(raw[0], 8 * k, 8, descriptor);
+      break;
+    case 7:  // 2_10_10_10
+      v = {FetchComponent(raw[0], 0, 10, descriptor), FetchComponent(raw[0], 10, 10, descriptor),
+           FetchComponent(raw[0], 20, 10, descriptor), FetchComponent(raw[0], 30, 2, descriptor)};
+      break;
+    case 16:  // 10_11_11
+      if (descriptor & 0x100u) {
+        v = {((raw[0] & 0x00000400u) ? -1.0f : 0.0f) + float(raw[0] & 0x3FFu) / 1024.0f,
+             ((raw[0] & 0x00200000u) ? -1.0f : 0.0f) + float((raw[0] >> 11) & 0x3FFu) / 1024.0f,
+             ((raw[0] & 0x80000000u) ? -1.0f : 0.0f) + float((raw[0] >> 22) & 0x1FFu) / 512.0f, 0.0f};
+      } else {
+        v = {FetchComponent(raw[0], 0, 11, descriptor), FetchComponent(raw[0], 11, 11, descriptor),
+             FetchComponent(raw[0], 22, 10, descriptor), 0.0f};
+      }
+      break;
+    case 25:  // 16_16
+      v = {FetchComponent(raw[0], 0, 16, descriptor), FetchComponent(raw[0], 16, 16, descriptor), 0.0f, 0.0f};
+      break;
+    case 26:  // 16_16_16_16
+      v = {FetchComponent(raw[0], 0, 16, descriptor), FetchComponent(raw[0], 16, 16, descriptor),
+           FetchComponent(raw[1], 0, 16, descriptor), FetchComponent(raw[1], 16, 16, descriptor)};
+      break;
+    case 31:  // 16_16_FLOAT
+      v = {HalfToFloat(raw[0] & 0xFFFF), HalfToFloat(raw[0] >> 16), 0.0f, 0.0f};
+      break;
+    case 32:  // 16_16_16_16_FLOAT
+      v = {HalfToFloat(raw[0] & 0xFFFF), HalfToFloat(raw[0] >> 16), HalfToFloat(raw[1] & 0xFFFF),
+           HalfToFloat(raw[1] >> 16)};
+      break;
+    case 36:  // 32_FLOAT
+      std::memcpy(v.data(), raw, 4);
+      break;
+    case 37:  // 32_32_FLOAT
+      std::memcpy(v.data(), raw, 8);
+      break;
+    case 57:  // 32_32_32_FLOAT
+      std::memcpy(v.data(), raw, 12);
+      break;
+    case 38:  // 32_32_32_32_FLOAT
+      std::memcpy(v.data(), raw, 16);
+      break;
+    default:
+      return false;
+  }
+  const float source[8] = {v[0], v[1], v[2], v[3], 0.0f, 1.0f, 0.0f, 0.0f};
+  out = {source[(descriptor >> 9) & 7], source[(descriptor >> 12) & 7], source[(descriptor >> 15) & 7],
+         source[(descriptor >> 18) & 7]};
+  return true;
+}
+
+// The extent of a Flash draw in NDC (x0, x1, y0, y1): its POSITION0 element,
+// read as the request binds it (inline bytes, or guest memory for a hosted
+// buffer, swapped as the upload is), through its own g_mWorldViewProj (VS c0..c3,
+// rows) as its vertex shaders place each vertex: (x/w, y/w, z/w, 1) by each row.
+// Up to the first 4096 indices; empty when a position cannot be read.
+std::optional<std::array<float, 4>> FlashBounds(const DrawCapture& c, const DrawRequest& request,
+                                                const DrawTranslation& t, uint8_t* base, bool indexed,
+                                                const std::vector<uint32_t>& stream_address,
+                                                const std::vector<uint32_t>& stream_endian) {
+  auto read_word = [&](uint32_t physical, uint32_t bytes, uint32_t endian, uint32_t& word) {
+    thread_local std::vector<uint8_t> raw;
+    raw.resize(bytes);
+    word = 0;
+    if (!ReadPhysical(base, physical, bytes, raw.data()) || !SwapEndian(raw, endian)) return false;
+    std::memcpy(&word, raw.data(), bytes);
+    return true;
+  };
+  const std::vector<VertexElement>& elements = *request.elements;
+  size_t position = elements.size();
+  for (size_t i = 0; i < elements.size() && position == elements.size(); ++i)
+    if (!std::strcmp(elements[i].semantic, "POSITION") && elements[i].semantic_index == 0) position = i;
+  if (position == elements.size() || elements[position].slot >= request.streams.size()) return std::nullopt;
+  const VertexElement& e = elements[position];
+  const VertexStream& stream = request.streams[e.slot];
+  uint32_t descriptor = 0;
+  std::memcpy(&descriptor, &request.shared_constants[320 + 4 * position], 4);
+  const uint32_t words = e.format == VertexFormat::kR32G32B32A32Uint ? 4
+                         : e.format == VertexFormat::kR32G32B32Uint ? 3
+                         : e.format == VertexFormat::kR32G32Uint ? 2 : 1;
+  const uint32_t index_size = request.index32 ? 4 : 2;
+  const auto& m = c.screen_matrix;
+  std::array<float, 4> bounds{1.0f, -1.0f, 1.0f, -1.0f};
+  for (uint32_t k = 0; k < std::min<uint32_t>(request.index_count, 4096); ++k) {
+    uint32_t v = 0;
+    if (size_t(k + 1) * index_size <= request.indices.size())
+      std::memcpy(&v, &request.indices[size_t(k) * index_size], index_size);
+    else if (!indexed || !read_word(t.index_physical + k * index_size, index_size, t.index_endian, v))
+      return std::nullopt;
+    const int64_t at = (int64_t(v) + request.base_vertex) * stream.stride + e.offset;
+    if (at < 0) return std::nullopt;
+    uint32_t raw[4] = {};
+    for (uint32_t j = 0; j < words; ++j) {
+      if (size_t(at) + 4 * j + 4 <= stream.data.size()) std::memcpy(&raw[j], &stream.data[size_t(at) + 4 * j], 4);
+      else if (!stream.key || e.slot >= stream_address.size() ||
+               !read_word(stream_address[e.slot] + uint32_t(at) + 4 * j, 4, stream_endian[e.slot], raw[j]))
+        return std::nullopt;
+    }
+    std::array<float, 4> p{};
+    if (!FetchElement(raw, descriptor, p)) return std::nullopt;
+    if (p[3] != 0.0f) for (unsigned i = 0; i < 3; ++i) p[i] /= p[3];
+    p[3] = 1.0f;
+    auto row = [&](unsigned r) { return m[4 * r] * p[0] + m[4 * r + 1] * p[1] + m[4 * r + 2] * p[2] + m[4 * r + 3]; };
+    const float w = row(3);
+    if (!(std::abs(w) > 1e-6f)) return std::nullopt;
+    const float x = row(0) / w, y = row(1) / w;
+    bounds = {std::min(bounds[0], x), std::max(bounds[1], x), std::min(bounds[2], y), std::max(bounds[3], y)};
+  }
+  return bounds;
+}
+}  // namespace
+
 DrawTranslation TranslateDraw(DrawCapture& c, GuardSink& sink) {
   ApplyFetch(c.fetch);  // The copy of the fetch constants follows the commit.
   DrawTranslation t;
@@ -1361,9 +1503,10 @@ DrawTranslation TranslateDraw(DrawCapture& c, GuardSink& sink) {
     // the dither offsets of bits 24..31.
     s.ps_spec = 0;
     s.alpha_invert = 0;
+    s.alpha_edge = false;  // A material layer switched off has reference byte 255 (sub_82154C38).
     if (color_control & 8) {
       const uint32_t func = color_control & 7;
-      if (func == 4 || func == 6) s.ps_spec = 2;  // SPEC_CONSTANT_ALPHA_TEST
+      if (func == 4 || func == 6) s.ps_spec = 2, s.alpha_edge = s.alpha_ref < 1.0f;  // SPEC_CONSTANT_ALPHA_TEST
       else if (func == 1 || func == 3) s.ps_spec = 2, s.alpha_invert = 1;
       else if (func != 7) guard(fmt::format("alpha-func-uncovered-{}", func), state_record);
     }
@@ -1419,14 +1562,30 @@ DrawTranslation TranslateDraw(DrawCapture& c, GuardSink& sink) {
   }
   const uint32_t depth_control = s.depth_control, color_control = s.color_control, mode = s.mode, vte = s.vte;
   const float alpha_ref = s.alpha_ref;
-  // Transparency antialiasing in multisampled targets (TransparencySpec);
-  // the threshold at +272 serves the alpha to coverage variant too. A test
-  // below the threshold keeps the clip: with the title's alpha to mask (as in
-  // Broken Bond's title sky draw) the SDK keeps only the pixels that pass both
-  // the test and the coverage of their own alpha, which the sharpened variant
-  // would turn into full coverage.
+  // The screen layer at another aspect (screen_layer.h): a draw of the
+  // title's Flash UI or video over its whole 1280 x 720 viewport goes into the
+  // centered 16:9 area (DrawRequest::screen_area). A Flash draw that spans the
+  // whole width (at 16:10, the whole height) keeps covering the surface: the
+  // fades, the pause dim, the full-width frames of the map. A position
+  // FlashBounds cannot read keeps the draw in the area.
+  if (c.screen_layer != screen_layer::Kind::kNone && CurrentSettings().aspect_ratio > 0 &&
+      request.viewport[0] == 0 && request.viewport[1] == 0 && request.viewport[2] == 1280 &&
+      request.viewport[3] == 720) {
+    request.screen_area = true;
+    if (c.screen_layer == screen_layer::Kind::kFlash) {
+      const auto bounds = FlashBounds(c, request, t, base, indexed, stream_address, stream_endian);
+      const unsigned axis = CurrentSettings().aspect_ratio > 16.0f / 9.0f ? 0 : 2;  // x when wider, y when narrower
+      if (bounds && (*bounds)[axis] <= -0.99f && (*bounds)[axis + 1] >= 0.99f) request.screen_area = false;
+    }
+  }
+  // Transparency antialiasing in multisampled targets (TransparencySpec), for
+  // an alpha_edge test only; the threshold at +272 serves the alpha to
+  // coverage variant too. A test below the threshold keeps the clip: with the
+  // title's alpha to mask (as in Broken Bond's title sky draw) the SDK keeps
+  // only the pixels that pass both the test and the coverage of their own
+  // alpha, which the sharpened variant would turn into full coverage.
   uint32_t ps_spec = s.ps_spec;
-  if (ps_spec && !depth_only && !s.alpha_invert) {
+  if (ps_spec && !depth_only && s.alpha_edge) {
     ps_spec = TransparencySpec(ps_spec, ps_cached->spec_mask, resources.Samples(c.targets[0]), request.blend_control);
     if (ps_spec != s.ps_spec) request.alpha_to_coverage = true;
   }
@@ -1452,6 +1611,19 @@ DrawTranslation TranslateDraw(DrawCapture& c, GuardSink& sink) {
   std::memcpy(&request.shared_constants[264], s.half, 8);
   std::memcpy(&request.shared_constants[272], &alpha_ref, 4);
   std::memcpy(&request.shared_constants[276], &s.alpha_invert, 4);
+  // The resolves this draw reduces at the internal resolution scale, read in
+  // guest texels (shared +480, a bit per fetch constant; tfetch2D of the
+  // XenosRecomp fork): a filtered resolve larger than the viewport on both
+  // axes, as the depth of field's downsample of the scene to 640 x 360. Its
+  // taps one guest texel apart skip host texels at the scale and leave stripes.
+  uint32_t guest_texel_fetches = 0;
+  if (!CurrentSettings().resolution_scale.Unit())
+    for (const DrawTexture& texture : request.textures)
+      if (texture.resolved && !texture.cube && texture.reg < 16 &&
+          (texture.min_filter == Filter::kLinear || texture.mag_filter == Filter::kLinear) &&
+          float(texture.width) > request.viewport[2] && float(texture.height) > request.viewport[3])
+        guest_texel_fetches |= 1u << texture.reg;
+  std::memcpy(&request.shared_constants[480], &guest_texel_fetches, 4);
   // The user clip planes, only in the draws that enable one, as the
   // capture read them (PA_CL_UCP_n; a disabled plane stays (0, 0, 0, 0) at
   // shared +384 + 16n and clips nothing).
@@ -1612,7 +1784,8 @@ DrawTranslation TranslateDraw(DrawCapture& c, GuardSink& sink) {
     TraceFrameOp("draw", fmt::format(
         "\"entry\":\"{}\",\"lr\":{},\"vs\":\"{}\",\"ps\":\"{}\",\"color_key\":{},\"depth_key\":{},\"depth_only\":{},"
         "\"depth\":[{},{},{}],\"stencil\":{},\"color_mask\":{},\"blend_control\":{},\"alpha_to_coverage\":{},"
-        "\"cull\":[{},{}],\"viewport\":[{},{},{},{},{},{}],\"scissor\":[{},{},{},{}],\"topology\":\"{}\","
+        "\"cull\":[{},{}],\"viewport\":[{},{},{},{},{},{}],\"scissor\":[{},{},{},{}],\"screen_layer\":{},"
+        "\"screen_area\":{},\"guest_texel_fetches\":{},\"topology\":\"{}\","
         "\"index_count\":{},\"base_vertex\":{},\"textures\":[{}]{}", name, lr, request.vs.key, request.ps.key,
         request.color_key,
         request.depth_key, request.depth_only, request.depth_enable, request.depth_write, request.depth_func,
@@ -1620,7 +1793,8 @@ DrawTranslation TranslateDraw(DrawCapture& c, GuardSink& sink) {
         request.cull_front, request.cull_back, JsonFloat(request.viewport[0]), JsonFloat(request.viewport[1]),
         JsonFloat(request.viewport[2]), JsonFloat(request.viewport[3]), JsonFloat(request.viewport[4]),
         JsonFloat(request.viewport[5]), request.scissor[0], request.scissor[1], request.scissor[2], request.scissor[3],
-        TopologyName(request.topology), request.index_count, request.base_vertex, textures, diag));
+        uint32_t(c.screen_layer), request.screen_area, guest_texel_fetches, TopologyName(request.topology),
+        request.index_count, request.base_vertex, textures, diag));
   }
   // The constants the capture took (the whole blocks for the quad and
   // the evidence draws, the pending groups for the batched draws), moved.
@@ -1712,7 +1886,7 @@ std::string QuadTraceFields(const PendingDraw& d, const InlineBuild& build, cons
       vertices += fmt::format("{}{}", i ? "," : "", JsonFloat(f));
     }
   }
-  auto registers = [](const std::vector<uint8_t>& block, uint32_t first, uint32_t count, bool nonzero) {
+  auto registers = [](std::span<const uint8_t> block, uint32_t first, uint32_t count, bool nonzero) {
     if (block.size() != 4096) return std::string("\"not-whole\"");
     std::string out;
     for (uint32_t reg = first; reg < first + count; ++reg) {

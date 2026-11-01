@@ -1,0 +1,75 @@
+"""The supervisor (src/diagnostics/supervisor.cpp) with the disposable fixture
+(incident_fixture.cpp), each mode in a new data folder under a Unicode path: normal and
+explicit exits, the guest fault's registers, return chain and heap, the first renderer
+failure, live snapshots, stderr bounds and concurrent events.
+Usage: python incident_test.py <fixture> <new output folder>"""
+import argparse
+import json
+import subprocess
+from pathlib import Path
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('fixture', type=Path)
+    parser.add_argument('output', type=Path)
+    args = parser.parse_args()
+    root = args.output.resolve()
+    root.mkdir(parents=True, exist_ok=False)
+    results = []
+    for mode in ('normal', 'exit', 'guest', 'failure', 'blocked', 'snapshot', 'stderr', 'concurrent'):
+        data = root / mode / 'data 日本語'
+        process = subprocess.run([str(args.fixture.resolve()), '--data_root=' + str(data),
+                                  '--fixture=' + mode], capture_output=True, timeout=45)
+        manifests = list((data / 'incidents').glob('session-*/manifest.json'))
+        assert len(manifests) == 1, (mode, process.returncode, process.stderr)
+        manifest = json.loads(manifests[0].read_text(encoding='utf-8'))
+        assert manifest['state'] == 'complete', (mode, manifest)
+        if mode == 'exit':
+            assert manifest['raw_exit_code'] == 77, manifest
+            assert manifest['classification'] == 'interruption-undetermined', manifest
+        elif mode == 'failure':
+            assert manifest['raw_exit_code'] == 88, manifest
+            assert manifest['classification'] == 'explicit-failure', manifest
+        else:
+            assert process.returncode == 0, (mode, process.returncode, manifest)
+        if mode in ('failure', 'blocked'):
+            assert manifest['first_failure']['data']['operation'] == 'original-gpu-operation', manifest
+        if mode in ('snapshot', 'blocked'):
+            assert manifest['snapshots'], manifest
+            # A snapshot is evidence from a live process; normal return proves
+            # collection did not terminate the child.
+            if __import__('os').name == 'nt':
+                assert manifest['snapshots'][0]['present'], manifest
+                snapshot = manifests[0].parent / manifest['snapshots'][0]['path']
+                assert snapshot.read_bytes()[:4] == b'MDMP', snapshot
+        if mode == 'stderr':
+            assert manifest['stderr_truncated'], manifest
+            assert (manifests[0].parent / 'stderr.log').stat().st_size == 2 * 1024 * 1024
+        if mode == 'concurrent':
+            assert manifest['progress']['compiler']['count'] == 4000, manifest
+        if mode == 'guest':
+            guest = manifest['guest_context']['data']
+            assert guest['native_pc'] == 0x2222 and guest['access_operation'] == 'write', guest
+            assert guest['gpr'][1] == 0x7010fc00 and len(guest['gpr']) == 32, guest
+            # Every register is in the context of the recompiled functions: all are recorded.
+            assert guest['gpr'][13] == 0x80010000 and guest['gpr'][20] == 0x82abcdef, guest
+            assert guest['lr'] == 0x82130004 and guest['ctr'] == 0x82140004, guest
+            # The second fault's return chain and heap, not the first's.
+            assert guest['return_chain'].startswith('write of guest 0x00005678'), guest
+            assert guest['heap'] == 'heap 0x40001000 (of 1 seen)', guest
+            on_disk = json.loads((manifests[0].parent / 'guest-context.json').read_text(encoding='utf-8'))
+            assert on_disk['return_chain'] == guest['return_chain'] and on_disk['heap'] == guest['heap'], on_disk
+        # Every persisted line must be valid JSON even under concurrent writes.
+        for line in (manifests[0].parent / 'events.jsonl').read_text(encoding='utf-8').splitlines():
+            json.loads(line)
+        assert 'dump_absent_reason' in manifest, manifest
+        results.append({'case': mode, 'exit_code': manifest['raw_exit_code'],
+                        'classification': manifest['classification'], 'manifest': str(manifests[0])})
+    (root / 'results.json').write_text(json.dumps(results, indent=2), encoding='utf-8')
+    print('PASS: 8 supervisor cases; Unicode, first failure, refreshed guest state with its chain and heap, '
+          'live snapshots, stderr bounds, concurrent events')
+
+
+if __name__ == '__main__':
+    main()

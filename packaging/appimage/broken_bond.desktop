@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Naruto: The Broken Bond PC Port
+Comment=Native PC recompilation of Naruto: The Broken Bond (game data not included)
+Exec=broken_bond
+Icon=broken_bond
+Terminal=false
+Categories=Game;
+StartupWMClass=broken_bond

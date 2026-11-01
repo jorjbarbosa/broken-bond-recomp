@@ -1,0 +1,98 @@
+diff --git a/src/core/seh_posix.cpp b/src/core/seh_posix.cpp
+index 5e0a932..5ca102b 100644
+--- a/src/core/seh_posix.cpp
++++ b/src/core/seh_posix.cpp
+@@ -21,6 +21,46 @@ namespace rex::platform {
+ static thread_local SehThreadState tls_seh_state;
+ static thread_local bool tls_seh_active = false;
+ 
++// The handlers seh_initialize replaced (for example Crashpad's, installed
++// earlier): a fault outside an SEH region reaches them with its original
++// signal information and context instead of the default action.
++static struct sigaction previous_handlers[4];
++
++static int previous_index(int sig) {
++  switch (sig) {
++    case SIGSEGV:
++      return 0;
++    case SIGBUS:
++      return 1;
++    case SIGFPE:
++      return 2;
++    case SIGILL:
++      return 3;
++    default:
++      return -1;
++  }
++}
++
++static bool has_previous(int index) {
++  return index >= 0 && previous_handlers[index].sa_handler != SIG_DFL &&
++         previous_handlers[index].sa_handler != SIG_IGN;
++}
++
++static void forward_to_previous(int sig, siginfo_t* info, void* ucontext) {
++  const int index = previous_index(sig);
++  if (!has_previous(index)) {
++    signal(sig, SIG_DFL);
++    raise(sig);
++    return;
++  }
++  const struct sigaction& previous = previous_handlers[index];
++  if (previous.sa_flags & SA_SIGINFO) {
++    previous.sa_sigaction(sig, info, ucontext);
++  } else {
++    previous.sa_handler(sig);
++  }
++}
++
+ SehThreadState& seh_thread_state() {
+   return tls_seh_state;
+ }
+@@ -31,12 +71,11 @@ int seh_filter(uint32_t /*code*/, void* /*ep*/) {
+ }
+ 
+ /// Signal handler for SIGSEGV/SIGBUS/SIGFPE/SIGILL
+-static void signal_handler(int sig, siginfo_t* info, void* /*ucontext*/) {
++static void signal_handler(int sig, siginfo_t* info, void* ucontext) {
+   // Only handle if we're in SEH-protected code
+   if (!tls_seh_active) {
+-    // Not in SEH region - restore default handler and re-raise
+-    signal(sig, SIG_DFL);
+-    raise(sig);
++    // Not in SEH region - the previous handler, or the default action
++    forward_to_previous(sig, info, ucontext);
+     return;
+   }
+ 
+@@ -94,8 +133,13 @@ static void signal_handler(int sig, siginfo_t* info, void* /*ucontext*/) {
+     default:
+       abort();
+   }
+-  // Restore default handler and re-raise
+-  signal(sig, SIG_DFL);
++  // Restore the previous handler (or the default one) and re-raise
++  const int index = previous_index(sig);
++  if (has_previous(index)) {
++    sigaction(sig, &previous_handlers[index], nullptr);
++  } else {
++    signal(sig, SIG_DFL);
++  }
+   raise(sig);
+   abort();  // Should not reach here
+ }
+@@ -110,10 +154,10 @@ void seh_initialize() {
+   sigemptyset(&sa.sa_mask);
+   sa.sa_flags = SA_SIGINFO | SA_NODEFER;  // SA_NODEFER allows re-entry for nested exceptions
+ 
+-  sigaction(SIGSEGV, &sa, nullptr);
+-  sigaction(SIGBUS, &sa, nullptr);
+-  sigaction(SIGFPE, &sa, nullptr);
+-  sigaction(SIGILL, &sa, nullptr);
++  sigaction(SIGSEGV, &sa, &previous_handlers[0]);
++  sigaction(SIGBUS, &sa, &previous_handlers[1]);
++  sigaction(SIGFPE, &sa, &previous_handlers[2]);
++  sigaction(SIGILL, &sa, &previous_handlers[3]);
+ }
+ 
+ bool& seh_active() {

@@ -50,7 +50,9 @@
 
 namespace gpu::tick {
 // The mode is on (frame_rate above 30, or REX_NATIVE_STATE_INTERPOLATION=1),
-// whatever F8 says.
+// whatever F8 says. A frame_rate applied while the game runs is accepted at
+// the start of the next loop iteration (827F7668), where the clock and the
+// interpolation history start again.
 bool Enabled();
 // On and not switched off by F8: the limiter paces at the frame rate.
 bool Owning();

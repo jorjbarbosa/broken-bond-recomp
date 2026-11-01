@@ -15,19 +15,19 @@ $projectRoot = Split-Path -Parent $PSScriptRoot
 $buildDirectory = if ($Renderer -eq 'native') { 'build/native' } else { 'build/game' }
 $executable = Join-Path $projectRoot "$buildDirectory/broken_bond.exe"
 $gameRoot = Join-Path $projectRoot 'game'
-$userRoot = Join-Path $projectRoot 'build/user'
+# The settings, saves and caches are the repository's data folder, build/data,
+# which the first start makes from build/user and build/native/broken_bond.toml.
 $logRoot = Join-Path $projectRoot 'build/logs'
 if (-not (Test-Path -LiteralPath $executable)) {
     throw "Build the game with scripts/$(if ($Renderer -eq 'native') { 'build-game-native.ps1' } else { 'build-game.ps1' }) first."
 }
 if (-not (Test-Path -LiteralPath (Join-Path $gameRoot 'default.xex'))) { throw 'Extract the game with scripts/extract-game.ps1 first.' }
-New-Item -ItemType Directory -Force $userRoot, $logRoot | Out-Null
+New-Item -ItemType Directory -Force $logRoot | Out-Null
 $runName = "runtime-{0}" -f (Get-Date -Format 'yyyyMMdd-HHmmss')
 $logFile = Join-Path $logRoot "$runName.log"
 Write-Host "Runtime log: $logFile"
 $launchArguments = @(
     '--game_data_root', ('"{0}"' -f $gameRoot),
-    '--user_data_root', ('"{0}"' -f $userRoot),
     '--log_file', ('"{0}"' -f $logFile),
     '--log_level', $LogLevel
 )

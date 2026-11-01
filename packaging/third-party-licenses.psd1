@@ -4,8 +4,14 @@
 # copies of texts that only exist inside a source header or upstream repository.
 # Condition selects a component only when that part is in the build:
 #   FidelityFX     - amd_fidelityfx_dx12.dll is staged
+#   NativeD3D12    - the native Direct3D 12 backend is built (the Windows ZIP)
+#   NativeVulkan   - the native Vulkan backend is built (every release)
+# package-linux-appimage.py reads this file too, without the Windows parts.
 @{
     Components = @(
+        @{ Name = 'nlohmann/json 3.11.3'; License = 'MIT'
+           Url = 'https://github.com/nlohmann/json'; File = 'third_party/nlohmann_json/LICENSE.MIT'; Target = 'nlohmann-json.txt'
+           Usage = 'broken_bond.exe' }
         @{ Name = 'ReXGlue SDK (includes code derived from Xenia)'; License = 'BSD-3-Clause'
            Url = 'https://github.com/rexglue/rexglue-sdk'; File = 'sdk/LICENSE'; Target = 'rexglue-sdk.txt'
            Usage = 'broken_bond.exe, rexruntime.dll' }
@@ -17,13 +23,13 @@
            Usage = 'rexruntime.dll' }
         @{ Name = 'SDL3'; License = 'Zlib'
            Url = 'https://github.com/libsdl-org/SDL'; File = 'sdk/thirdparty/sdl3/LICENSE.txt'; Target = 'sdl3.txt'
-           Usage = 'rexruntime.dll, broken_bond_launcher.exe' }
+           Usage = 'rexruntime.dll, broken_bond.exe' }
         @{ Name = 'Dear ImGui'; License = 'MIT'
            Url = 'https://github.com/ocornut/imgui'; File = 'sdk/thirdparty/imgui/LICENSE.txt'; Target = 'imgui.txt'
-           Usage = 'rexruntime.dll, broken_bond_launcher.exe' }
+           Usage = 'rexruntime.dll' }
         @{ Name = 'stb_image'; License = 'MIT OR Unlicense'
            Url = 'https://github.com/nothings/stb'; File = 'packaging/licenses/stb.txt'; Target = 'stb.txt'
-           Usage = 'rexruntime.dll, broken_bond_launcher.exe' }
+           Usage = 'rexruntime.dll, broken_bond.exe' }
         @{ Name = '{fmt}'; License = 'MIT'
            Url = 'https://github.com/fmtlib/fmt'; File = 'sdk/thirdparty/fmt/LICENSE'; Target = 'fmt.txt'
            Usage = 'rexruntime.dll' }
@@ -35,7 +41,7 @@
            Usage = 'rexruntime.dll' }
         @{ Name = 'toml++'; License = 'MIT'
            Url = 'https://github.com/marzer/tomlplusplus'; File = 'sdk/thirdparty/tomlplusplus/LICENSE'; Target = 'tomlplusplus.txt'
-           Usage = 'rexruntime.dll' }
+           Usage = 'rexruntime.dll, broken_bond.exe' }
         @{ Name = 'CLI11'; License = 'BSD-3-Clause'
            Url = 'https://github.com/CLIUtils/CLI11'; File = 'sdk/thirdparty/cli11/LICENSE'; Target = 'cli11.txt'
            Usage = 'rexruntime.dll' }
@@ -50,7 +56,7 @@
            Usage = 'rexruntime.dll' }
         @{ Name = 'UTF8-CPP'; License = 'BSL-1.0'
            Url = 'https://github.com/nemtrif/utfcpp'; File = 'sdk/thirdparty/utfcpp/LICENSE'; Target = 'utfcpp.txt'
-           Usage = 'rexruntime.dll' }
+           Usage = 'rexruntime.dll, broken_bond.exe' }
         @{ Name = 'aes_128'; License = 'MIT'
            Url = 'https://github.com/openluopworld/aes_128'; File = 'sdk/thirdparty/aes_128/LICENSE'; Target = 'aes_128.txt'
            Usage = 'rexruntime.dll' }
@@ -75,19 +81,13 @@
         @{ Name = 'DirectX Shader Compiler API headers'; License = 'NCSA'
            Url = 'https://github.com/microsoft/DirectXShaderCompiler'; File = 'packaging/licenses/directx-shader-compiler.txt'; Target = 'directx-shader-compiler.txt'
            Usage = 'rexruntime.dll' }
-        @{ Name = 'extract-xiso'; License = 'BSD-4-Clause (modified)'
-           Url = 'https://github.com/XboxDev/extract-xiso'; File = 'build/tools/extract-xiso/artifacts/LICENSE.TXT'; Target = 'extract-xiso.txt'
-           Usage = 'BrokenBondInstaller.exe (ISO import)' }
-        @{ Name = 'Lato fonts'; License = 'OFL-1.1'
-           Url = 'https://www.latofonts.com'; File = 'launcher/assets/fonts/OFL.txt'; Target = 'lato.txt'
-           Usage = 'assets\fonts' }
         @{ Name = 'AMD FidelityFX SDK'; License = 'MIT'; Condition = 'FidelityFX'
            Url = 'https://github.com/rexglue/FidelityFX-SDK'; File = 'packaging/licenses/fidelityfx.txt'; Target = 'fidelityfx.txt'
            Usage = 'amd_fidelityfx_dx12.dll' }
         @{ Name = 'plume'; License = 'MIT'
            Url = 'https://github.com/renderbag/plume'; File = 'packaging/licenses/plume.txt'; Target = 'plume.txt'
            Usage = 'broken_bond.exe' }
-        @{ Name = 'D3D12 Memory Allocator'; License = 'MIT'
+        @{ Name = 'D3D12 Memory Allocator'; License = 'MIT'; Condition = 'NativeD3D12'
            Url = 'https://github.com/GPUOpen-LibrariesAndSDKs/D3D12MemoryAllocator'; File = 'packaging/licenses/d3d12memoryallocator.txt'; Target = 'd3d12memoryallocator.txt'
            Usage = 'broken_bond.exe' }
         @{ Name = 'XenosRecomp (shader translation, shader_common.h in the embedded shaders)'; License = 'MIT'
@@ -96,6 +96,18 @@
         @{ Name = 'Zstandard'; License = 'BSD-3-Clause'
            Url = 'https://github.com/facebook/zstd'; File = 'packaging/licenses/zstd.txt'; Target = 'zstd.txt'
            Usage = 'broken_bond.exe (embedded shader package decoder)' }
+        @{ Name = 'RmlUi 6.3'; License = 'MIT'
+           Url = 'https://github.com/mikke89/RmlUi'; File = 'third_party/rmlui/LICENSE.txt'; Target = 'rmlui.txt'
+           Usage = 'broken_bond.exe (menus)' }
+        @{ Name = 'robin_hood hashing and itlib (inside RmlUi)'; License = 'MIT'
+           Url = 'https://github.com/mikke89/RmlUi'; File = 'third_party/rmlui/Include/RmlUi/Core/Containers/LICENSE.txt'; Target = 'rmlui-containers.txt'
+           Usage = 'broken_bond.exe (menus)' }
+        @{ Name = 'FreeType 2.15.0 (portions of this software are copyright The FreeType Project, https://freetype.org)'; License = 'FTL'
+           Url = 'https://freetype.org'; File = 'third_party/freetype/docs/FTL.TXT'; Target = 'freetype.txt'
+           Usage = 'broken_bond.exe (menus)' }
+        @{ Name = 'Roboto and Roboto Condensed (Roboto 3.016)'; License = 'OFL-1.1'
+           Url = 'https://github.com/googlefonts/roboto-3-classic'; File = 'ui/fonts/OFL.txt'; Target = 'roboto-condensed.txt'
+           Usage = 'broken_bond.exe (embedded menu fonts)' }
         @{ Name = 'volk'; License = 'MIT'; Condition = 'NativeVulkan'
            Url = 'https://github.com/zeux/volk'; File = 'packaging/licenses/volk.txt'; Target = 'volk.txt'
            Usage = 'broken_bond.exe (Vulkan loader)' }
@@ -104,7 +116,7 @@
            Usage = 'broken_bond.exe' }
         @{ Name = 'Vulkan Headers'; License = 'Apache-2.0'; Condition = 'NativeVulkan'
            Url = 'https://github.com/KhronosGroup/Vulkan-Headers'; File = 'packaging/licenses/vulkan-headers-apache.txt'; Target = 'vulkan-headers.txt'
-           Usage = 'broken_bond.exe and broken_bond_launcher.exe' }
+           Usage = 'broken_bond.exe' }
         @{ Name = 'SMOL-V'; License = 'MIT and Apache-2.0'; Condition = 'NativeVulkan'
            Url = 'https://github.com/aras-p/smol-v'; File = 'packaging/licenses/smol-v.txt'; Target = 'smol-v.txt'
            Usage = 'broken_bond.exe (embedded SPIR-V decoder)' }

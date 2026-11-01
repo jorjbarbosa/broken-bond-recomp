@@ -10,9 +10,11 @@
 // The list also knows the world each pipeline was first created in
 // (common/title_loading.h): when the title starts loading a world, its entries
 // not compiled yet are posted to the asynchronous threads ahead of the pool,
-// which compile them at the highest priority while the loading screen is up
+// which compile them above normal priority while the loading screen is up
 // (PrefetchWorldPipelines). REX_NATIVE_PSO_WORLD=0 turns that off.
 #include "gpu/shaders/pipelines.h"
+#include "diagnostics/incident.h"
+#include "gpu/common/shader_activity.h"
 #include "gpu/common/title_loading.h"
 #include "gpu/d3d/draw.h"
 #include "gpu/shaders/shaders.h"
@@ -20,11 +22,11 @@
 #include "gpu/d3d/d3d.h"
 #include "gpu/backend/dispatcher.h"
 #include "gpu/backend/pipeline_keys.h"
+#include "gpu/backend/pipeline_set.h"
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
-#include <dxgiformat.h>
 #include <array>
 #include <chrono>
 #include <atomic>
@@ -40,9 +42,6 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
-#include <windows.h>
-#include <wrl/client.h>
-#include <dxcapi.h>
 #include <fmt/format.h>
 #include <fmt/ranges.h>
 #include <rex/cvar.h>
@@ -181,6 +180,15 @@ bool DescribeEntry(size_t i, PipelineDesc& desc, uint32_t& linked, bool& variant
 // One entry of the list on a pool thread: its description, then the engine's
 // PrecompilePipeline.
 void PrecompileEntry(size_t i, Engine& engine) {
+  broken_bond::incident::Activity activity(broken_bond::incident::Role::kCompiler);
+  broken_bond::incident::Progress(broken_bond::incident::Role::kCompiler);
+  thread_local auto last_incident_progress = std::chrono::steady_clock::time_point{};
+  const auto now = std::chrono::steady_clock::now();
+  if (now - last_incident_progress > std::chrono::seconds(1)) {
+    last_incident_progress = now;
+    broken_bond::incident::Event("pipeline-job", "progress", std::to_string(i));
+  }
+  ShaderBatchEntry counted;
   PipelineDesc desc;
   uint32_t linked = 0;
   bool variant = false;
@@ -204,6 +212,7 @@ bool worldPrefetchOption() {
 }
 
 void StartPipelinePrecompile() {
+  const auto incident_operation = broken_bond::incident::BeginOperation("pipeline-precompile");
   auto& p = pipeline_precompile;
   const char* off = std::getenv("REX_NATIVE_PSO_PRECOMPILE");
   const char* skip = off && std::string_view(off) == "0" ? "disabled" : kPipelineCache.empty() ? "list-absent"
@@ -214,6 +223,7 @@ void StartPipelinePrecompile() {
         return engine.PreparePipelines(out);
       }, prepared))) skip = "prepare-failed";
   if (skip) {
+    broken_bond::incident::Event("pipeline-precompile", "end", skip, incident_operation);
     host::Record("native-d3d-pipeline-precompile-start", fmt::format(
         "\"started\":false,\"reason\":\"{}\",\"list\":{},\"identity\":\"{}\",\"prepare\":{}", skip,
         kPipelineCache.size(), kPipelineCacheIdentity, prepared.empty() ? "null" : prepared));
@@ -232,18 +242,19 @@ void StartPipelinePrecompile() {
     }
     p.layouts.push_back(layout);
   }
-  // Two thirds of the hardware threads, at least two.
-  p.threads = std::max(2u, std::thread::hardware_concurrency() * 2 / 3);
+  p.threads = PipelineThreadsPerPool();
   p.started = std::chrono::steady_clock::now();
   p.pool_started.store(true, std::memory_order_release);
-  const bool started = dispatcher->StartPool(kPipelineCache.size(), p.threads, PrecompileEntry, [](bool stopped) {
+  BeginShaderBatch(uint32_t(kPipelineCache.size()));
+  const bool started = dispatcher->StartPool(kPipelineCache.size(), p.threads, PrecompileEntry, [incident_operation](bool stopped) {
+    EndShaderBatch();
     auto& p = pipeline_precompile;
     std::string failure;
     {
       std::lock_guard lock(p.mutex);
       failure = p.first_failure.empty() ? "null" : p.first_failure;
     }
-    host::Record("native-d3d-pipeline-precompile", fmt::format(
+    const std::string summary = fmt::format(
         "\"list\":{},\"threads\":{},\"created\":{},\"present\":{},\"failed\":{},\"unresolved\":{},\"mismatched\":{},"
         "\"alpha_to_coverage\":{},\"alpha_test\":{},\"world_posted\":{},\"world_present\":{},\"stopped\":{},\"ms\":{},"
         "\"swap\":{},\"first_failure\":{}",
@@ -251,8 +262,15 @@ void StartPipelinePrecompile() {
         p.threads, p.created.load(), p.present.load(), p.failed.load(), p.unresolved.load(), p.mismatched.load(),
         p.alpha_to_coverage.load(), p.alpha_test.load(), p.world_posted.load(), p.world_present.load(), stopped,
         std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - p.started).count(),
-        swaps.load(), failure));
+        swaps.load(), failure);
+    host::Record("native-d3d-pipeline-precompile", summary);
+    broken_bond::incident::Event("pipeline-precompile", "end", summary, incident_operation);
+    // The product has no journal: how long the list took goes to the SDK log.
+    if (!host::Journaled()) REXLOG_INFO("[broken_bond] Pipeline precompile: {{{}}}", summary);
   });
+  if (!started) {
+    EndShaderBatch(); broken_bond::incident::Event("pipeline-precompile", "end", "pool-not-started", incident_operation);
+  }
   host::Record("native-d3d-pipeline-precompile-start", fmt::format(
       "\"started\":{},\"list\":{},\"layouts\":{},\"worlds\":{},\"threads\":{},\"identity\":\"{}\",\"swap\":{}",
       started, kPipelineCache.size(), shared.size(), kPipelineWorlds.empty() ? 0 : kPipelineWorlds.size() - 1,

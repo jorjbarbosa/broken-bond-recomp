@@ -18,6 +18,7 @@
 #include "texture_loader.h"
 #include "ui.h"
 #include "theme.h"
+#include "wine.h"
 
 #include <filesystem>
 #include <iostream>
@@ -115,6 +116,7 @@ int main(int argc, char* argv[]) {
 
   GameConfig config;
   ConfigManager::Load(toml_path, config);
+  ConfigManager::UseVulkanUnderWine(config, broken_bond::WineVersion() != nullptr);
   Localization::SetLanguageCode(config.launcher_language);
 
   if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_EVENTS | SDL_INIT_GAMEPAD)) {
@@ -191,6 +193,10 @@ int main(int argc, char* argv[]) {
     while (SDL_PollEvent(&event)) {
       if (launcher_ui::CaptureKeyEvent(event)) continue;
       ImGui_ImplSDL3_ProcessEvent(&event);
+      if (event.type == SDL_EVENT_WINDOW_FOCUS_GAINED &&
+          event.window.windowID == SDL_GetWindowID(window)) {
+        ui.RefreshTranslationMods();
+      }
       if (event.type == SDL_EVENT_QUIT) {
         running = false;
       }
@@ -252,6 +258,8 @@ int main(int argc, char* argv[]) {
         cmdline += L" --renderer=native --native_backend=" +
                    QuoteProcessArgument(game_paths::FromUtf8(config.native_backend).wstring());
         cmdline += L" --game_data_root=" + QuoteProcessArgument(game_data.wstring());
+        // The launcher is the menu before the game: the game boots straight.
+        cmdline += L" --show_startup_menu=false";
 
         std::vector<wchar_t> cmd_buf(cmdline.begin(), cmdline.end());
         cmd_buf.push_back(L'\0');

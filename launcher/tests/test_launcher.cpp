@@ -2,6 +2,7 @@
 #include "game_files.h"
 #include "game_paths.h"
 #include "process_arguments.h"
+#include "wine.h"
 
 #include <windows.h>
 #include <shellapi.h>
@@ -78,9 +79,11 @@ int main(int argc, char** argv) {
     Require(!ConfigManager::Save(root / "absent" / "settings.toml", config),
             "An unwritable destination reported success");
 
-    Write(path, "renderer = 'native'\nuser_data_root = 'my saves'\nkeybind_a = 'J,K,L'\n");
+    Write(path, "renderer = 'native'\nuser_data_root = 'my saves'\nkeybind_a = 'J,K,L'\n"
+                "ultrawide_target_aspect = 2.3889\n");
     GameConfig options;
-    Require(options.renderer == "native" && options.frame_rate == 30, "Native defaults changed");
+    Require(options.renderer == "native" && options.frame_rate == 30 && options.aspect_ratio == -1.0,
+            "Native defaults changed");
     Require(ConfigManager::Load(path, options), "Extended settings failed to load");
     Require(options.key_binds[0] == "J,K,L", "Loading truncated hand-written key alternatives");
     options.graphics_device = "Test graphics adapter";
@@ -98,6 +101,7 @@ int main(int argc, char** argv) {
     options.max_frame_latency = 3;
     options.triple_buffering = true;
     options.transparency_antialiasing = true;
+    options.aspect_ratio = 2.3889;
     Require(ConfigManager::Save(path, options), "Extended settings failed to save");
     GameConfig restored;
     Require(ConfigManager::Load(path, restored), "Extended settings failed to reload");
@@ -106,12 +110,12 @@ int main(int argc, char** argv) {
                 restored.show_fps_overlay && restored.key_binds[1] == ",Q" && restored.key_binds[0] == "J,K,L" &&
                 restored.user_data_root == "my saves", "Extended settings did not persist");
     const auto extended = toml::parse_file(path.string());
-    Require(!extended.contains("ultrawide_target_aspect"), "Saving introduced an unsupported aspect option");
+    Require(!extended.contains("ultrawide_target_aspect"), "Saving kept the disabled aspect option");
     if (kNativeRendererBuilt) {
       Require(restored.msaa_samples == 8 && restored.frame_rate == 120 && restored.brightness == 0.6 &&
                   restored.native_backend == options.native_backend &&
                   restored.internal_resolution_scale == 1.5 && restored.max_frame_latency == 3 &&
-                  restored.triple_buffering && restored.transparency_antialiasing,
+                  restored.triple_buffering && restored.transparency_antialiasing && restored.aspect_ratio == 2.3889,
               "Native renderer options did not persist");
     }
     Write(path, "renderer = 'xenos'\ngpu_plugin = 'xenos'\nnative_backend = 'vulkan'\nuser_language = 4\nuser_data_root = 'my saves'\n");
@@ -138,13 +142,30 @@ int main(int argc, char** argv) {
                 "user_language = 4\nuser_data_root = 'my saves'\n");
     Require(ConfigManager::Load(path, migrated), "Previous native configuration failed to load");
     Require(migrated.native_backend == (kNativeVulkanBuilt ? "vulkan" : "d3d12") &&
-                (kNativeVulkanBuilt || migrated.graphics_device.empty()) &&
+                migrated.graphics_device == (kNativeVulkanBuilt ? "Vulkan adapter" : "") &&
                 migrated.user_language == 4 && migrated.user_data_root == "my saves",
-            "Removing Vulkan failed to migrate the API or preserve user preferences");
-    Require(ConfigManager::Save(path, migrated), "Migrated Vulkan settings failed to save");
+            "A saved Vulkan choice was not kept, or migrated, with the user preferences");
+    Require(ConfigManager::Save(path, migrated), "Saved Vulkan settings failed to save");
     Require(toml::parse_file(path.string())["native_backend"].value<std::string>() ==
                 (kNativeVulkanBuilt ? "vulkan" : "d3d12"),
-            "Removed Vulkan selection was written back to the configuration");
+            "The saved Vulkan choice was not written back as the built API allows");
+
+    Require(broken_bond::WineVersion() == nullptr, "Wine detected on Windows");
+    GameConfig wine_config;
+    wine_config.native_backend = "d3d12";
+    wine_config.graphics_device = "D3D12 adapter";
+    ConfigManager::UseVulkanUnderWine(wine_config, false);
+    Require(wine_config.native_backend == "d3d12" && wine_config.graphics_device == "D3D12 adapter",
+            "The API changed without Wine");
+    ConfigManager::UseVulkanUnderWine(wine_config, true);
+    Require(wine_config.native_backend == (kNativeVulkanBuilt ? "vulkan" : "d3d12") &&
+                wine_config.graphics_device == (kNativeVulkanBuilt ? "" : "D3D12 adapter"),
+            "Under Wine the launcher did not select Vulkan or kept the D3D12 card");
+    if (kNativeVulkanBuilt) {
+      wine_config.graphics_device = "Vulkan adapter";
+      ConfigManager::UseVulkanUnderWine(wine_config, true);
+      Require(wine_config.graphics_device == "Vulkan adapter", "Under Wine a saved Vulkan card was cleared");
+    }
 
     const auto repo = root / "repository";
     const auto base = repo / "build" / "game";

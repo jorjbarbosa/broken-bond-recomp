@@ -1,8 +1,12 @@
-# Portable defaults. Relative user data paths resolve beside the launcher.
+# The settings a new data folder starts from. The first start copies this file
+# into the data folder, where the game keeps the settings in use; this copy is
+# never written. Settings > Advanced shows the data folder and can choose
+# another; --data_root or REX_DATA_ROOT chooses one for a session.
 renderer = "native"
 native_backend = "d3d12"
 launcher_language = "en"
 user_language = 1
+translation_mod = ""
 input_backend = "sdl"
 resolution_scale = 1
 draw_resolution_scale_x = 1
@@ -12,3 +16,8 @@ swap_post_effect = "fxaa"
 present_effect = "cas"
 vsync = true
 fullscreen = true
+# Optional uploads of native crash dumps, technical details and startup timing
+# to Sentry. Dumps may contain personal data; saves and game files are never
+# attached. Asked over the first frame of the game, then crash_reporting_asked = true;
+# also in Settings > Advanced, where turning it on after a refusal needs a restart.
+crash_reporting = false

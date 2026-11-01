@@ -16,7 +16,7 @@ body:
     id: description
     attributes:
       label: Bug description
-      description: Describe what happens and how it affects the game or launcher.
+      description: Describe what happens and how it affects the game, its setup screen or its menus.
     validations:
       required: true
 
