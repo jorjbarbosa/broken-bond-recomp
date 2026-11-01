@@ -88,8 +88,10 @@ class GraphicsSystem final : public rex::system::IGraphicsSystem {
   void ValidateInterruptRegistration(PPCContext& ctx) {
     auto* ts = rex::runtime::ThreadState::Get();
     auto* thread = rex::system::XThread::GetCurrentThread();
+    // r4 is the device ("mr r4,r31" in 821B4060; r31 is a local there, not in
+    // the context): the registration check below pins it.
     if (!ts || !thread ||
-        ctx.lr != 0x821B40F8 || ctx.r3.u32 != 0x8219FCA8 || ctx.r4.u32 != ctx.r31.u32)
+        ctx.lr != 0x821B40F8 || ctx.r3.u32 != 0x8219FCA8)
       Stop("VdSetGraphicsInterruptCallback-outside-reviewed-signature", &ctx);
     bool valid = false;
     {

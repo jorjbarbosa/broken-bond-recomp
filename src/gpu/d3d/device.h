@@ -252,8 +252,9 @@ class DeviceOwner final {
   // only writes into the 82000850 object when its first word is nonzero.
   bool Memory(PPCContext& ctx) {
     uint32_t root = 0, cell = 1;
-    // r3 is the zero argument here, not the device; r31 still holds it.
-    if (!Owns() || step_ != Step::Defaults || ctx.lr != 0x821B41C8 || ctx.r31.u32 != device_ ||
+    // r3 is the zero argument here, not the device: the step and LR pin the
+    // caller (its r31 is a local of 821B4060, not in the context).
+    if (!Owns() || step_ != Step::Defaults || ctx.lr != 0x821B41C8 ||
         ctx.r3.u32 || !(ctx.r4.u32 & 0x80000000u) ||
         !ReadVirtual(memory_, 0x82000850, &root, 4)) return Reject("DDB0-context");
     root = Swap(root);
@@ -318,17 +319,20 @@ class DeviceOwner final {
   // Row 20 and natural return to 8215A660.
   bool Returned(PPCContext& ctx) {
     uint32_t hsio = 1, sentinel = 0;
-    if (!Owns() || step_ != Step::Dirty || ctx.r3.u32 != 1 || ctx.lr != 0x8215A71C ||
+    // No LR check: 821B4060 ends in a branch to __restgprlr, elided under
+    // non_volatile_as_local, so LR is left at its last inner call (the entry
+    // already checked 8215A71C).
+    if (!Owns() || step_ != Step::Dirty || ctx.r3.u32 != 1 ||
         !GuestWord(0x833A37BC, hsio) || hsio) return Reject("ECE8-return");
     for (uint32_t i = 0; i < 41; ++i)
       if (!Word(23380 + 4 * i, sentinel) || sentinel != UINT32_MAX) return Reject("ECE8-sentinels");
-    // Broken Bond's creator (8215A660) keeps the owner in r31 (Rise's in r30):
-    // it passes owner+324 as "addi r28,r31,324".
-    owner_ = ctx.r31.u32;
+    // The creator (8215A660) keeps the owner in r31 (a local there) and passed
+    // owner+324 as the entry r4 ("addi r28,r31,324", "mr r4,r28").
+    owner_ = params_ - 324;
     step_ = Step::Returned;
     host::Record("native-d3d-device-return", fmt::format(
-        "\"device\":{},\"status\":1,\"lr\":{},\"owner\":{},\"hsio_failed\":0,\"sentinels21680\":41",
-        device_, ctx.lr, owner_));
+        "\"device\":{},\"status\":1,\"return_to\":{},\"owner\":{},\"hsio_failed\":0,\"sentinels21680\":41",
+        device_, 0x8215A71Cu, owner_));
     return true;
   }
   // BEFORE 821A49E8/LR 8215A888: the wrapper published the device at owner+16.
@@ -407,6 +411,9 @@ class DeviceOwner final {
     return true;
   }
   uint32_t device() const { return device_; }
+  // The device while 821B4060 runs ahead of its arena: VdInitializeEngines
+  // (LR 821B40B4) is called there with the device only in the caller's r31.
+  uint32_t EnteredDevice() const { return step_ == Step::Entered && Owns() ? device_ : 0; }
   uint32_t scratch() const { return scratch_; }
   // D3DDevice_BlockOnFence with the console protocol: fence f is
   // pending while (10908 - f) < (10908 - completed). For the open batch
@@ -587,8 +594,10 @@ class DeviceOwner final {
     auto* ts = rex::runtime::ThreadState::Get();
     return memory_ && ts && ts->thread_id() == thread_ && ts->memory() == memory_;
   }
+  // Every checked call is "mr r3,r31; bl": LR and r3 pin the frame (r31 is a
+  // local of 821B4060, not in the context).
   bool At(const PPCContext& ctx, Step expected, uint32_t lr) const {
-    return Owns() && step_ == expected && ctx.lr == lr && ctx.r3.u32 == device_ && ctx.r31.u32 == device_;
+    return Owns() && step_ == expected && ctx.lr == lr && ctx.r3.u32 == device_;
   }
   bool GuestWord(uint32_t address, uint32_t& value) const {
     std::array<uint8_t, 4> bytes{};

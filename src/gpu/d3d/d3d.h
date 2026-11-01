@@ -14,6 +14,9 @@
 namespace gpu {
 class FailureChannel;
 bool Active();
+// The device of the 821B4060 in progress, before its arena (VdInitializeEngines
+// is called there); 0 outside that window.
+uint32_t EnteredDevice();
 void DeviceArena(PPCContext& ctx, uint8_t* base);        // 8219FEB8 inside 821B4060
 void DeviceWorkers(PPCContext& ctx, uint8_t* base);      // 821B8D78
 void DeviceCache(PPCContext& ctx, uint8_t* base);        // 821A5498
