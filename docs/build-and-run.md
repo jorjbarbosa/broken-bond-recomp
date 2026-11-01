@@ -95,6 +95,7 @@ The script applies the patches in `patches/` to the `sdk` submodule, in the orde
 | `rexglue-seh-signal-chain.patch` | On POSIX, the runtime's SEH emulation keeps the handlers it replaces and passes them a fault outside its regions, so Crashpad still writes the dump once the runtime has started |
 | `rexglue-physical-heap-release-order.patch` | A physical heap releases its own region before its parent's pages, so another thread that takes those pages in between no longer loses its new region to this release; an address that is not a region start leaves the parent untouched |
 | `rexglue-input-user-packet.patch` | Each player keeps one packet number, raised whenever the packet of any of its devices changes, so a controller change still reaches the game after the keyboard changed more often |
+| `rexglue-shared-register-calls.patch` | With the non-volatile registers as locals, a call into a function that shares its caller's registers (an SEH funclet) keeps the values the context held before and gives them back after: a funclet further up the stack works in the context, and the save helpers that restored them are elided |
 
 The SDK builds with line tables, and on Windows `rexruntime.dll` gets a PDB, so the crash reports' stacks can be read ([Symbols](sentry.md#symbols)). Rebuild the SDK with this script after changing any patch. On Linux, `scripts/build-sdk.sh` applies the same list and builds the SDK with the `linux-amd64` preset into the same folders.
 
