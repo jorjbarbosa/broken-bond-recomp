@@ -6,19 +6,9 @@ The game installs and reads Xbox 360 marketplace content (content type `00000002
 
 Broken Bond's marketplace packages hold game data only; no package carries code, so nothing has to be recompiled. The game mounts every installed package at start and reads its files together with its own data. For example, the "Chunin outfit Sasuke" package holds `Naruto_DLCUnlockBlackSasuke.bf`, which the game opens right after `naruto.bf`.
 
-The DLC page needs the native renderer build; the install at start runs with either renderer.
+The menus have no DLC page; packages are installed from the data folder at start, with either renderer.
 
-## Install through the game menu
-
-1. Press **F1** or **Back+Start** in game and select **DLC**.
-2. Select **Add DLC...**, then the folder that holds your packages or already-extracted content.
-3. Restart the game to install the packages.
-
-The page searches the folder for files with a `CON `, `LIVE` or `PIRS` signature, whatever their extension. It copies the packages it finds into the data folder's `dlc/`, and the game installs them at the next start. A folder without packages is treated as extracted content and copied into the user data folder at once.
-
-The page lists installed content by the name in its header, and staged packages as **Installs on restart** until the game has installed them. **Open DLC folder** opens the installed content folder.
-
-## Install by hand
+## Install
 
 Copy the packages, or a download that keeps the Xbox 360 layout (`55530825/00000002/<package>`), into the data folder's `dlc/` (`data\dlc\` beside `broken_bond.exe`; see [Data folder](data-folder.md)), then start the game. Each package is installed once: a package counts as installed when its extracted folder and its header exist in the user data folder.
 

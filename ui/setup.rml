@@ -21,7 +21,7 @@
     <div class="item" id="settings" data-event-click="settings" data-event-mouseover="hover">
       <div class="plate"/><span class="label">@settings</span>
     </div>
-    <div class="item" id="dlc" data-if="game_ready" data-event-click="dlc" data-event-mouseover="hover">
+    <div class="item" id="dlc" data-if="game_ready && dlc_shown" data-event-click="dlc" data-event-mouseover="hover">
       <div class="plate"/><span class="label">@dlc</span>
     </div>
     <div class="item" id="quit" data-event-click="quit" data-event-mouseover="hover">

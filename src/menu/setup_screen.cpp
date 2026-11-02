@@ -30,6 +30,7 @@ bool SetupScreen::CreateModel(Rml::Context& context) {
   Rml::DataModelConstructor constructor = context.CreateDataModel("setup");
   if (!constructor) return false;
   constructor.Bind("game_ready", &game_ready_);
+  constructor.Bind("dlc_shown", &dlc_shown_);
   constructor.Bind("start_failed", &start_failed_);
   constructor.Bind("logo_ready", &logo_ready_);
   constructor.Bind("first_label", &first_label_);
@@ -58,6 +59,7 @@ bool SetupScreen::CreateModel(Rml::Context& context) {
 bool SetupScreen::Show(Rml::Context& context, const State& state, Actions actions) {
   if (!CreateModel(context)) return false;
   actions_ = std::move(actions);
+  dlc_shown_ = bool(actions_.dlc);  // An entry without an action is not shown, as in the game menu.
   game_ready_ = state.reason != SetupReason::kFirstRun && state.reason != SetupReason::kGameMissing &&
                 state.reason != SetupReason::kGameNotReady;
   start_failed_ = state.reason == SetupReason::kStartFailed;

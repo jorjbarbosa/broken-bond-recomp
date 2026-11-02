@@ -38,7 +38,7 @@ changes the answer, opens the local records and exports a session to share
 (the thread snapshot there needs gdb).
 
 IN GAME:
-Press F1 or Back+Start to open Settings, DLC and Exit game.
+Press F1 or Back+Start to open Settings and Exit game.
 Translation packages in mods/<name> appear under Settings > Game > Game
 language.
 
@@ -55,8 +55,8 @@ REQUIREMENTS:
 Linux x86-64 with glibc 2.43 or newer, the Vulkan loader and a Vulkan 1.2
 driver (Mesa or NVIDIA), libcurl (libcurl.so.4, for the crash reports), and an
 X11 or Wayland desktop. The game runs on
-Vulkan only. The file dialog of the setup screen and the DLC page needs the
-XDG desktop portal or zenity.
+Vulkan only. The file dialog of the setup screen needs the XDG desktop portal or
+zenity.
 
 KNOWN LIMITATIONS:
 No update check or desktop shortcut on Linux. Holding Shift at start does

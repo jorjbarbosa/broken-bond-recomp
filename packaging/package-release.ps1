@@ -173,7 +173,7 @@ Settings > Advanced. Hold Shift while opening, or run broken_bond.exe --setup,
 to return to the setup screen.
 
 IN GAME:
-Press F1 or Back+Start to open Settings, DLC and Exit game. The game keeps
+Press F1 or Back+Start to open Settings and Exit game. The game keeps
 running while the menu is open, with game input blocked.
 Settings include Game, Display, Quality, Controls and Advanced, in seven
 interface languages. Graphics options that need a restart say so.

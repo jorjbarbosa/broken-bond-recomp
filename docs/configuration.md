@@ -10,13 +10,13 @@ Every option can also be set as an environment variable named `REX_` plus the ke
 
 ## Setup screen
 
-The game opens on the setup screen, with the game's logo read from your game files, or a text title when they have none. **Play** starts the game; **Settings** and **DLC** open those pages; **Quit** closes it. When no supported game is found, the first entry chooses one: an ISO, read in place, or the `default.xex` of a complete extracted copy. The choice is checked against the supported revision and saved as `custom_game_root`; your original files are never moved or changed.
+The game opens on the setup screen, with the game's logo read from your game files, or a text title when they have none. **Play** starts the game; **Settings** opens the settings; **Quit** closes it. When no supported game is found, the first entry chooses one: an ISO, read in place, or the `default.xex` of a complete extracted copy. The choice is checked against the supported revision and saved as `custom_game_root`; your original files are never moved or changed.
 
 The screen also opens when the last start failed before its first frame, or when the chosen game is missing or unsupported. **Settings → Advanced → Startup menu** turns off the screen for normal starts; holding Shift while opening, or `--setup`, brings it back. Changing the graphics API or card offers to restart the game.
 
 ## Game menu
 
-In game, F1 or Back + Start opens the game menu over the native renderer: **Settings**, **DLC** and **Exit game**. The game keeps running, but its controller, keyboard and mouse input stay neutral while the menu shows; Esc or B closes it. Both shortcuts can be changed under **Settings → Controls**. With `show_fps_overlay = true` the frame rate also shows in a corner of the screen.
+In game, F1 or Back + Start opens the game menu over the native renderer: **Settings** and **Exit game**. The game keeps running, but its controller, keyboard and mouse input stay neutral while the menu shows; Esc or B closes it. Both shortcuts can be changed under **Settings → Controls**. With `show_fps_overlay = true` the frame rate also shows in a corner of the screen.
 
 **Settings** has five pages, in seven interface languages: English (default), Brazilian Portuguese, French, German, Spanish, Italian and Russian.
 
@@ -100,7 +100,7 @@ The menus also use these keys:
 | `check_for_updates` | `true` | Checks the project's latest release at start and notifies when it is newer; Settings > Advanced also checks on request |
 | `crash_reporting` | `false` | Sends crash reports to Sentry ([Crash reports](sentry.md)); set by the question at the first start or under Settings > Advanced > Diagnostics |
 | `crash_reporting_asked` | `false` | The crash report question was answered; `true` keeps it from showing |
-| `dlc_source_path` | `"dlc"` | Folder whose DLC packages the game installs at start; `"dlc"` is the data folder's `dlc/`; the game menu's **DLC** page stages packages there ([DLC](dlc.md)) |
+| `dlc_source_path` | `"dlc"` | Folder whose DLC packages the game installs at start; `"dlc"` is the data folder's `dlc/` ([DLC](dlc.md)) |
 
 ### Native renderer options
 
