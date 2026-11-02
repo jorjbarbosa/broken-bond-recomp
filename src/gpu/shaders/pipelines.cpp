@@ -46,6 +46,7 @@
 #include <set>
 #include <span>
 #include <string>
+#include <system_error>
 #include <thread>
 #include <map>
 #include <unordered_map>
@@ -126,6 +127,8 @@ struct PlayerPipelines {
   uint64_t written = 0, write_failures = 0;
   std::vector<player_pipelines::Entry> extra;
   std::unordered_map<uint32_t, std::vector<size_t>> extra_worlds;  // World key -> pool indices.
+  size_t cursor = 0;  // The engine's records merged so far (Engine::PipelineListFrom).
+  std::atomic<bool> saving{false};  // A loading screen's save is on its thread.
 } player;
 
 const char* ApiFileName(GraphicsApi api) { return api == GraphicsApi::kVulkan ? "vulkan" : "d3d12"; }
@@ -152,7 +155,11 @@ void ReadPlayerList(GraphicsApi api) {
 }
 // Merges a JSON array of Engine::PipelineList into the player's list and
 // writes the list when it grew.
-void MergePlayerPipelines(const std::string& records, GraphicsApi api, const char* reason) {
+// end: the engine's record count the records reach (SIZE_MAX: a whole list,
+// the cursor stays); queued_us: from the save's post to the owner's list.
+void MergePlayerPipelines(const std::string& records, GraphicsApi api, const char* reason, size_t end = SIZE_MAX,
+                          uint64_t queued_us = 0) {
+  const auto started = std::chrono::steady_clock::now();
   long added = 0;
   bool written = false;
   size_t entries = 0;
@@ -162,18 +169,20 @@ void MergePlayerPipelines(const std::string& records, GraphicsApi api, const cha
     if (player.folder.empty()) return;
     ReadPlayerList(api);
     added = player_pipelines::Merge(player.list, records, detail);
+    if (added >= 0 && end != SIZE_MAX) player.cursor = end;
     if (added > 0) {
       written = player_pipelines::Write(player.folder / (player.api + ".json"), player.api, player.list, detail);
       ++(written ? player.written : player.write_failures);
     }
     entries = player.list.entries.size();
   }
+  const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - started);
   host::Record("native-player-pipelines", fmt::format(
-      "\"reason\":\"{}\",\"added\":{},\"entries\":{},\"written\":{},\"detail\":\"{}\"", reason, added, entries,
-      written, detail));
+      "\"reason\":\"{}\",\"added\":{},\"entries\":{},\"written\":{},\"ms\":{},\"queued_us\":{},\"detail\":\"{}\"",
+      reason, added, entries, written, ms.count(), queued_us, detail));
   if (!host::Journaled() && (added > 0 || !detail.empty()))
-    REXLOG_INFO("[broken_bond] Player pipeline list ({}): {} added, {} in all, written={} {}", reason, added, entries,
-                written, detail);
+    REXLOG_INFO("[broken_bond] Player pipeline list ({}): {} added, {} in all, written={}, {} ms, queued {} us {}",
+                reason, added, entries, written, ms.count(), queued_us, detail);
 }
 
 // An entry of the pool: the built-in list's, then the player's extra ones.
@@ -477,17 +486,45 @@ void SetPlayerPipelineFolder(std::filesystem::path folder) {
   if (!player.read) player.folder = std::move(folder);
 }
 
+// Nothing waits here: the save is queued behind the owner's work (Post), the
+// owner lists only the records created since the last save, and a thread of
+// the lowest priority merges and writes them. One save at a time: a save
+// still on its way skips this one. The posted operation never fails, so it
+// cannot hold up the operations after it.
 void SavePlayerPipelines(const char* reason) {
+  auto* dispatcher = host::ActiveDispatcher();
+  if (!dispatcher || player.saving.exchange(true)) return;
+  size_t first = 0;
   {
     std::lock_guard lock(player.mutex);
-    if (player.folder.empty()) return;
+    if (player.folder.empty()) {
+      player.saving.store(false);
+      return;
+    }
+    first = player.cursor;
   }
-  auto* dispatcher = host::ActiveDispatcher();
-  std::string pipelines;
-  if (!dispatcher || !dispatcher->Run([](Engine& engine, std::string& o) {
-        o = engine.PipelineList();
-        return true;
-      }, pipelines) || pipelines.empty()) return;
-  MergePlayerPipelines(pipelines, dispatcher->Api(), reason);
+  const GraphicsApi api = dispatcher->Api();
+  const auto posted = std::chrono::steady_clock::now();
+  const bool queued = dispatcher->Post([first, api, reason, posted](Engine& engine, std::string&) {
+    size_t end = first;
+    std::string records = engine.PipelineListFrom(first, end);
+    const uint64_t queued_us = uint64_t(std::chrono::duration_cast<std::chrono::microseconds>(
+        std::chrono::steady_clock::now() - posted).count());
+    if (end == first) {
+      player.saving.store(false);
+      return true;
+    }
+    try {
+      std::thread([records = std::move(records), api, reason, end, queued_us] {
+        platform::SetThreadPriority(platform::ThreadPriority::kLowest);
+        MergePlayerPipelines(records, api, reason, end, queued_us);
+        player.saving.store(false);
+      }).detach();
+    } catch (const std::system_error&) {
+      player.saving.store(false);
+    }
+    return true;
+  });
+  if (!queued) player.saving.store(false);
 }
 }  // namespace gpu

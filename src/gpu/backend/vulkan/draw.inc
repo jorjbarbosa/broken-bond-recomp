@@ -252,8 +252,20 @@ std::vector<PipelineDesc> Backend::PipelineDescs() {
   return out;
 }
 std::string Backend::PipelineList() {
+  size_t end = 0;
+  return PipelineListFrom(0, end);
+}
+
+std::string Backend::PipelineListFrom(size_t first, size_t& end) {
+  const auto& order = state_->pipeline_order;
+  if (first > order.size()) first = 0;  // Cleared since (a new device): all of them again.
+  end = order.size();
   std::string out = "[";
-  for (const auto& [key, d] : state_->pipeline_descs) {
+  for (size_t i = first; i < end; ++i) {
+    const uint64_t key = order[i];
+    const auto found = state_->pipeline_descs.find(key);
+    if (found == state_->pipeline_descs.end()) continue;
+    const PipelineDesc& d = found->second;
     if (out.size() > 1) out += ",";
     std::string elements;
     if (d.elements) for (const auto& e : *d.elements)
@@ -334,6 +346,7 @@ bool Backend::DrawIndexed(const DrawRequest& r, uint64_t& fence, std::string& ev
       s.pipelines.erase(key);  // `pipeline` is not used below.
       // Listed now: a skipped draw that does not come back still names its pipeline (PipelineList).
       if (take.post && s.pipeline_descs.emplace(key, desc).second) {
+        s.pipeline_order.push_back(key);
         s.pipeline_origins[key] = "posted";
         s.pipeline_worlds[key] = WorldKey();
       }
@@ -349,7 +362,7 @@ bool Backend::DrawIndexed(const DrawRequest& r, uint64_t& fence, std::string& ev
         s.pipeline_origins[key] = s.pipeline_set.NoteCreated(take, triple, micros);
       }
       s.pipeline_worlds[key] = WorldKey();
-      s.pipeline_descs.emplace(key, desc);
+      if (s.pipeline_descs.emplace(key, desc).second) s.pipeline_order.push_back(key);
     }
   }
   if (!ApplyDrawConstants(r.vs_constants, r.vs_constants_delta, s.vs_block) ||

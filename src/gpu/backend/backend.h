@@ -83,6 +83,9 @@ class Backend {
   virtual bool ResolveSurface(const ResolveRequest& request, uint64_t& fence, std::string& evidence) = 0;
   virtual bool DrawIndexed(const DrawRequest& request, uint64_t& fence, std::string& evidence) = 0;
   virtual std::string PipelineList() = 0;
+  // The records from the first-th one created (0 after the backend cleared
+  // its pipelines); end: the count to pass next time.
+  virtual std::string PipelineListFrom(size_t first, size_t& end) = 0;
   virtual std::vector<PipelineDesc> PipelineDescs() = 0;
   virtual bool PreparePipelines(std::string& evidence) = 0;
   virtual bool PrecompilePipeline(const PipelineDesc& desc, bool& present, std::string& evidence) = 0;

@@ -110,6 +110,9 @@ class Engine final {
   // identities of their key (shader names, layout id and elements, state
   // words): the list a build step can turn into the precompiled set.
   std::string PipelineList();
+  // The same records from the first-th one created, for a list kept up to
+  // date in steps; end: the count to pass next time.
+  std::string PipelineListFrom(size_t first, size_t& end);
   // The created pipelines as descriptions (no DXIL); their key is
   // PipelineKey (pipeline_keys.h), as DrawIndexed computes it.
   std::vector<PipelineDesc> PipelineDescs();

@@ -183,6 +183,7 @@ class Backend final : public gpu::Backend {
   bool ResolveSurface(const ResolveRequest& request, uint64_t& fence, std::string& evidence) override;
   bool DrawIndexed(const DrawRequest& request, uint64_t& fence, std::string& evidence) override;
   std::string PipelineList() override;
+  std::string PipelineListFrom(size_t first, size_t& end) override;
   std::vector<PipelineDesc> PipelineDescs() override;
   bool PreparePipelines(std::string& evidence) override;
   bool PrecompilePipeline(const PipelineDesc& desc, bool& present, std::string& evidence) override;
@@ -3711,9 +3712,18 @@ bool Backend::DrawIndexed(const DrawRequest& r, uint64_t& fenceValue, std::strin
 }
 
 std::string Backend::PipelineList() {
+  size_t end = 0;
+  return PipelineListFrom(0, end);
+}
+
+std::string Backend::PipelineListFrom(size_t first, size_t& end) {
+  const auto& records = state_->pipeline_records;
+  if (first > records.size()) first = 0;  // Cleared since (a new device): all of them again.
+  end = records.size();
   std::string out;
   std::unordered_set<uint64_t> listed;  // A skipped draw's pipeline has its posted record and, once drawn, another.
-  for (const auto& p : state_->pipeline_records) {
+  for (size_t i = first; i < end; ++i) {
+    const auto& p = records[i];
     if (!listed.insert(p.key).second) continue;
     std::string elements;
     if (p.elements)

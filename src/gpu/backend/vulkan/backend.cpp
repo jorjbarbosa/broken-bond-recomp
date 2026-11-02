@@ -334,6 +334,7 @@ class Backend final : public gpu::Backend {
   bool ResolveSurface(const ResolveRequest& request, uint64_t& fence, std::string& evidence) override;
   bool DrawIndexed(const DrawRequest&, uint64_t& fence, std::string& evidence) override;
   std::string PipelineList() override;
+  std::string PipelineListFrom(size_t first, size_t& end) override;
   std::vector<PipelineDesc> PipelineDescs() override;
   bool PreparePipelines(std::string& evidence) override;
   bool PrecompilePipeline(const PipelineDesc&, bool& present, std::string& evidence) override;
@@ -596,6 +597,7 @@ struct Backend::State {
   std::vector<PrefetchedKey> prefetched_keys;
   size_t prefetched_next = 0;
   std::map<uint64_t, PipelineDesc> pipeline_descs;
+  std::vector<uint64_t> pipeline_order;  // The keys of pipeline_descs as they were added (PipelineListFrom).
   std::map<uint64_t, std::string> pipeline_origins;
   std::map<uint64_t, uint32_t> pipeline_worlds, pipeline_create_us;
   uint64_t depth_resolves = 0;
@@ -691,7 +693,7 @@ struct Backend::State {
     heap_samplers.clear();
     if (heap_pool) vkDestroyDescriptorPool(vulkan->vk, heap_pool, nullptr);  // Frees its sets.
     heap_pool = VK_NULL_HANDLE; heap_sets = {};
-    pipelines.clear(); resolve_pipelines.clear(); pipeline_descs.clear();
+    pipelines.clear(); resolve_pipelines.clear(); pipeline_descs.clear(); pipeline_order.clear();
     pipeline_origins.clear(); pipeline_worlds.clear(); pipeline_create_us.clear();
     if (draw_layout) vkDestroyPipelineLayout(vulkan->vk, draw_layout, nullptr);
     if (resolve_layout) vkDestroyPipelineLayout(vulkan->vk, resolve_layout, nullptr);
