@@ -32,6 +32,7 @@ std::optional<GraphicsApi> OtherApi(GraphicsApi api) {
 }  // namespace
 std::mutex engine_mutex;
 std::unique_ptr<Dispatcher> native_engine;
+std::atomic<Dispatcher*> active_engine{nullptr};
 std::unique_ptr<Dispatcher> failed_native_engine;
 EngineRegistration engine_registration{};
 
@@ -45,6 +46,10 @@ bool InitializeEngines(PPCContext& ctx) {
       ctx.lr != 0x821B40B4 || ctx.r3.u32 != 0x1E600000 || ctx.r4.u32 != 0x821B3FA0 ||
       ctx.r5.u32 != 0 || ctx.r6.u32 != 0x8209FED0 || ctx.r7.u32 != 0x820A0350)
     Stop("VdInitializeEngines-outside-reviewed-signature", &ctx);
+  // The device of the 821B4060 in progress (its r3 at the entry, kept by the
+  // device owner): the caller's r31 is a local there, not in the context.
+  const uint32_t guest_device = gpu::EnteredDevice();
+  if (!guest_device) Stop("VdInitializeEngines-outside-device-creation", &ctx);
   constexpr std::array<uint8_t, 32> callback{{
       0x3d,0x60,0x7f,0xc8,0x39,0x40,0x00,0x07,0x91,0x4b,0x32,0x14,0x7c,0x00,0x06,0xac,
       0x39,0x40,0x08,0x00,0x91,0x4b,0x34,0x08,0x7c,0x00,0x06,0xac,0x4e,0x80,0x00,0x20}};
@@ -57,7 +62,7 @@ bool InitializeEngines(PPCContext& ctx) {
   {
     std::lock_guard lock(event_mutex);
     Record("native-engine-init-before", "VdInitializeEngines-restricted-host-compatibility", &ctx,
-           ctx.r31.u32);
+           guest_device);
   }
   std::string evidence, failed_release;
   bool failed_release_ok = true;
@@ -96,8 +101,9 @@ bool InitializeEngines(PPCContext& ctx) {
                       settings.graphics_device);
         REXLOG_INFO("[broken_bond] Native renderer backend: {}; adapter: {}; initialization: {}",
                     ApiName(candidate->Api()), device, evidence);
-        engine_registration = {ctx.r4.u32, ctx.r5.u32, ts->thread_id(), int(thread->active_cpu()), ctx.r31.u32};
+        engine_registration = {ctx.r4.u32, ctx.r5.u32, ts->thread_id(), int(thread->active_cpu()), guest_device};
         native_engine = std::move(candidate);
+        active_engine.store(native_engine.get(), std::memory_order_release);
       } else {
         // The journal of the product is absent: the reason goes to the SDK log.
         REXLOG_ERROR("[broken_bond] Native renderer initialization failed: {}", evidence);
@@ -130,8 +136,5 @@ bool InitializeEngines(PPCContext& ctx) {
   if (gpu::Active() && gpu::PresentProofRequested()) gpu::PresentProof(ctx);
   return true;
 }
-Dispatcher* ActiveDispatcher() {
-  std::lock_guard lock(engine_mutex);
-  return native_engine.get();
-}
+Dispatcher* ActiveDispatcher() { return active_engine.load(std::memory_order_acquire); }
 }  // namespace gpu::host

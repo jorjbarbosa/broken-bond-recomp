@@ -95,6 +95,7 @@ The script applies the patches in `patches/` to the `sdk` submodule, in the orde
 | `rexglue-seh-signal-chain.patch` | On POSIX, the runtime's SEH emulation keeps the handlers it replaces and passes them a fault outside its regions, so Crashpad still writes the dump once the runtime has started |
 | `rexglue-physical-heap-release-order.patch` | A physical heap releases its own region before its parent's pages, so another thread that takes those pages in between no longer loses its new region to this release; an address that is not a region start leaves the parent untouched |
 | `rexglue-input-user-packet.patch` | Each player keeps one packet number, raised whenever the packet of any of its devices changes, so a controller change still reaches the game after the keyboard changed more often |
+| `rexglue-shared-register-calls.patch` | With the non-volatile registers as locals, a call into a function that shares its caller's registers (an SEH funclet) keeps the values the context held before and gives them back after: a funclet further up the stack works in the context, and the save helpers that restored them are elided |
 
 The SDK builds with line tables, and on Windows `rexruntime.dll` gets a PDB, so the crash reports' stacks can be read ([Symbols](sentry.md#symbols)). Rebuild the SDK with this script after changing any patch. On Linux, `scripts/build-sdk.sh` applies the same list and builds the SDK with the `linux-amd64` preset into the same folders.
 
@@ -161,7 +162,7 @@ The script starts from the current list, so its entries and order are kept. `-So
 ./build/native/broken_bond.exe
 ```
 
-A build in `build/native` finds the repository's `game/` folder and keeps its settings, saves, logs and caches in the repository's data folder, `build/data/`, shared by every build inside the repository. Its first start makes it from `build/user/` and `build/native/broken_bond.toml`, which stay as they are. It opens on the setup screen: **Play** starts the game, **Settings** and **DLC** open those pages, and the game folder or an ISO can be chosen under **Settings → Game**. Without a supported game, the first entry chooses one instead of playing. The log goes to `build/data/logs/`. `--data_root <folder>` runs on another data folder for that session. See [Configuration](configuration.md) and [Data folder](data-folder.md).
+A build in `build/native` finds the repository's `game/` folder and keeps its settings, saves, logs and caches in the repository's data folder, `build/data/`, shared by every build inside the repository. Its first start makes it from `build/user/` and `build/native/broken_bond.toml`, which stay as they are. It opens on the setup screen: **Play** starts the game, **Settings** opens the settings, and the game folder or an ISO can be chosen under **Settings → Game**. Without a supported game, the first entry chooses one instead of playing. The log goes to `build/data/logs/`. `--data_root <folder>` runs on another data folder for that session. See [Configuration](configuration.md) and [Data folder](data-folder.md).
 
 The startup menu can be turned off under **Settings → Advanced**; hold Shift while opening, or pass `--setup`, to open it again.
 
@@ -247,7 +248,7 @@ cmake --build build/linux
 ./build/linux/broken_bond --game_data_root="$PWD/game"
 ```
 
-`--game_data_root` takes an extracted folder or an ISO; without it, the game looks for one next to the executable, or in the repository's `game/` for a build inside it, as on Windows. The setup screen's game choice and the DLC page's folder choice open the desktop's file dialog through SDL (the XDG desktop portal, or zenity when it is installed). Settings, saves, logs and caches go to the data folder: `build/data/` for a build inside the repository, `data/` next to the executable elsewhere, and the XDG data folder for the AppImage (see [Data folder](data-folder.md)). SDL picks Wayland or X11; `SDL_VIDEO_DRIVER=x11` forces X11.
+`--game_data_root` takes an extracted folder or an ISO; without it, the game looks for one next to the executable, or in the repository's `game/` for a build inside it, as on Windows. The setup screen's game choice opens the desktop's file dialog through SDL (the XDG desktop portal, or zenity when it is installed). Settings, saves, logs and caches go to the data folder: `build/data/` for a build inside the repository, `data/` next to the executable elsewhere, and the XDG data folder for the AppImage (see [Data folder](data-folder.md)). SDL picks Wayland or X11; `SDL_VIDEO_DRIVER=x11` forces X11.
 
 ### Known limitations
 

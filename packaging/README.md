@@ -4,8 +4,7 @@ The release is `broken-bond-recomp-win-amd64.zip`. Extract it to a writable
 folder and open `broken_bond.exe`. On the first launch, choose your original
 Xbox 360 ISO, which is read in place, or the `default.xex` of a complete
 extracted copy. Hold Shift while opening, or pass `--setup`, to return to the
-setup screen. Press F1 or Back+Start during play for Settings, DLC and Exit
-game.
+setup screen. Press F1 or Back+Start during play for Settings and Exit game.
 
 On Linux the package is `broken-bond-recomp-linux-x86_64.AppImage`
 ([below](#build-the-linux-appimage)). There is no Linux release yet.

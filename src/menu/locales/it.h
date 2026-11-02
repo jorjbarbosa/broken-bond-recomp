@@ -94,6 +94,8 @@ inline constexpr const char* kIt[] = {
     "Fotogrammi in coda prima della visualizzazione. 1 ha il ritardo di input più basso; 2 o 3 possono uniformare tempi dei fotogrammi irregolari.",  // FrameLatencyDescription
     "Triplo buffer",  // TripleBufferingLabel
     "Tre buffer di visualizzazione invece di due.",  // TripleBufferingDescription
+    "Salta i disegni durante la compilazione degli shader",  // SkipPipelineDrawsLabel
+    "Invece di bloccare il gioco mentre viene preparato un nuovo shader, l'oggetto viene disegnato qualche fotogramma dopo. Meno scatti la prima volta che compare un luogo o un effetto; alcuni oggetti possono apparire in ritardo.",  // SkipPipelineDrawsDescription
     "Sincronizza la presentazione con lo schermo. Con il renderer nativo, la velocità del gioco non dipende dal VSync.",  // VsyncNativeDescription
     "Scheda video",  // GraphicsDeviceLabel
     "Automatica",  // GraphicsDeviceAuto

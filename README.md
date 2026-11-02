@@ -52,9 +52,9 @@ The Xbox Live features and most of the story have not been tested yet. Other gra
 **Menus, controls and distribution**
 
 - **Setup screen:** the game opens on a screen with its own logo, where you play, choose your ISO (read in place, without extraction) or an extracted copy, and change settings. The supported revision is checked before the game starts. See [Configuration](docs/configuration.md).
-- **In-game menu:** F1 or Back + Start opens Settings, DLC and Exit game over the game, in seven interface languages.
+- **In-game menu:** F1 or Back + Start opens Settings and Exit game over the game, in seven interface languages.
 - **Four players' controls:** each player has a controller or keyboard and mouse, with its own bindings and dead zones. Controllers are assigned automatically.
-- **DLC:** the DLC page installs the game's marketplace packages. See [DLC](docs/dlc.md).
+- **DLC:** marketplace packages copied into the data folder's `dlc/` are installed at start. See [DLC](docs/dlc.md).
 - **Data folder:** settings, saves, logs, translation packages and DLC packages live in one data folder, apart from the program: `data\` beside `broken_bond.exe`, or the XDG data folder for the AppImage. The first start copies a 0.1.0-beta copy's files into it and keeps the originals; Settings → Advanced shows it and can move it. See [Data folder](docs/data-folder.md).
 - **Translation mods:** packages in the data folder's `mods/` replace the game's English texts by ID without changing the game files, and the menus list them as game languages. See [Translation mods](docs/translation-mods.md).
 - **Diagnostics:** each session leaves a record in the data folder, with the crash dump when the game crashes, and Settings → Advanced exports it to share. Crash reports go to the developers through Sentry only if you agree when the game asks, at its first start. See [Local diagnostics](docs/crash-reports.md) and [Crash reports](docs/sentry.md).

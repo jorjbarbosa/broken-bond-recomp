@@ -97,23 +97,88 @@ struct Written {
   uint32_t object = 0;  // An object matrix's object, 0 otherwise.
 };
 
+// The hash of a guest address for the maps below: one multiply (the standard
+// library's hashes the four bytes one at a time, a measurable share of the
+// view start in a crowded scene).
+struct AddressHash {
+  size_t operator()(uint32_t v) const noexcept {
+    const uint64_t h = uint64_t(v) * 0x9E3779B97F4A7C15ull;
+    return size_t(h ^ (h >> 32));
+  }
+};
+template <typename T>
+using AddressMap = std::unordered_map<uint32_t, T, AddressHash>;
+// A set of guest addresses filled and emptied every view block: open
+// addressing in a power-of-two table, emptied by a new epoch instead of a pass
+// or a free per entry. Main thread only.
+class AddressSet {
+ public:
+  void Clear() {
+    size_ = 0;
+    if (++epoch_ == 0) {
+      std::fill(stamps_.begin(), stamps_.end(), 0u);
+      epoch_ = 1;
+    }
+  }
+  // True when the address was not in the set.
+  bool Insert(uint32_t key) {
+    if ((size_ + 1) * 2 > keys_.size()) Grow();
+    size_t i = Slot(key);
+    while (stamps_[i] == epoch_) {
+      if (keys_[i] == key) return false;
+      i = (i + 1) & (keys_.size() - 1);
+    }
+    stamps_[i] = epoch_;
+    keys_[i] = key;
+    ++size_;
+    return true;
+  }
+  bool Contains(uint32_t key) const {
+    if (!size_) return false;
+    for (size_t i = Slot(key); stamps_[i] == epoch_; i = (i + 1) & (keys_.size() - 1))
+      if (keys_[i] == key) return true;
+    return false;
+  }
+
+ private:
+  size_t Slot(uint32_t key) const {
+    return size_t((uint64_t(key) * 0x9E3779B97F4A7C15ull) >> 32) & (keys_.size() - 1);
+  }
+  void Grow() {
+    std::vector<uint32_t> keys, stamps;
+    keys.swap(keys_);
+    stamps.swap(stamps_);
+    const size_t capacity = keys.empty() ? 1024 : keys.size() * 2;
+    keys_.assign(capacity, 0);
+    stamps_.assign(capacity, 0);
+    const uint32_t epoch = epoch_;
+    epoch_ = 1;
+    size_ = 0;
+    for (size_t i = 0; i < keys.size(); ++i)
+      if (stamps[i] == epoch) Insert(keys[i]);
+  }
+  std::vector<uint32_t> keys_, stamps_;
+  uint32_t epoch_ = 1;
+  size_t size_ = 0;
+};
+
 std::atomic<int> enabled{-1}, bones_enabled{-1};
 int turned_enabled = -1;
-std::unordered_map<uint32_t, Track> tracks;  // By object.
-std::unordered_map<uint32_t, BoneTrack> bone_tracks;  // By matrix.
-std::unordered_set<uint32_t> object_written;  // The object matrices written in this view block.
+AddressMap<Track> tracks;  // By object.
+AddressMap<BoneTrack> bone_tracks;  // By matrix.
+AddressSet object_written;  // The object matrices written in this view block.
 uint32_t main_thread = 0;  // The guest thread of the view block.
 std::vector<uint32_t> mounted, candidates;   // Objects of the current and the last display.
 bool collecting = false;
-std::unordered_map<uint32_t, CameraTrack> cameras;  // By the view's entry.
-std::unordered_set<uint32_t> camera_entries_done;   // The entries handled in this display.
+AddressMap<CameraTrack> cameras;  // By the view's entry.
+AddressSet camera_entries_done;   // The entries handled in this display.
 std::vector<Written> written;         // The object matrices written in this view block.
 std::vector<Written> camera_written;  // The camera entries written in this view block.
 // The global matrices of the bone objects (transforms.h): the objects of the
 // list of a mounted object's root (the list the texture projector's lookup
 // 82BEB878 walks), by their matrix [X + 20], the owner the object X; written
 // for the whole view block.
-std::unordered_map<uint32_t, BoneTrack> global_tracks;
+AddressMap<BoneTrack> global_tracks;
 std::vector<Written> global_written;
 std::atomic<int> globals_enabled{-1};
 Applied applied;
@@ -135,14 +200,48 @@ uint64_t resets = 0;  // Since the start.
 
 // Guarded reads of guest memory: a pointer taken from an object the display
 // mounted a tick ago, or from a bone array, may no longer point at mapped
-// memory; CopyFromGuest fails instead of faulting.
+// memory; the read fails instead of faulting. The heap's table answers whether
+// a range is committed and readable, under the heap's lock, which the title's
+// allocations on other threads contend: a 4 KB page it showed readable is not
+// asked again within one call of the hooks below (NewReadEpoch at each), so a
+// page another thread frees is seen at the next call at the latest, as a read
+// racing that free already could miss it.
+struct ReadablePages {
+  std::array<uint32_t, 128> page{}, stamp{};
+  uint32_t epoch = 1;
+};
+thread_local ReadablePages readable;
+void NewReadEpoch() {
+  if (++readable.epoch == 0) {
+    readable.stamp.fill(0);
+    readable.epoch = 1;
+  }
+}
+bool Readable(rex::memory::Memory* memory, uint32_t address, size_t size) {
+  if (!memory || !size || uint64_t(address) + size - 1 > UINT32_MAX) return false;
+  const uint32_t first = address >> 12, last = uint32_t((uint64_t(address) + size - 1) >> 12);
+  for (uint32_t page = first; page <= last; ++page) {
+    const size_t slot = page & (readable.page.size() - 1);
+    if (readable.stamp[slot] == readable.epoch && readable.page[slot] == page) continue;
+    // A page readable only in part: the exact range, not kept.
+    if (!VirtualRangeAccessible(memory, page << 12, 4096, false))
+      return VirtualRangeAccessible(memory, address, size, false);
+    readable.page[slot] = page;
+    readable.stamp[slot] = readable.epoch;
+  }
+  return true;
+}
 bool Read32(uint8_t* base, uint32_t address, uint32_t& out) {
-  if (!CopyFromGuest(GuestMemory(), address, &out, 4)) return false;
+  auto* memory = GuestMemory();
+  if (!Readable(memory, address, 4)) return false;
+  std::memcpy(&out, memory->TranslateVirtual(address), 4);
   out = std::byteswap(out);
   return true;
 }
 bool ReadFloats(uint8_t* base, uint32_t address, float* out, size_t count) {
-  if (!CopyFromGuest(GuestMemory(), address, out, 4 * count)) return false;
+  auto* memory = GuestMemory();
+  if (!Readable(memory, address, 4 * count)) return false;
+  std::memcpy(out, memory->TranslateVirtual(address), 4 * count);
   for (size_t i = 0; i < count; ++i) {
     uint32_t v;
     std::memcpy(&v, out + i, 4);
@@ -431,12 +530,13 @@ void Pose(uint8_t* base, uint32_t object, uint32_t geometry, std::vector<Written
     return;
   }
   ++applied.poses;
+  NewReadEpoch();
   static std::vector<std::pair<uint32_t, uint32_t>> bones;  // Main thread (above): a scratch kept across the calls.
   bones.clear();
   BoneMatrices(base, object, geometry, bones);
   const auto& f = tick::Current();
   for (const auto& [m, bone] : bones) {
-    if (object_written.count(m) ||
+    if (object_written.Contains(m) ||
         std::any_of(out.begin(), out.end(), [&](const Written& w) { return w.address == m; }))
       continue;
     Matrix live;
@@ -478,6 +578,7 @@ void Pose(uint8_t* base, uint32_t object, uint32_t geometry, std::vector<Written
 uint32_t effects_wait_us = 0;
 bool effects_timeout = false;
 void SettleEffects(uint8_t* base) {
+  NewReadEpoch();
   effects_wait_us = 0;
   effects_timeout = false;
   if (!gpu::Active() || !tick::InGatedStep() || !tick::Current().tick) return;
@@ -499,14 +600,15 @@ void SettleEffects(uint8_t* base) {
 
 // The view start of the main step (827F6F38, r3 the view).
 void ViewStart(uint8_t* base) {
+  NewReadEpoch();
   candidates.swap(mounted);
   mounted.clear();
   collecting = Active();
   applied = {};
   applied.effects_wait_us = effects_wait_us;
   applied.effects_timeout = effects_timeout;
-  object_written.clear();
-  camera_entries_done.clear();
+  object_written.Clear();
+  camera_entries_done.Clear();
   const uint32_t loads = title_loadings.load(std::memory_order_relaxed) + world_loads.load(std::memory_order_relaxed);
   const bool reloaded = loads != loads_seen || TitleLoading();
   loads_seen = loads;
@@ -543,23 +645,27 @@ void ViewStart(uint8_t* base) {
       global_tracks.clear();
       candidates.clear();
     } else if (!gone.empty() && !(tracks.empty() && bone_tracks.empty() && global_tracks.empty() && candidates.empty())) {
-      const std::unordered_set<uint32_t> set(gone.begin(), gone.end());
+      static AddressSet set;  // Main thread: kept across the blocks.
+      set.Clear();
+      for (const uint32_t pointer : gone) set.Insert(pointer);
       for (auto it = tracks.begin(); it != tracks.end();)
-        it = set.count(it->first) || set.count(it->second.matrix) ? tracks.erase(it) : std::next(it);
+        it = set.Contains(it->first) || set.Contains(it->second.matrix) ? tracks.erase(it) : std::next(it);
       for (auto it = bone_tracks.begin(); it != bone_tracks.end();)
-        it = set.count(it->first) || set.count(it->second.owner) || set.count(it->second.bone) ? bone_tracks.erase(it)
-                                                                                                : std::next(it);
+        it = set.Contains(it->first) || set.Contains(it->second.owner) || set.Contains(it->second.bone)
+                 ? bone_tracks.erase(it)
+                 : std::next(it);
       for (auto it = global_tracks.begin(); it != global_tracks.end();)
-        it = set.count(it->first) || set.count(it->second.owner) ? global_tracks.erase(it) : std::next(it);
-      std::erase_if(candidates, [&](uint32_t object) { return set.count(object) != 0; });
+        it = set.Contains(it->first) || set.Contains(it->second.owner) ? global_tracks.erase(it) : std::next(it);
+      std::erase_if(candidates, [&](uint32_t object) { return set.Contains(object); });
     }
   }
   const auto& f = tick::Current();
   const uint64_t tick = f.ticks;
   if (f.tick) {
-    std::unordered_set<uint32_t> seen;
+    static AddressSet seen;  // Main thread: kept across the blocks.
+    seen.Clear();
     for (const uint32_t object : candidates) {
-      if (!seen.insert(object).second) continue;
+      if (!seen.Insert(object)) continue;
       // An object freed since the display by another path than 82120A70 may
       // hold anything at +20: the reads are guarded, the object must still
       // carry the flags of the mount and its matrix look like one, and
@@ -591,9 +697,10 @@ void ViewStart(uint8_t* base) {
     for (auto it = cameras.begin(); it != cameras.end();) it = it->second.tick + 2 < tick ? cameras.erase(it) : std::next(it);
   }
   const float alpha = f.alpha;
-  std::unordered_set<uint32_t> matrices;
+  static AddressSet matrices;  // Main thread: kept across the blocks.
+  matrices.Clear();
   for (auto& [object, t] : tracks) {
-    if (!t.valid || t.tick != tick || t.previous == t.current || !matrices.insert(t.matrix).second) continue;
+    if (!t.valid || t.tick != tick || t.previous == t.current || !matrices.Insert(t.matrix)) continue;
     // In a frame without a tick, a matrix the display turned holds the turn
     // the last view block left (Restore): the interpolated value goes under
     // it again, as the display ran once per state of the logic on the console.
@@ -621,7 +728,7 @@ void ViewStart(uint8_t* base) {
     std::copy(t.current.begin(), t.current.end(), w.live.begin());
     WriteMatrix(base, w.address, w.value);
     written.push_back(w);
-    object_written.insert(w.address);
+    object_written.Insert(w.address);
     ++applied.objects;
   }
   // The global matrices [X + 20] of the bone objects X of each mounted
@@ -632,17 +739,18 @@ void ViewStart(uint8_t* base) {
   // relative x object, the engine's own 82B97F3C). Tracked by matrix like the
   // bones, with the same cuts; one no root listed for two ticks leaves.
   if (!GlobalsEnabled()) return;
-  std::unordered_set<uint32_t> roots_done;
+  static AddressSet roots_done;  // Main thread: kept across the blocks.
+  roots_done.Clear();
   static std::vector<uint32_t> bones;  // Main thread: a scratch kept across the blocks.
   for (const uint32_t object : candidates) {
     const uint32_t root = Root(base, object);
-    if (!roots_done.insert(root).second) continue;
+    if (!roots_done.Insert(root)) continue;
     bones.clear();
     if (!RootBones(base, root, bones)) continue;
     ++counts.roots;
     for (const uint32_t x : bones) {
       uint32_t m = 0;
-      if (!Read32(base, x + 20, m) || !m || object_written.count(m)) continue;
+      if (!Read32(base, x + 20, m) || !m || object_written.Contains(m)) continue;
       Matrix live;
       if (!ReadFloats(base, m, live.data(), 16)) continue;
       BoneTrack& t = global_tracks[m];
@@ -669,7 +777,7 @@ void ViewStart(uint8_t* base) {
       std::copy(live.begin(), live.end(), w.live.begin());
       WriteMatrix(base, m, w.value);
       global_written.push_back(w);
-      object_written.insert(m);
+      object_written.Insert(m);
       ++counts.globals;
     }
   }
@@ -679,7 +787,8 @@ void ViewStart(uint8_t* base) {
 // view's camera from the entry: once per display and entry (the display calls
 // it again at its end, over the same entry), with a track per entry.
 void CameraEntry(uint8_t* base, uint32_t entry) {
-  if (!collecting || !entry || !camera_entries_done.insert(entry).second) return;
+  if (!collecting || !entry || !camera_entries_done.Insert(entry)) return;
+  NewReadEpoch();
   const auto& f = tick::Current();
   CameraTrack& camera = cameras[entry];
   if (f.tick) {
@@ -700,6 +809,7 @@ void CameraEntry(uint8_t* base, uint32_t entry) {
 // scale and position go back under the turn: the logic of the next tick reads
 // the matrix, and on the console it read its own values turned by the display.
 void Restore(uint8_t* base) {
+  NewReadEpoch();
   const bool counting = collecting;
   for (const auto& w : written) {
     if (PutBack(base, w)) continue;
@@ -740,7 +850,7 @@ const Applied& LastApplied() { return applied; }
 void ResetHistory(uint8_t* base) {
   Restore(base);
   tracks.clear(); bone_tracks.clear(); global_tracks.clear(); cameras.clear();
-  mounted.clear(); candidates.clear(); object_written.clear(); camera_entries_done.clear();
+  mounted.clear(); candidates.clear(); object_written.Clear(); camera_entries_done.Clear();
   applied = {};
   enabled = bones_enabled = globals_enabled = -1;
   watching.store(false);

@@ -186,7 +186,7 @@ bool Settings::Live(const std::string& key) {
   return key == "resolution_scale" || key == "brightness" || key == "frame_rate" || key == "vsync" ||
       key == "msaa_samples" || key == "swap_post_effect" || key == "present_effect" ||
       key == "anisotropic_override" || key == "transparency_antialiasing" || key == "max_frame_latency" ||
-      key == "triple_buffering" || key == "skip_intro_videos";
+      key == "triple_buffering" || key == "skip_pipeline_draws" || key == "skip_intro_videos";
 }
 void Settings::PollLive() {
   if (!pending_config_ || !result_live_) return;
@@ -380,6 +380,8 @@ std::vector<PanelRow> Settings::Rows(int group) {
         config_.max_frame_latency != initial_.max_frame_latency, true,
         [](GameConfig& config, int value) { config.max_frame_latency = value + 1; });
     toggle("triple_buffering", TextId::TripleBufferingLabel, TextId::TripleBufferingDescription, &GameConfig::triple_buffering);
+    toggle("skip_pipeline_draws", TextId::SkipPipelineDrawsLabel, TextId::SkipPipelineDrawsDescription,
+           &GameConfig::skip_pipeline_draws);
     rows.push_back({"crash_reporting", Text("crash-reporting"), Bool(config_.crash_reporting), Text("crash-reporting-help"),
         config_.crash_reporting != initial_.crash_reporting, true, {Text("off"), Text("on")}, config_.crash_reporting ? 1 : 0,
         [this](int value) { Change("crash_reporting", [value](GameConfig& config) {

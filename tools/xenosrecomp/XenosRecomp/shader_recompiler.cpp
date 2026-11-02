@@ -468,6 +468,11 @@ void ShaderRecompiler::recompile(const AluInstruction& instr)
         SCALAR_CONSTANT_1
     };
 
+    // The vector and the scalar operation of one ALU instruction read their
+    // sources before either writes. A scalar source in the register the vector
+    // operation writes is read from a copy taken before that write (coissue).
+    bool coissue = false;
+
     auto op = [&](size_t operand)
         {
             size_t reg = 0;
@@ -536,7 +541,9 @@ void ShaderRecompiler::recompile(const AluInstruction& instr)
 
             if (select)
             {
-                regFormatted = fmt::format("r{}", reg);
+                const bool scalarOperand = operand == SCALAR_0 || operand == SCALAR_1 || operand == SCALAR_CONSTANT_1;
+                regFormatted = coissue && scalarOperand && reg == instr.vectorDest ? std::string("coissue")
+                                                                                    : fmt::format("r{}", reg);
             }
             else
             {
@@ -716,6 +723,19 @@ void ShaderRecompiler::recompile(const AluInstruction& instr)
                 break;
             }
             }
+        }
+    }
+
+    if (!instr.exportData && instr.vectorWriteMask != 0 && instr.scalarOpcode != AluScalarOpcode::RetainPrev)
+    {
+        const uint32_t constantFormRegister =
+            (uint32_t(instr.scalarOpcode) & 1) | (instr.src3Select << 1) | (instr.src3Swizzle & 0x3C);
+        if ((instr.src3Select && (instr.src3Register & 0x3F) == instr.vectorDest) ||
+            constantFormRegister == instr.vectorDest)
+        {
+            indent();
+            println("coissue = r{};", instr.vectorDest);
+            coissue = true;
         }
     }
 
@@ -1642,6 +1662,7 @@ void ShaderRecompiler::recompile(const uint8_t* shaderData, const std::string_vi
     out += "\tint aL = 0;\n";
     out += "\tbool p0 = false;\n";
     out += "\tfloat ps = 0.0;\n";
+    out += "\tfloat4 coissue = 0.0;\n";
     if (isPixelShader)
     {
 #if defined(UNLEASHED_RECOMP) || defined(NARUTO_RECOMP)

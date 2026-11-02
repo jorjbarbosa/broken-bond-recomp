@@ -6,6 +6,7 @@
 #include "gpu/common/title_loading.h"
 #include "gpu/d3d/d3d.h"
 #include "gpu/d3d/frame.h"
+#include "gpu/diagnostics/sampler.h"
 #include "gpu/host/services.h"
 #include "gpu/settings.h"
 #include <fmt/format.h>
@@ -25,6 +26,7 @@ extern "C" void sub_82BB9B28(PPCContext& __restrict, uint8_t*);
 extern "C" void sub_82BD9520(PPCContext& __restrict, uint8_t*);
 extern "C" void sub_82BECF98(PPCContext& __restrict, uint8_t*);
 extern "C" void sub_82BBADE0(PPCContext& __restrict, uint8_t*);
+extern "C" void __imp__sub_82BAB048(PPCContext& __restrict, uint8_t*);
 
 namespace gpu::tick {
 namespace {
@@ -63,7 +65,10 @@ struct EngineDt {
   float dt = 0.0f, raw = 0.0f;  // +64, +68.
 };
 EngineDt view_saved, view_set;
+EngineDt view_tick;  // The particle generators' dt (tick.h): the tick's in the ticks, 0 between them.
 uint32_t view_address = 0;  // The time structure written, 0 when nothing is.
+thread_local bool view_thread = false;  // The view block's thread, while view_address holds.
+int particle_time = -1;  // REX_NATIVE_INTERPOLATION_PARTICLE_TIME (tick.h): 1 the tick's dt, 0 the image's.
 bool view_started = false;
 double view_shown = 0;  // The image's time of the last view block, in periods.
 double window_view_dt = 0, window_tick_dt = 0;  // The dt the view blocks saw and the ticks' dt, seconds.
@@ -98,6 +103,14 @@ int ViewTime() {
     view_time = !Enabled() || value == "0" ? 0 : value == "tick" ? 2 : 1;
   }
   return view_time;
+}
+
+bool ParticleTime() {
+  if (particle_time < 0) {
+    const char* text = std::getenv("REX_NATIVE_INTERPOLATION_PARTICLE_TIME");
+    particle_time = text && std::string_view(text) == "0" ? 0 : 1;
+  }
+  return particle_time == 1;
 }
 
 void Record(const char* reason, int64_t now) {
@@ -285,8 +298,10 @@ void BeginView(uint8_t* base) {
   view_saved = ReadDt(base, time);
   view_set = {uint64_t(int64_t(double(int64_t(view_saved.us)) * factor)), float(view_saved.dt * factor),
               float(view_saved.raw * factor)};
+  view_tick = frame.tick ? view_saved : EngineDt{};
   WriteDt(base, time, view_set);
   view_address = time;
+  view_thread = true;
   window_view_dt += view_set.dt;
   window_tick_dt += view_saved.dt;
 }
@@ -296,6 +311,7 @@ void EndView(uint8_t* base) {
   const EngineDt now = ReadDt(base, view_address);
   if (now.us == view_set.us && now.dt == view_set.dt && now.raw == view_set.raw) WriteDt(base, view_address, view_saved);
   view_address = 0;
+  view_thread = false;
 }
 
 const char* Label() {
@@ -328,6 +344,7 @@ void WorldChangeStep(PPCContext& ctx, uint8_t* base) {
 }
 
 void MainStep(PPCContext& ctx, uint8_t* base) {
+  gpu::sampler::RegisterThread("main");  // The main loop, REX_NATIVE_SAMPLE_PERIOD_US.
   if (gpu::Active()) NoteStep(base);
   if (!Gating()) {
     __imp__sub_827F73F0(ctx, base);
@@ -340,7 +357,20 @@ void MainStep(PPCContext& ctx, uint8_t* base) {
   in_step = false;
   decided = false;
 }
+
+// The particle generators of an object (82BAB048, from the world display
+// 82BD9520), in the view block: the tick's dt (tick.h).
+void ParticleGenerators(PPCContext& ctx, uint8_t* base) {
+  if (!view_address || !view_thread || !ParticleTime()) {
+    __imp__sub_82BAB048(ctx, base);
+    return;
+  }
+  WriteDt(base, view_address, view_tick);
+  __imp__sub_82BAB048(ctx, base);
+  WriteDt(base, view_address, view_set);
+}
 }  // namespace gpu::tick
 
 REX_HOOK_RAW(sub_827F7668) { gpu::tick::WorldChangeStep(ctx, base); }
 REX_HOOK_RAW(sub_827F73F0) { gpu::tick::MainStep(ctx, base); }
+REX_HOOK_RAW(sub_82BAB048) { gpu::tick::ParticleGenerators(ctx, base); }

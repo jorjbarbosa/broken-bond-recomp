@@ -117,6 +117,8 @@ const char* const kStringsEn[] = {
     "Frames queued ahead of the display. 1 has the lowest input lag; 2 or 3 can smooth uneven frame times.",  // FrameLatencyDescription
     "Triple buffering",  // TripleBufferingLabel
     "Three display buffers instead of two.",  // TripleBufferingDescription
+    "Skip draws while shaders compile",  // SkipPipelineDrawsLabel
+    "Instead of pausing the game while a new shader is prepared, draws the object a few frames later. Fewer stutters the first time a place or effect appears; some objects may show up late.",  // SkipPipelineDrawsDescription
     "Syncs presentation with the display. With the native renderer, the game speed does not depend on VSync.",  // VsyncNativeDescription
     "Graphics card",  // GraphicsDeviceLabel
     "Automatic",  // GraphicsDeviceAuto
@@ -272,6 +274,8 @@ const char* const kStringsPtBr[] = {
     "Quadros na fila antes da tela. 1 tem o menor atraso de comando; 2 ou 3 podem suavizar tempos de quadro irregulares.",  // FrameLatencyDescription
     "Buffer triplo",  // TripleBufferingLabel
     "Três buffers de exibição em vez de dois.",  // TripleBufferingDescription
+    "Pular desenhos ao compilar shaders",  // SkipPipelineDrawsLabel
+    "Em vez de pausar o jogo enquanto um shader novo é preparado, desenha o objeto alguns quadros depois. Menos travadas na primeira vez que um lugar ou efeito aparece; alguns objetos podem surgir atrasados.",  // SkipPipelineDrawsDescription
     "Sincroniza a apresentação com a tela. No renderizador nativo, a velocidade do jogo não depende do VSync.",  // VsyncNativeDescription
     "Placa de vídeo",  // GraphicsDeviceLabel
     "Automática",  // GraphicsDeviceAuto

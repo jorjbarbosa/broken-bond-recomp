@@ -53,6 +53,11 @@ REXCVAR_DEFINE_BOOL(transparency_antialiasing, false, "broken_bond/Graphics",
 // The frame rate of the native renderer: above 30, the state interpolation
 // (gpu/interpolation/tick.h) keeps the game's logic at its own step and draws
 // the frames between the steps. 30 keeps the game's frame rate.
+// Skipping draws while their pipeline compiles: fewer stutters, objects that
+// appear a few frames late the first time. The settings apply it live.
+REXCVAR_DEFINE_BOOL(skip_pipeline_draws, false, "broken_bond/Graphics",
+                    "Leave a draw out of its frame while its pipeline compiles instead of waiting for it")
+    .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
 REXCVAR_DEFINE_INT32(frame_rate, 30, "broken_bond/Graphics",
                      "Frame rate of the native renderer: 30 keeps the game's; 31 to 240 interpolate the frames "
                      "between the game's logic steps")
@@ -162,7 +167,8 @@ rex::cvar::FlagEntry StringOption(const char* name, std::string& value, std::vec
 constexpr std::string_view kOptions[] = {
     "vsync", "anisotropic_override", "swap_post_effect", "resolution_scale", "draw_resolution_scale_x",
     "draw_resolution_scale_y", "max_frame_latency", "triple_buffering", "brightness", "internal_resolution_scale",
-    "msaa_samples", "transparency_antialiasing", "frame_rate", "aspect_ratio", "graphics_device", "native_backend",
+    "msaa_samples", "transparency_antialiasing", "skip_pipeline_draws", "frame_rate", "aspect_ratio",
+    "graphics_device", "native_backend",
     "d3d12_allow_variable_refresh_rate_and_tearing", "present_effect", "present_cas_additional_sharpness",
     "present_fsr_sharpness_reduction", "present_fsr_max_upsampling_passes"};
 
@@ -265,6 +271,7 @@ void LoadSettings() {
   const int32_t msaa = REXCVAR_GET(msaa_samples);
   s.msaa_samples = msaa >= 8 ? 8 : msaa >= 4 ? 4 : msaa >= 2 ? 2 : 0;
   s.transparency_antialiasing = REXCVAR_GET(transparency_antialiasing);
+  s.skip_pipeline_draws = REXCVAR_GET(skip_pipeline_draws);
   s.frame_rate = uint32_t(std::clamp(REXCVAR_GET(frame_rate), 30, 240));
   // Within half a percent of 16:9 is the title's own aspect; outside 1.25 to 4, too.
   // A negative value (the default) follows the primary monitor, where the window opens.
@@ -316,11 +323,12 @@ void LoadSettings() {
       "\"present_effect_requested\":{},\"cas_additional_sharpness\":{},\"fsr_sharpness_reduction\":{},"
       "\"swap_post_effect\":\"{}\",\"resolution_scale\":[{},{}],\"max_frame_latency\":{},\"triple_buffering\":{},"
       "\"brightness\":{},\"fsr_max_passes\":{},\"msaa_samples\":{},\"transparency_antialiasing\":{},"
-      "\"frame_rate\":{},\"aspect_ratio\":{},\"graphics_device\":{},\"sources\":{{{}}}",
+      "\"skip_pipeline_draws\":{},\"frame_rate\":{},\"aspect_ratio\":{},\"graphics_device\":{},\"sources\":{{{}}}",
       s.vsync, s.allow_tearing, s.anisotropic_override, Name(s.present_effect), Quoted(requested),
       s.cas_additional_sharpness, s.fsr_sharpness_reduction, Name(s.swap_post_effect), s.resolution_scale.x,
       s.resolution_scale.y, s.max_frame_latency, s.triple_buffering, s.brightness, s.fsr_max_passes, s.msaa_samples,
-      s.transparency_antialiasing, s.frame_rate, s.aspect_ratio, Quoted(s.graphics_device), sources);
+      s.transparency_antialiasing, s.skip_pipeline_draws, s.frame_rate, s.aspect_ratio, Quoted(s.graphics_device),
+      sources);
 }
 const Settings& CurrentSettings() {
   thread_local Settings copy;
@@ -376,12 +384,14 @@ void ApplyPendingSettings(Dispatcher& dispatcher) {
     last_result = {revision, applied, detail};
   }
   host::Record("native-live-settings", fmt::format("\"revision\":{},\"applied\":{},\"resolution_scale\":[{},{}],"
-      "\"frame_rate\":{},\"anisotropic_override\":{},\"transparency_antialiasing\":{},\"engine\":{}", revision,
-      applied, next.resolution_scale.x, next.resolution_scale.y, next.frame_rate, next.anisotropic_override,
-      next.transparency_antialiasing, detail.empty() ? "null" : detail));
+      "\"frame_rate\":{},\"anisotropic_override\":{},\"transparency_antialiasing\":{},\"skip_pipeline_draws\":{},"
+      "\"engine\":{}", revision, applied, next.resolution_scale.x, next.resolution_scale.y, next.frame_rate,
+      next.anisotropic_override, next.transparency_antialiasing, next.skip_pipeline_draws,
+      detail.empty() ? "null" : detail));
   REXLOG_INFO("[broken_bond] Live settings revision {}: applied={}, resolution_scale={}x{}, frame_rate={}, "
-      "anisotropy={}, transparency_aa={}, {}", revision, applied, next.resolution_scale.x, next.resolution_scale.y,
-      next.frame_rate, next.anisotropic_override, next.transparency_antialiasing, detail);
+      "anisotropy={}, transparency_aa={}, skip_pipeline_draws={}, {}", revision, applied, next.resolution_scale.x,
+      next.resolution_scale.y, next.frame_rate, next.anisotropic_override, next.transparency_antialiasing,
+      next.skip_pipeline_draws, detail);
 }
 std::string SettingsEvidence() { return evidence; }
 }  // namespace gpu

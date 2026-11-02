@@ -22,3 +22,4 @@ rexglue-sentry-signal-chain.patch
 rexglue-seh-signal-chain.patch
 rexglue-physical-heap-release-order.patch
 rexglue-input-user-packet.patch
+rexglue-shared-register-calls.patch

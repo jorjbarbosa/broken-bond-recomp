@@ -96,14 +96,15 @@ std::atomic<uint64_t> scene_items{0}, scene_flushes{0};
 // Reads the vertices of the pending draw once the title has written them.
 // Not executed on the GPU yet: the record is the input of the draw layer.
 void TakePendingDraw(PPCContext* ctx, uint8_t* base, const char* by) {
+  if (!inline_draw.has_pending.load(std::memory_order_acquire)) return;
   PendingDraw d{};
   std::shared_ptr<InlineBuild> build;
   uint64_t taken = 0;
   {
     std::lock_guard lock(inline_draw.mutex);
-    if (!inline_draw.has_pending) return;
+    if (!inline_draw.has_pending.load(std::memory_order_relaxed)) return;
     d = inline_draw.pending;
-    inline_draw.has_pending = false;
+    inline_draw.has_pending.store(false, std::memory_order_relaxed);
     build = std::move(inline_draw.build);
     taken = ++inline_draw.taken;
   }
@@ -232,7 +233,7 @@ REX_HOOK_RAW(sub_821AE158) {
     call = ++inline_draw.calls;
     inline_draw.pending = {vertices, 5, 4, 20, Get32(base, dev + 12692), Get32(base, dev + 12696),
                            Get32(base, dev + 12440), Get32(base, dev + 12456), lr, thread, call};
-    inline_draw.has_pending = true;
+    inline_draw.has_pending.store(true, std::memory_order_release);
   }
   if (Diagnostics() && call <= 16)
     gpu::host::Record("native-d3d-begin-vertices", fmt::format(
@@ -347,19 +348,23 @@ extern "C" void __imp__sub_821AE9C0(PPCContext& __restrict, uint8_t*);
 extern "C" void __imp__sub_821AE5D0(PPCContext& __restrict, uint8_t*);
 namespace gpu {
 // The pipeline take of the batched draws (DrawRequest::PipelineTake): the
-// prefetch take by default (the draw never skips); REX_NATIVE_PSO_ASYNC=0
-// turns the asynchronous threads off (the draw waits for or creates its
-// pipeline, nothing posted before the batch); REX_NATIVE_PSO_ASYNC=1 brings
-// back the skip take, with the diagnostics only (the A/B of before).
+// prefetch take (the draw waits for an absent pipeline), or the skip take
+// while the player's skip_pipeline_draws setting is on (the backends keep the
+// prefetch take for small targets, pipeline_set.h TakeForTarget). Read per
+// draw: the setting applies live. REX_NATIVE_PSO_ASYNC=0 forces the
+// synchronous take (no asynchronous threads, nothing posted before the batch);
+// REX_NATIVE_PSO_ASYNC=1 forces the skip take, with the diagnostics only.
 DrawRequest::PipelineTake BatchedPipelineTake() {
-  static const DrawRequest::PipelineTake value = [] {
+  static const int forced = [] {
     const char* text = std::getenv("REX_NATIVE_PSO_ASYNC");
     const std::string_view option = text ? text : "";
-    if (option == "0") return DrawRequest::PipelineTake::kSync;
-    if (option == "1" && Diagnostics()) return DrawRequest::PipelineTake::kSkip;
-    return DrawRequest::PipelineTake::kPrefetch;
+    if (option == "0") return int(DrawRequest::PipelineTake::kSync);
+    if (option == "1" && Diagnostics()) return int(DrawRequest::PipelineTake::kSkip);
+    return -1;
   }();
-  return value;
+  if (forced >= 0) return DrawRequest::PipelineTake(forced);
+  return CurrentSettings().skip_pipeline_draws ? DrawRequest::PipelineTake::kSkip
+                                               : DrawRequest::PipelineTake::kPrefetch;
 }
 
 // The quad of D3DDevice_BeginVertices (TRIANGLEFAN, 4 vertices of 20
@@ -581,7 +586,8 @@ ConstantCarry carry_vs, carry_ps;  // Translator only.
 // A capture on the stage, translated and posted by the translator.
 class CaptureTask final : public StageTask, public DrawStorageAllocated<CaptureTask> {
  public:
-  explicit CaptureTask(DrawCapture&& capture) : capture_(std::move(capture)) {}
+  CaptureTask() = default;  // Filled in place by the capture (OwnDrawBody).
+  DrawCapture& capture() { return capture_; }
   bool Discardable() const override { return true; }
   void Run() override {
     profile::Timer translate_time(profile::kTranslate);
@@ -603,8 +609,8 @@ class CaptureTask final : public StageTask, public DrawStorageAllocated<CaptureT
 // title wrote (read on the title at the take, as before), posts it.
 class QuadCaptureTask final : public StageTask, public DrawStorageAllocated<QuadCaptureTask> {
  public:
-  QuadCaptureTask(std::shared_ptr<InlineBuild> build, DrawCapture&& capture)
-      : build_(std::move(build)), capture_(std::move(capture)) {}
+  explicit QuadCaptureTask(std::shared_ptr<InlineBuild> build) : build_(std::move(build)) {}
+  DrawCapture& capture() { return capture_; }  // Filled in place by the capture (OwnDrawBody).
   bool Discardable() const override { return true; }
   void Run() override {
     profile::Timer translate_time(profile::kTranslate);
@@ -626,6 +632,8 @@ class QuadCaptureTask final : public StageTask, public DrawStorageAllocated<Quad
   std::shared_ptr<InlineBuild> build_;
   DrawCapture capture_;
 };
+// A larger capture would bypass the pool's size classes on every draw.
+static_assert(sizeof(CaptureTask) <= kDrawStorageLargestBlock && sizeof(QuadCaptureTask) <= kDrawStorageLargestBlock);
 class QuadTakeTask final : public StageTask {
  public:
   QuadTakeTask(std::shared_ptr<InlineBuild> build, std::vector<uint8_t>&& vertices)
@@ -658,12 +666,19 @@ void OwnDrawBody(PPCContext& ctx, uint8_t* base, bool indexed, std::shared_ptr<I
   sampler::RegisterThread("draw");  // REX_NATIVE_SAMPLE_PERIOD_US.
   profile::Timer draw_time(profile::kDraw);
   const uint32_t dev = ctx.r3.u32;
-  DrawCapture capture;
-  capture.name = name;
-  capture.base = base;
   PPCContext saved;
   auto* dispatcher = host::ActiveDispatcher();
   const bool deferred = dispatcher && dispatcher->Deferred();
+  // Deferred, the capture is filled inside the task the stage will run
+  // (no copy of it at the enqueue); inline, it lives here.
+  std::unique_ptr<CaptureTask> draw_task;
+  std::unique_ptr<QuadCaptureTask> quad_task;
+  std::optional<DrawCapture> local;
+  DrawCapture& capture = !deferred ? local.emplace()
+                         : quad    ? (quad_task = std::make_unique<QuadCaptureTask>(quad))->capture()
+                                   : (draw_task = std::make_unique<CaptureTask>())->capture();
+  capture.name = name;
+  capture.base = base;
   static std::once_flag mode_once;
   std::call_once(mode_once, [&] {
     host::Record("native-d3d-translation-mode", fmt::format("\"deferred\":{},\"asked\":{}", deferred,
@@ -687,8 +702,8 @@ void OwnDrawBody(PPCContext& ctx, uint8_t* base, bool indexed, std::shared_ptr<I
       CountStartDraw(capture.vs_cached->name, capture.ps_cached->name);
     }
     std::unique_ptr<StageTask> task;
-    if (quad) task = std::make_unique<QuadCaptureTask>(quad, std::move(capture));
-    else task = std::make_unique<CaptureTask>(std::move(capture));
+    if (quad_task) task = std::move(quad_task);
+    else task = std::move(draw_task);
     if (!dispatcher->Enqueue(std::move(task))) StopInOrder(saved, fmt::format("{}-translation-stage-closed", name), 88);
     return;
   }
@@ -810,6 +825,20 @@ void CaptureDraw(PPCContext& ctx, uint8_t* base, bool indexed, InlineBuild* quad
   if (candidate) ReadStartEntry(base, *c.before_metadata, *c.live);  // START entry: repeat, shaders, atlas.
   saved = ctx;
   profile::Timer original_time(profile::kDrawOriginal);
+  // The dirty masks whose groups the commit only serializes into the discard
+  // buffer are cleared here, as the commit would after writing them; it then
+  // skips that work. 821AE9C0 and 821AE5D0 load +0, +8, +16, +24 and +32 first
+  // and, for each nonzero one, call writers of the ring and the cursor at +48
+  // only and store 0: 821B5EC0 for the VS and PS constants (+0, +8, read by the
+  // shadows above), 821B5D68 for the fetch words (+28, read by CaptureFetch),
+  // 821B5B28 and 821B5BE8 for register blocks (+24 high word, +32) the
+  // capture reads from the device after the commit. Nothing in the commit
+  // writes +0..+15 or +24..+39 otherwise. +16 stays: it feeds the shader
+  // commit 821B6CE0, which has effects of its own.
+  if (!quad) {
+    for (uint32_t word = 0; word < 16; word += 4) Put32(base, dev + word, 0);
+    for (uint32_t word = 24; word < 40; word += 4) Put32(base, dev + word, 0);
+  }
   // The quad's commit already ran inside the original BeginVertices.
   c.discarded = quad ? 0 : RunOverDiscard(ctx, base, dev, indexed ? __imp__sub_821AE9C0 : __imp__sub_821AE5D0, name,
                                           true);

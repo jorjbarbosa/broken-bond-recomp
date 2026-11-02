@@ -53,11 +53,11 @@ REXCVAR_DEFINE_STRING(data_root, "", "broken_bond/Storage",
 #include "gpu/common/shader_activity.h"
 #include "gpu/host/app.h"
 #include "gpu/settings.h"
+#include "gpu/shaders/pipelines.h"
 #include "gpu/ui/immediate_drawer.h"
 #include "gpu/ui/layer.h"
 #include "gpu/ui/screen.h"
 #include "intro_skip.h"
-#include "menu/dlc.h"
 #include "menu/folders.h"
 #include "menu/game_choice.h"
 #include "menu/input_gate.h"
@@ -214,6 +214,10 @@ class BrokenBondApp : public rex::ReXApp {
     const auto& active = prepared_data_->paths;
     paths.user_data_root = active.user_data_root;
     paths.cache_root = active.cache_root;
+#ifdef BROKENBOND_NATIVE_RENDERER_BOOTSTRAP
+    // The player's pipeline list, which grows with each session.
+    if (!active.cache_root.empty()) gpu::SetPlayerPipelineFolder(active.cache_root / "pipelines");
+#endif
     paths.config_path = active.config_path;
     paths.log_dir = active.log_dir;
     user_root_source_ = SourceName(active.user_source);
@@ -406,7 +410,6 @@ class BrokenBondApp : public rex::ReXApp {
       broken_bond::menu::input_blocked = true;
       broken_bond::controls::Hardware().StopAllRumble();  // No pad keeps rumbling while the game closes.
       app_context().CallInUIThreadDeferred([this] {
-        menu_dlc_.Wait();  // Finish the DLC page's copies before the process can exit.
         // Closed on the setup screen: the start ends cleanly there.
         if (setup_resume_) {
           setup_resume_ = nullptr;
@@ -580,11 +583,10 @@ class BrokenBondApp : public rex::ReXApp {
     shortcut_hint_ = hint;
   }
   // On the UI thread with each menu frame: the game chosen on the setup
-  // screen, the DLC page's copies, the live settings' results, the shortcut
-  // hint and the shader indicator.
+  // screen, the live settings' results, the shortcut hint and the shader
+  // indicator.
   void ServiceMenu() {
     PollGameChoice();
-    menu_dlc_.Poll();
     menu_settings_.PollLive();
     if (shortcut_hint_pending_ && ui_.OverlayShown()) shortcut_hint_pending_ = false;
     if (shortcut_hint_pending_ && std::chrono::steady_clock::now() >= shortcut_hint_due_) {
@@ -636,6 +638,7 @@ class BrokenBondApp : public rex::ReXApp {
       else if (key == "transparency_antialiasing") next.transparency_antialiasing = config.transparency_antialiasing;
       else if (key == "max_frame_latency") next.max_frame_latency = uint32_t(config.max_frame_latency);
       else if (key == "triple_buffering") next.triple_buffering = config.triple_buffering;
+      else if (key == "skip_pipeline_draws") next.skip_pipeline_draws = config.skip_pipeline_draws;
       else if (key == "swap_post_effect") next.swap_post_effect = config.swap_post_effect == "fxaa_extreme"
           ? gpu::SwapPostEffect::kFxaaExtreme : config.swap_post_effect == "fxaa" ? gpu::SwapPostEffect::kFxaa
           : gpu::SwapPostEffect::kNone;
@@ -680,17 +683,6 @@ class BrokenBondApp : public rex::ReXApp {
       else if (ui_.OverlayShown()) OpenGameMenu();
     });
   }
-  // The DLC page (menu/dlc.h): packages are staged into the folder the game
-  // installs from at the next start; extracted folders are copied at once.
-  void OpenDlc() {
-    auto staging = DlcSource();
-    if (staging.empty()) staging = prepared_data_->paths.dlc_dir;
-    menu_dlc_.Open(ui_, std::move(staging), user_data_root(), window() ? window()->GetNativeWindowHandle() : nullptr,
-        [this](std::function<void()> action) { app_context().CallInUIThreadDeferred(std::move(action)); }, [this] {
-          if (setup_resume_) RefreshSetup();
-          else if (ui_.OverlayShown()) OpenGameMenu();
-        });
-  }
   // The setup screen (menu/setup_screen.h) for reason, on the window, which a
   // temporary engine presents. Play resumes the boot with paths; false when it
   // cannot show.
@@ -710,7 +702,8 @@ class BrokenBondApp : public rex::ReXApp {
     actions.quit = later(&BrokenBondApp::QuitFromSetup);
     actions.choose_game = later(&BrokenBondApp::ChooseGame);
     actions.settings = later(&BrokenBondApp::OpenSettings);
-    actions.dlc = later(&BrokenBondApp::OpenDlc);
+    // No DLC entry: the menus do not show the DLC page; packages in the data
+    // folder's dlc/ are still installed at start (DlcSource).
     if (!ui_.ShowSetup(state, std::move(actions))) {
       REXLOG_WARN("[broken_bond] Setup screen unavailable; the game boots as configured");
       CloseSetupScreen();
@@ -1006,7 +999,7 @@ class BrokenBondApp : public rex::ReXApp {
   }
   void OpenGameMenu() {
     using broken_bond::menu::Text;
-    ui_.ShowOverlay([this] { OpenSettings(); }, [this] { OpenDlc(); }, [this] {
+    ui_.ShowOverlay([this] { OpenSettings(); }, {}, [this] {
       ui_.ShowDialog(std::string(Text("exit-game")) + "?", Text("exit-confirm"), {
           {Text("exit-game"), [this] { app_context().CallInUIThreadDeferred([this] {
              if (window()) window()->RequestClose();
@@ -1037,7 +1030,6 @@ class BrokenBondApp : public rex::ReXApp {
   std::unique_ptr<rex::ui::ImmediateDrawer> native_drawer_;  // Before ui_: it outlives the Ui.
   broken_bond::menu::Ui ui_;
   broken_bond::menu::Settings menu_settings_;
-  broken_bond::menu::Dlc menu_dlc_;  // After ui_, so it is destroyed first.
   std::unique_ptr<launcher_updates::Checker> updates_;
   bool update_notified_ = false, manual_update_check_ = false, settings_restart_ = false;
   std::string shortcut_hint_;

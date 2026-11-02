@@ -30,8 +30,9 @@ class SetupScreen {
     std::string version;
     std::filesystem::path game_root;  // Validated folder or ISO, never an embedded artwork path.
   };
-  // What the choices do; an empty one does nothing. They run inside RmlUi's
-  // event handling: whatever closes the screen belongs after it.
+  // What the choices do; an empty one does nothing, and an empty dlc hides
+  // its entry. They run inside RmlUi's event handling: whatever closes the
+  // screen belongs after it.
   struct Actions {
     std::function<void()> play, choose_game, settings, dlc, quit;
   };
@@ -56,7 +57,7 @@ class SetupScreen {
   Rml::ElementDocument* document_ = nullptr;
   Rml::DataModelHandle model_;
   Actions actions_;
-  bool game_ready_ = false, start_failed_ = false;
+  bool game_ready_ = false, start_failed_ = false, dlc_shown_ = false;
   bool logo_ready_ = false, logo_complete_ = false, disc_image_ = false;
   bool gamepad_hints_ = false;
   std::filesystem::path logo_root_, render_root_, pending_root_;

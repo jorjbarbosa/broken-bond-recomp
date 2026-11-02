@@ -94,6 +94,8 @@ inline constexpr const char* kEs[] = {
     "Fotogramas en cola antes de mostrarse. 1 tiene el menor retraso de entrada; 2 o 3 pueden suavizar tiempos de fotograma irregulares.",  // FrameLatencyDescription
     "Triple búfer",  // TripleBufferingLabel
     "Tres búferes de pantalla en lugar de dos.",  // TripleBufferingDescription
+    "Omitir dibujos al compilar shaders",  // SkipPipelineDrawsLabel
+    "En lugar de pausar el juego mientras se prepara un shader nuevo, dibuja el objeto unos fotogramas después. Menos tirones la primera vez que aparece un lugar o un efecto; algunos objetos pueden aparecer con retraso.",  // SkipPipelineDrawsDescription
     "Sincroniza la presentación con la pantalla. Con el renderizador nativo, la velocidad del juego no depende de la VSync.",  // VsyncNativeDescription
     "Tarjeta gráfica",  // GraphicsDeviceLabel
     "Automática",  // GraphicsDeviceAuto

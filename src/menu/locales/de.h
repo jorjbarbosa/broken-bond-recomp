@@ -94,6 +94,8 @@ inline constexpr const char* kDe[] = {
     "Bilder in der Warteschlange vor der Anzeige. 1 hat die geringste Eingabeverzögerung; 2 oder 3 können ungleichmäßige Bildzeiten glätten.",  // FrameLatencyDescription
     "Dreifachpufferung",  // TripleBufferingLabel
     "Drei Anzeigepuffer statt zwei.",  // TripleBufferingDescription
+    "Zeichnen beim Shader-Kompilieren überspringen",  // SkipPipelineDrawsLabel
+    "Statt das Spiel anzuhalten, während ein neuer Shader vorbereitet wird, wird das Objekt einige Bilder später gezeichnet. Weniger Ruckler beim ersten Auftreten eines Ortes oder Effekts; manche Objekte erscheinen etwas später.",  // SkipPipelineDrawsDescription
     "Synchronisiert die Ausgabe mit dem Bildschirm. Mit dem nativen Renderer hängt die Spielgeschwindigkeit nicht von VSync ab.",  // VsyncNativeDescription
     "Grafikkarte",  // GraphicsDeviceLabel
     "Automatisch",  // GraphicsDeviceAuto

@@ -302,15 +302,16 @@ bool Handler(rex::arch::Exception* ex, void*) {
   const PPCContext* ctx = state ? state->context() : nullptr;
   const uint8_t* base = ctx && state->memory() ? state->memory()->virtual_membase() : nullptr;
   if (ctx && base) {
+    // CTR and r14-r31 are locals of each recompiled function
+    // (broken_bond_manifest.toml), so their context fields are stale; only
+    // r0-r13 and LR are published, and the supervisor records the rest as
+    // unavailable.
     std::array<uint64_t, 32> gpr{};
-    const PPCRegister* registers[32] = {&ctx->r0,  &ctx->r1,  &ctx->r2,  &ctx->r3,  &ctx->r4,  &ctx->r5,  &ctx->r6,
-                                        &ctx->r7,  &ctx->r8,  &ctx->r9,  &ctx->r10, &ctx->r11, &ctx->r12, &ctx->r13,
-                                        &ctx->r14, &ctx->r15, &ctx->r16, &ctx->r17, &ctx->r18, &ctx->r19, &ctx->r20,
-                                        &ctx->r21, &ctx->r22, &ctx->r23, &ctx->r24, &ctx->r25, &ctx->r26, &ctx->r27,
-                                        &ctx->r28, &ctx->r29, &ctx->r30, &ctx->r31};
-    for (size_t i = 0; i < gpr.size(); ++i) gpr[i] = registers[i]->u64;
+    const PPCRegister* registers[14] = {&ctx->r0, &ctx->r1, &ctx->r2,  &ctx->r3,  &ctx->r4,  &ctx->r5,  &ctx->r6,
+                                        &ctx->r7, &ctx->r8, &ctx->r9, &ctx->r10, &ctx->r11, &ctx->r12, &ctx->r13};
+    for (size_t i = 0; i < std::size(registers); ++i) gpr[i] = registers[i]->u64;
     incident::GuestFault(ex->pc(), address, uint32_t(ex->code()), state->thread_id(),
-                         reinterpret_cast<uint64_t>(base), gpr, ctx->lr, ctx->ctr.u64, access);
+                         reinterpret_cast<uint64_t>(base), gpr, ctx->lr, 0, access);
     if (reports.fetch_add(1) < kMaxReports) {
       const uint64_t host_base = reinterpret_cast<uint64_t>(base);
       const bool guest = violation && address >= host_base && address < host_base + kGuestArena;

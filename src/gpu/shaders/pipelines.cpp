@@ -12,7 +12,14 @@
 // not compiled yet are posted to the asynchronous threads ahead of the pool,
 // which compile them above normal priority while the loading screen is up
 // (PrefetchWorldPipelines). REX_NATIVE_PSO_WORLD=0 turns that off.
+//
+// The player's list (player_pipelines.h) adds the pipelines this machine's
+// sessions created: read at the first draw, its entries the built-in list
+// lacks go to the same pool after the built-in ones, and to the world
+// prefetch; the session's pipelines are merged into it and the file written
+// at the world loads, the stop and the close.
 #include "gpu/shaders/pipelines.h"
+#include "gpu/shaders/player_pipelines.h"
 #include "diagnostics/incident.h"
 #include "gpu/common/shader_activity.h"
 #include "gpu/common/title_loading.h"
@@ -33,8 +40,10 @@
 #include <condition_variable>
 #include <cstring>
 #include <deque>
+#include <filesystem>
 #include <memory>
 #include <mutex>
+#include <set>
 #include <span>
 #include <string>
 #include <thread>
@@ -103,6 +112,86 @@ struct PipelinePrecompile {
   std::string first_failure;  // JSON value.
 } pipeline_precompile;
 
+// The player's list. `extra` (the entries the built-in list lacks, pool
+// indices from kPipelineCache.size()) and `extra_worlds` are set once, before
+// the pool starts, and only read afterwards; the rest under the mutex.
+struct PlayerPipelines {
+  std::mutex mutex;
+  std::filesystem::path folder;
+  std::string api;  // "d3d12" or "vulkan": the file's name.
+  bool read = false;
+  player_pipelines::List list;
+  player_pipelines::ReadOutcome outcome;
+  std::string set_aside;  // Where an unusable file went.
+  uint64_t written = 0, write_failures = 0;
+  std::vector<player_pipelines::Entry> extra;
+  std::unordered_map<uint32_t, std::vector<size_t>> extra_worlds;  // World key -> pool indices.
+} player;
+
+const char* ApiFileName(GraphicsApi api) { return api == GraphicsApi::kVulkan ? "vulkan" : "d3d12"; }
+// The vertex elements name their semantic by a static string.
+const char* InternSemantic(const std::string& name) {
+  static std::mutex mutex;
+  static std::set<std::string> names;
+  std::lock_guard lock(mutex);
+  return names.insert(name).first->c_str();
+}
+// Reads the player's list of the API once (under player.mutex); a file that
+// cannot be used is set aside and the list starts empty.
+void ReadPlayerList(GraphicsApi api) {
+  if (player.read || player.folder.empty()) return;
+  player.read = true;
+  player.api = ApiFileName(api);
+  const auto file = player.folder / (player.api + ".json");
+  player.outcome = player_pipelines::Read(file, player.api, player.list);
+  if (player.outcome.result == player_pipelines::ReadResult::kMismatch ||
+      player.outcome.result == player_pipelines::ReadResult::kCorrupt) {
+    player.set_aside = player_pipelines::SetAside(file).generic_string();
+    player.list = {};
+  }
+}
+// Merges a JSON array of Engine::PipelineList into the player's list and
+// writes the list when it grew.
+void MergePlayerPipelines(const std::string& records, GraphicsApi api, const char* reason) {
+  long added = 0;
+  bool written = false;
+  size_t entries = 0;
+  std::string detail;
+  {
+    std::lock_guard lock(player.mutex);
+    if (player.folder.empty()) return;
+    ReadPlayerList(api);
+    added = player_pipelines::Merge(player.list, records, detail);
+    if (added > 0) {
+      written = player_pipelines::Write(player.folder / (player.api + ".json"), player.api, player.list, detail);
+      ++(written ? player.written : player.write_failures);
+    }
+    entries = player.list.entries.size();
+  }
+  host::Record("native-player-pipelines", fmt::format(
+      "\"reason\":\"{}\",\"added\":{},\"entries\":{},\"written\":{},\"detail\":\"{}\"", reason, added, entries,
+      written, detail));
+  if (!host::Journaled() && (added > 0 || !detail.empty()))
+    REXLOG_INFO("[broken_bond] Player pipeline list ({}): {} added, {} in all, written={} {}", reason, added, entries,
+                written, detail);
+}
+
+// An entry of the pool: the built-in list's, then the player's extra ones.
+struct ListedEntry {
+  std::string_view vs, ps;
+  uint64_t key, layout;
+  const std::array<uint32_t, 21>* state;
+};
+size_t ListedCount() { return kPipelineCache.size() + player.extra.size(); }
+ListedEntry Listed(size_t i) {
+  if (i < kPipelineCache.size()) {
+    const auto& e = kPipelineCache[i];
+    return {e.vs, e.ps, e.key, e.layout, &e.state};
+  }
+  const auto& e = player.extra[i - kPipelineCache.size()];
+  return {e.vs, e.ps, e.key, e.layout, &e.state};
+}
+
 void PrecompileNote(std::atomic<uint64_t>& counter, std::string failure) {
   ++counter;
   std::lock_guard lock(pipeline_precompile.mutex);
@@ -116,19 +205,19 @@ void PrecompileNote(std::atomic<uint64_t>& counter, std::string failure) {
 // linked: the spec constants of the pixel shader taken; variant: the draw asks
 // for another variant than the list holds (its key replaced the entry's).
 bool DescribeEntry(size_t i, PipelineDesc& desc, uint32_t& linked, bool& variant, bool note) {
-  const PipelineCacheEntry& entry = kPipelineCache[i];
+  const ListedEntry entry = Listed(i);
   auto unresolved = [&](const char* why) {
     if (note)
       PrecompileNote(pipeline_precompile.unresolved, fmt::format("{{\"reason\":\"{}\",\"vs\":\"{}\",\"ps\":\"{}\"}}",
                                                                  why, entry.vs, entry.ps));
     return false;
   };
-  auto vs = shader_cache.by_name.find(entry.vs);
+  auto vs = shader_cache.by_name.find(std::string(entry.vs));
   if (vs == shader_cache.by_name.end()) return unresolved("vs-not-in-cache");
-  desc.vs.key = entry.vs;
+  desc.vs.key = std::string(entry.vs);
   desc.vs.format = desc.ps.format = shader_cache.format;
   desc.vs.spec_mask = vs->second->spec_mask;
-  desc.ps.key = entry.ps;
+  desc.ps.key = std::string(entry.ps);
   desc.vs.bytes = LoadModule(*vs->second);
   if (!desc.vs.bytes) return unresolved("vs-module-unreadable");
   std::string variant_key;  // The pixel shader key the draw asks for now, when the list holds the other.
@@ -150,7 +239,7 @@ bool DescribeEntry(size_t i, PipelineDesc& desc, uint32_t& linked, bool& variant
     // draw does: alpha to coverage in a multisampled target when the option
     // is on, the alpha test otherwise.
     const uint32_t requested = spec == kSpecAlphaToCoverage ? kSpecAlphaTest : spec;
-    linked = TransparencySpec(requested, ps->second->spec_mask, entry.state[8], entry.state[0]);
+    linked = TransparencySpec(requested, ps->second->spec_mask, (*entry.state)[8], (*entry.state)[0]);
     if (linked != spec) variant_key = fmt::format("{}+spec{}", name, linked);
     std::string error;
     desc.ps.bytes = LoadShader(*ps->second, linked, error);
@@ -160,7 +249,7 @@ bool DescribeEntry(size_t i, PipelineDesc& desc, uint32_t& linked, bool& variant
   }
   desc.elements = pipeline_precompile.layouts[i];
   desc.layout_id = entry.layout;
-  desc.state = entry.state;
+  desc.state = *entry.state;
   if (PipelineKey(desc.vs.key, desc.ps.key, desc.layout_id, desc.state) != entry.key) {
     if (note)
       PrecompileNote(pipeline_precompile.mismatched, fmt::format("{{\"reason\":\"key\",\"key\":\"{:016x}\"}}",
@@ -215,9 +304,29 @@ void StartPipelinePrecompile() {
   const auto incident_operation = broken_bond::incident::BeginOperation("pipeline-precompile");
   auto& p = pipeline_precompile;
   const char* off = std::getenv("REX_NATIVE_PSO_PRECOMPILE");
-  const char* skip = off && std::string_view(off) == "0" ? "disabled" : kPipelineCache.empty() ? "list-absent"
-                     : !shader_cache.loaded ? "shader-cache-unavailable" : nullptr;
   auto* dispatcher = host::ActiveDispatcher();
+  // The player's list: the entries the built-in list lacks join the pool after it.
+  std::string player_record = "null";
+  if (dispatcher) {
+    std::lock_guard lock(player.mutex);
+    ReadPlayerList(dispatcher->Api());
+    if (player.read) {
+      std::unordered_set<uint64_t> built_in;
+      for (const auto& e : kPipelineCache) built_in.insert(e.key);
+      for (const auto& e : player.list.entries) {
+        if (built_in.contains(e.key)) continue;
+        player.extra_worlds[e.world].push_back(kPipelineCache.size() + player.extra.size());
+        player.extra.push_back(e);
+      }
+      player_record = fmt::format("{{\"result\":\"{}\",\"entries\":{},\"extra\":{},\"stale\":{},\"set_aside\":\"{}\"}}",
+                                  player_pipelines::Name(player.outcome.result), player.list.entries.size(),
+                                  player.extra.size(), player.outcome.stale, player.set_aside);
+    }
+  }
+  if (!host::Journaled() && player_record != "null")
+    REXLOG_INFO("[broken_bond] Player pipeline list: {}", player_record);
+  const char* skip = off && std::string_view(off) == "0" ? "disabled" : ListedCount() == 0 ? "list-absent"
+                     : !shader_cache.loaded ? "shader-cache-unavailable" : nullptr;
   std::string prepared;
   if (!skip && (!dispatcher || !dispatcher->Run([](Engine& engine, std::string& out) {
         return engine.PreparePipelines(out);
@@ -225,8 +334,8 @@ void StartPipelinePrecompile() {
   if (skip) {
     broken_bond::incident::Event("pipeline-precompile", "end", skip, incident_operation);
     host::Record("native-d3d-pipeline-precompile-start", fmt::format(
-        "\"started\":false,\"reason\":\"{}\",\"list\":{},\"identity\":\"{}\",\"prepare\":{}", skip,
-        kPipelineCache.size(), kPipelineCacheIdentity, prepared.empty() ? "null" : prepared));
+        "\"started\":false,\"reason\":\"{}\",\"list\":{},\"identity\":\"{}\",\"prepare\":{},\"player\":{}", skip,
+        kPipelineCache.size(), kPipelineCacheIdentity, prepared.empty() ? "null" : prepared, player_record));
     return;
   }
   std::unordered_map<uint64_t, VertexElements> shared;
@@ -242,11 +351,22 @@ void StartPipelinePrecompile() {
     }
     p.layouts.push_back(layout);
   }
+  for (const auto& entry : player.extra) {
+    auto& layout = shared[entry.layout];
+    if (!layout) {
+      std::vector<VertexElement> elements;
+      for (const auto& c : entry.elements)
+        elements.push_back({InternSemantic(c.semantic), c.semantic_index, VertexFormat(c.format), c.slot, c.offset,
+                            c.instance_step});
+      layout = std::make_shared<const std::vector<VertexElement>>(std::move(elements));
+    }
+    p.layouts.push_back(layout);
+  }
   p.threads = PipelineThreadsPerPool();
   p.started = std::chrono::steady_clock::now();
   p.pool_started.store(true, std::memory_order_release);
-  BeginShaderBatch(uint32_t(kPipelineCache.size()));
-  const bool started = dispatcher->StartPool(kPipelineCache.size(), p.threads, PrecompileEntry, [incident_operation](bool stopped) {
+  BeginShaderBatch(uint32_t(ListedCount()));
+  const bool started = dispatcher->StartPool(ListedCount(), p.threads, PrecompileEntry, [incident_operation](bool stopped) {
     EndShaderBatch();
     auto& p = pipeline_precompile;
     std::string failure;
@@ -255,10 +375,10 @@ void StartPipelinePrecompile() {
       failure = p.first_failure.empty() ? "null" : p.first_failure;
     }
     const std::string summary = fmt::format(
-        "\"list\":{},\"threads\":{},\"created\":{},\"present\":{},\"failed\":{},\"unresolved\":{},\"mismatched\":{},"
-        "\"alpha_to_coverage\":{},\"alpha_test\":{},\"world_posted\":{},\"world_present\":{},\"stopped\":{},\"ms\":{},"
-        "\"swap\":{},\"first_failure\":{}",
-        kPipelineCache.size(),
+        "\"list\":{},\"player\":{},\"threads\":{},\"created\":{},\"present\":{},\"failed\":{},\"unresolved\":{},"
+        "\"mismatched\":{},\"alpha_to_coverage\":{},\"alpha_test\":{},\"world_posted\":{},\"world_present\":{},"
+        "\"stopped\":{},\"ms\":{},\"swap\":{},\"first_failure\":{}",
+        kPipelineCache.size(), player.extra.size(),
         p.threads, p.created.load(), p.present.load(), p.failed.load(), p.unresolved.load(), p.mismatched.load(),
         p.alpha_to_coverage.load(), p.alpha_test.load(), p.world_posted.load(), p.world_present.load(), stopped,
         std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - p.started).count(),
@@ -272,9 +392,10 @@ void StartPipelinePrecompile() {
     EndShaderBatch(); broken_bond::incident::Event("pipeline-precompile", "end", "pool-not-started", incident_operation);
   }
   host::Record("native-d3d-pipeline-precompile-start", fmt::format(
-      "\"started\":{},\"list\":{},\"layouts\":{},\"worlds\":{},\"threads\":{},\"identity\":\"{}\",\"swap\":{}",
-      started, kPipelineCache.size(), shared.size(), kPipelineWorlds.empty() ? 0 : kPipelineWorlds.size() - 1,
-      p.threads, kPipelineCacheIdentity, swaps.load()));
+      "\"started\":{},\"list\":{},\"layouts\":{},\"worlds\":{},\"threads\":{},\"identity\":\"{}\",\"swap\":{},"
+      "\"player\":{}", started, kPipelineCache.size(), shared.size(),
+      kPipelineWorlds.empty() ? 0 : kPipelineWorlds.size() - 1, p.threads, kPipelineCacheIdentity, swaps.load(),
+      player_record));
 }
 
 void StartPipelinePrecompileOnce() { std::call_once(pipeline_precompile.once, StartPipelinePrecompile); }
@@ -288,19 +409,25 @@ WorldPrefetch PrefetchWorldPipelines(uint32_t world_key) {
   WorldPrefetch out;
   auto& p = pipeline_precompile;
   if (!worldPrefetchOption() || !p.pool_started.load(std::memory_order_acquire)) return out;
-  const PipelineCacheWorld* world = nullptr;
-  if (world_key)  // The sentinel of key 0 is not a world.
-    for (const auto& w : kPipelineWorlds)
-      if (w.key == world_key) { world = &w; break; }
-  if (!world) return out;
-  out.listed = world->count;
+  if (!world_key) return out;  // The sentinel of key 0 is not a world.
+  // The built-in list's entries of the world, then the player's extra ones.
+  std::vector<size_t> indices;
+  for (const auto& w : kPipelineWorlds)
+    if (w.key == world_key) {
+      for (uint32_t e = w.first; e < w.first + w.count; ++e) indices.push_back(kPipelineWorldEntries[e]);
+      break;
+    }
+  if (const auto it = player.extra_worlds.find(world_key); it != player.extra_worlds.end())
+    indices.insert(indices.end(), it->second.begin(), it->second.end());
+  if (indices.empty()) return out;
+  out.listed = indices.size();
   std::vector<PipelineDesc> descs;
-  descs.reserve(world->count);
-  for (uint32_t e = world->first; e < world->first + world->count; ++e) {
+  descs.reserve(indices.size());
+  for (const size_t i : indices) {
     PipelineDesc desc;
     uint32_t linked = 0;
     bool variant = false;
-    if (DescribeEntry(kPipelineWorldEntries[e], desc, linked, variant, false)) descs.push_back(std::move(desc));
+    if (DescribeEntry(i, desc, linked, variant, false)) descs.push_back(std::move(desc));
     else ++out.unresolved;
   }
   auto* dispatcher = host::ActiveDispatcher();
@@ -342,5 +469,25 @@ void RecordPipelines() {
     }
   }
   host::Record("native-d3d-pipelines", fmt::format("\"count\":{},\"file\":{},\"pipelines\":{}", count, file, pipelines));
+  MergePlayerPipelines(pipelines, dispatcher->Api(), "record");
+}
+
+void SetPlayerPipelineFolder(std::filesystem::path folder) {
+  std::lock_guard lock(player.mutex);
+  if (!player.read) player.folder = std::move(folder);
+}
+
+void SavePlayerPipelines(const char* reason) {
+  {
+    std::lock_guard lock(player.mutex);
+    if (player.folder.empty()) return;
+  }
+  auto* dispatcher = host::ActiveDispatcher();
+  std::string pipelines;
+  if (!dispatcher || !dispatcher->Run([](Engine& engine, std::string& o) {
+        o = engine.PipelineList();
+        return true;
+      }, pipelines) || pipelines.empty()) return;
+  MergePlayerPipelines(pipelines, dispatcher->Api(), reason);
 }
 }  // namespace gpu

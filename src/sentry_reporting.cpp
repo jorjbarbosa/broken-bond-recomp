@@ -127,7 +127,9 @@ bool Initialize(const std::filesystem::path& executable_dir,
         : "WER sidecar missing; fast-fail dump coverage unavailable");
 #endif
     incident::SetMetadata("release", release);
-    incident::SetMetadata("guest_register_policy", "published PPCContext r0-r31, CTR and LR; LR is not the native PC");
+    incident::SetMetadata("guest_register_policy",
+                          "published PPCContext r0-r13 and LR; CTR and r14-r31 are locals, not published; "
+                          "LR is not the native PC");
     incident::SetMetadata("session_id", incident::SessionId());
     const char* const transport[] = {"local-only", "pending", "authorized"};
     const char* const uploads[] = {"disabled", "pending consent", "enabled"};

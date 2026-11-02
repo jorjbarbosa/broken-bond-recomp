@@ -6,7 +6,20 @@ name = "broken_bond"
 sdk_version = "0.10.0"
 game_root = "game"
 
+# The executable keeps CTR, XER, the reservation, the CR fields and the
+# non-volatile registers (r14-r31, f14-f31, v14-v31, v64-v127) as locals of each
+# recompiled function instead of context fields: they live within a function,
+# and a host hook reads only the argument registers, r1, r13 and LR of its guest
+# caller. The save/restore helpers are elided under non_volatile_as_local. The
+# non-argument registers (r0, r2, r11, r12, f0, v32-v63) stay in the context: an
+# SEH funclet receives its parent's frame in r12. LR (the hooks identify callers
+# by it; skip_lr stays off) and MSR stay in the context.
 [entrypoint]
 file_path = "game/default.xex"
 out_directory_path = "generated/default"
 includes = ["config/codegen.toml"]
+ctr_as_local = true
+xer_as_local = true
+reserved_as_local = true
+cr_as_local = true
+non_volatile_as_local = true

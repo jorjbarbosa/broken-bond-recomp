@@ -66,6 +66,8 @@ struct GameConfig {
   double internal_resolution_scale = 0.0;  // fractional scale; 0 = resolution_scale
   int max_frame_latency = 1;
   bool triple_buffering = false;
+  // A draw whose pipeline is not ready is left out while it compiles.
+  bool skip_pipeline_draws = false;
 
   std::string swap_post_effect = "fxaa";
   std::string present_effect = "cas";

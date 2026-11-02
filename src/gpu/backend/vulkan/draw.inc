@@ -1,9 +1,10 @@
 // Included after Backend::State, inside gpu::vulkan.
 namespace {
-uint64_t VulkanPipelineKey(const PipelineDesc& d) {
-  const uint64_t logical = PipelineKey(d.vs.key, d.ps.key, d.layout_id, d.state);
-  const uint32_t spec[]{d.vs.spec_mask, d.vs.spec_value & d.vs.spec_mask,
-                         d.ps.spec_mask, d.ps.spec_value & d.ps.spec_mask};
+uint64_t VulkanPipelineKey(const ShaderRef& vs, const ShaderRef& ps, uint64_t layout_id,
+                           const std::array<uint32_t, 21>& state) {
+  const uint64_t logical = PipelineKey(vs.key, ps.key, layout_id, state);
+  const uint32_t spec[]{vs.spec_mask, vs.spec_value & vs.spec_mask,
+                         ps.spec_mask, ps.spec_value & ps.spec_mask};
   uint64_t hash = logical;
   for (uint32_t value : spec) for (unsigned i = 0; i < 4; ++i) {
     hash ^= (value >> (8 * i)) & 255;
@@ -11,6 +12,7 @@ uint64_t VulkanPipelineKey(const PipelineDesc& d) {
   }
   return hash;
 }
+uint64_t VulkanPipelineKey(const PipelineDesc& d) { return VulkanPipelineKey(d.vs, d.ps, d.layout_id, d.state); }
 ShaderRef PassShader(const char* name, ShaderStage stage) {
   std::string error;
   const auto* package = EmbeddedShaderPackage(ShaderFormat::kSpirv, error);
@@ -218,15 +220,30 @@ bool Backend::PostPipeline(const PipelineDesc& desc) {
   return state_->pipeline_set.Post(key, std::move(d), true, false);
 }
 void Backend::PrefetchPipelines(const std::vector<DrawRequest>& requests) {
-  for (const auto& r : requests) {
+  auto& s = *state_;
+  s.prefetched_batch = requests.data();
+  s.prefetched_next = 0;
+  s.prefetched_keys.assign(requests.size(), {});
+  for (size_t i = 0; i < requests.size(); ++i) {
+    const auto& r = requests[i];
     if (r.pipeline_take != DrawRequest::PipelineTake::kPrefetch || !r.elements) continue;
-    auto color = state_->surfaces.find(r.color_key), depth = state_->surfaces.find(r.depth_key);
-    const bool has_color = color != state_->surfaces.end();
-    const bool has_depth = (r.depth_enable || r.stencil_enable) && depth != state_->surfaces.end();
+    auto color = s.surfaces.find(r.color_key), depth = s.surfaces.find(r.depth_key);
+    const bool has_color = color != s.surfaces.end();
+    const bool has_depth = (r.depth_enable || r.stencil_enable) && depth != s.surfaces.end();
     if (!has_color && !has_depth) continue;
-    PipelineDesc d{r.vs, r.ps, r.elements, r.layout_id ? r.layout_id : ElementsId(*r.elements)};
-    if (DrawStateWords(r, has_color ? color->second.desc.samples : depth->second.desc.samples,
-                       has_depth, has_color, d.state)) PostPipeline(d);
+    const uint32_t samples = has_color ? color->second.desc.samples : depth->second.desc.samples;
+    const uint64_t layout_id = r.layout_id ? r.layout_id : ElementsId(*r.elements);
+    std::array<uint32_t, 21> words{};
+    if (!DrawStateWords(r, samples, has_depth, has_color, words)) continue;
+    const uint64_t key = VulkanPipelineKey(r.vs, r.ps, layout_id, words);
+    s.prefetched_keys[i] = {key, samples, has_depth, has_color};
+    // As PostPipeline keys it, with the samples of the render mode; a pipeline
+    // the backend holds needs no copy of its description nor a post.
+    auto keyed = words;
+    keyed[8] = s.PipelineSamples(keyed[8]);
+    const uint64_t posted = keyed == words ? key : VulkanPipelineKey(r.vs, r.ps, layout_id, keyed);
+    if (auto it = s.pipelines.find(posted); it != s.pipelines.end() && it->second) continue;
+    PostPipeline(PipelineDesc{r.vs, r.ps, r.elements, layout_id, words});
   }
 }
 std::vector<PipelineDesc> Backend::PipelineDescs() {
@@ -260,6 +277,11 @@ bool Backend::DrawIndexed(const DrawRequest& r, uint64_t& fence, std::string& ev
   auto& s = *state_;
   if (!s.ready || s.owner_thread != rex::thread::current_thread_system_id() || s.operation_poisoned || s.unproved_execution)
     return fail("native-draw-owner-or-state");
+  const State::PrefetchedKey* prefetched = nullptr;
+  if (s.prefetched_batch) {
+    if (&r == s.prefetched_batch + s.prefetched_next) prefetched = &s.prefetched_keys[s.prefetched_next];
+    if (!prefetched || ++s.prefetched_next == s.prefetched_keys.size()) s.prefetched_batch = nullptr;
+  }
   State::Surface *color = nullptr, *depth = nullptr;
   if (!r.depth_only || r.color_key) {
     auto it = s.surfaces.find(r.color_key);
@@ -283,29 +305,52 @@ bool Backend::DrawIndexed(const DrawRequest& r, uint64_t& fence, std::string& ev
   for (const auto& e : *r.elements)
     if (e.slot >= r.streams.size() || !r.streams[e.slot].stride) return fail("native-draw-vertex-element");
   if (!s.EnsureGraphics(evidence)) return false;
-  PipelineDesc desc{r.vs, r.ps, r.elements, r.layout_id ? r.layout_id : ElementsId(*r.elements)};
-  if (!DrawStateWords(r, target.desc.samples, depth != nullptr, color != nullptr, desc.state))
-    return fail("native-draw-topology-uncovered");
-  const uint64_t key = VulkanPipelineKey(desc), triple = TripleKey(r.vs.key, r.ps.key, desc.layout_id);
+  const uint64_t layout_id = r.layout_id ? r.layout_id : ElementsId(*r.elements);
+  // The prefetch's key holds for the same request on the same target; the
+  // state words are then needed only for a pipeline the backend lacks.
+  std::array<uint32_t, 21> state_words{};
+  auto words = [&] { return DrawStateWords(r, target.desc.samples, depth != nullptr, color != nullptr, state_words); };
+  const bool keyed = prefetched && prefetched->key && prefetched->samples == target.desc.samples &&
+                     prefetched->depth == (depth != nullptr) && prefetched->color == (color != nullptr);
+  if (!keyed && !words()) return fail("native-draw-topology-uncovered");
+  const uint64_t key = keyed ? prefetched->key : VulkanPipelineKey(r.vs, r.ps, layout_id, state_words);
   auto& pipeline = s.pipelines[key];
   const bool created = !pipeline;
+  bool skip_draw = false;  // The pipeline is being created asynchronously (skip take).
   if (!pipeline) {
-    // Normal and diagnostic draws both remain visible on Vulkan. Never skip
-    // a draw because a pipeline compilation is pending.
-    auto take = s.pipeline_set.Take(key, triple, r.pipeline_take == DrawRequest::PipelineTake::kSkip ?
-        DrawRequest::PipelineTake::kPrefetch : r.pipeline_take);
-    pipeline = std::move(take.pipeline);
-    s.pipeline_origins[key] = take.origin ? take.origin : "created";
-    if (!pipeline) {
-      const auto begin = std::chrono::steady_clock::now();
-      const auto result = MakeGraphicsPipeline(s.vulkan->vk, s.draw_layout, desc, s.vertex_locations, pipeline);
-      if (!result.ok) { s.pipelines.erase(key); return fail(result.reason, VkResult(result.code)); }
-      const auto micros = uint32_t(std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - begin).count());
-      s.pipeline_create_us[key] = micros;
-      s.pipeline_origins[key] = s.pipeline_set.NoteCreated(take, triple, micros);
+    if (keyed && !words()) { s.pipelines.erase(key); return fail("native-draw-topology-uncovered"); }
+    // The description is copied only for a pipeline the backend lacks.
+    const PipelineDesc desc{r.vs, r.ps, r.elements, layout_id, state_words};
+    const uint64_t triple = TripleKey(r.vs.key, r.ps.key, layout_id);
+    // The skip take (skip_pipeline_draws) posts a pipeline not ready and
+    // leaves the draw out of its frame: its constants and uploads below are
+    // applied, nothing is bound or drawn. A small target keeps the prefetch
+    // take (TakeForTarget).
+    auto take = s.pipeline_set.Take(key, triple, TakeForTarget(r.pipeline_take, target.desc.width, target.desc.height));
+    skip_draw = take.skip;
+    // At normal priority: the draw is missing until the pipeline is ready.
+    if (take.post) s.pipeline_set.Post(key, desc, false, false);
+    if (skip_draw) {
+      s.pipelines.erase(key);  // `pipeline` is not used below.
+      // Listed now: a skipped draw that does not come back still names its pipeline (PipelineList).
+      if (take.post && s.pipeline_descs.emplace(key, desc).second) {
+        s.pipeline_origins[key] = "posted";
+        s.pipeline_worlds[key] = WorldKey();
+      }
+    } else {
+      pipeline = std::move(take.pipeline);
+      s.pipeline_origins[key] = take.origin ? take.origin : "created";
+      if (!pipeline) {
+        const auto begin = std::chrono::steady_clock::now();
+        const auto result = MakeGraphicsPipeline(s.vulkan->vk, s.draw_layout, desc, s.vertex_locations, pipeline);
+        if (!result.ok) { s.pipelines.erase(key); return fail(result.reason, VkResult(result.code)); }
+        const auto micros = uint32_t(std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - begin).count());
+        s.pipeline_create_us[key] = micros;
+        s.pipeline_origins[key] = s.pipeline_set.NoteCreated(take, triple, micros);
+      }
+      s.pipeline_worlds[key] = WorldKey();
+      s.pipeline_descs.emplace(key, desc);
     }
-    s.pipeline_worlds[key] = WorldKey();
-    s.pipeline_descs.emplace(key, desc);
   }
   if (!ApplyDrawConstants(r.vs_constants, r.vs_constants_delta, s.vs_block) ||
       !ApplyDrawConstants(r.ps_constants, r.ps_constants_delta, s.ps_block)) return fail("native-draw-constants");
@@ -313,6 +358,12 @@ bool Backend::DrawIndexed(const DrawRequest& r, uint64_t& fence, std::string& ev
   // this draw and retaining its resources.
   for (const auto& t : r.textures) if (!t.resolved && !t.data.empty())
     if (!UploadSampled(t, evidence)) return false;
+  if (skip_draw) {  // Left out of its frame (skip take), with its constants and uploads applied.
+    fence = s.batch.sequence;
+    if (r.want_evidence) evidence = fmt::format("{{\"drawn\":false,\"skipped\":true,\"pipeline\":\"{:016x}\"}}", key);
+    else evidence.clear();
+    return true;
+  }
   const char* reason = nullptr; VkResult result = VK_SUCCESS;
   if (!s.OpenBatch(reason, result)) return fail(reason, result);
   s.batch.list->setFramebuffer(nullptr);
