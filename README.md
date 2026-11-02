@@ -127,11 +127,12 @@ The [build guide](docs/build-and-run.md) explains each step, the native renderer
 
 ## Roadmap
 
-Planned work, in no particular order:
+Planned work. Performance and stability come first, since everything else depends on them:
 
-- **Broader native renderer validation,** across the whole game and on other graphics cards.
-- **Frame rates above 120,** which `frame_rate` accepts but have not been played yet.
-- **A wider pipeline list,** built from more of the game, so fewer pipelines compile the first time an area appears.
+- **Performance and stability.**
+- **Accessibility options.**
+- **Multiplayer.**
+- **Achievements.**
 
 ## Contributing
 
