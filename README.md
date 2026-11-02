@@ -14,7 +14,12 @@
   <a href="#renderers">Renderers</a> ·
   <a href="docs/build-and-run.md">Build and run</a> ·
   <a href="docs/configuration.md">Configuration</a> ·
-  <a href="docs/troubleshooting.md">Troubleshooting</a>
+  <a href="docs/troubleshooting.md">Troubleshooting</a> ·
+  <a href="#support">Support</a>
+</p>
+
+<p align="center">
+  <a href="https://buymeacoffee.com/jorjbarbosa"><img src="https://img.shields.io/badge/Buy%20Me%20a%20Coffee-support-FFDD00?logo=buymeacoffee&logoColor=black" alt="Buy Me a Coffee"></a>
 </p>
 
 > [!WARNING]
@@ -133,6 +138,10 @@ Planned work, in no particular order:
 Read the [architecture notes](docs/architecture.md) before changing the runtime or code generation files. When reporting an issue, include reproduction steps, the commit you built, CPU, GPU, driver, the renderer you use, your configuration, and the log of the run (`build/logs/` with `run-game.ps1`, otherwise the data folder's `logs/`: `data\logs\` beside `broken_bond.exe`, or `build/data/logs/` for a build in the repository).
 
 Work happens on the `develop` branch; `main` is the primary branch. Keep game files, derived shader data, pipeline lists, and generated code out of commits. SDK changes go into reproducible patches in `patches/`. Code, comments, documentation, and commit messages are written in English, as [AGENTS.md](AGENTS.md) requires.
+
+## Support
+
+If you enjoy the project, you can [buy me a coffee](https://buymeacoffee.com/jorjbarbosa). It's optional and unlocks nothing; releases stay free for everyone.
 
 ## Credits
 
