@@ -53,6 +53,7 @@ REXCVAR_DEFINE_STRING(data_root, "", "broken_bond/Storage",
 #include "gpu/common/shader_activity.h"
 #include "gpu/host/app.h"
 #include "gpu/settings.h"
+#include "gpu/shaders/pipelines.h"
 #include "gpu/ui/immediate_drawer.h"
 #include "gpu/ui/layer.h"
 #include "gpu/ui/screen.h"
@@ -214,6 +215,10 @@ class BrokenBondApp : public rex::ReXApp {
     const auto& active = prepared_data_->paths;
     paths.user_data_root = active.user_data_root;
     paths.cache_root = active.cache_root;
+#ifdef BROKENBOND_NATIVE_RENDERER_BOOTSTRAP
+    // The player's pipeline list, which grows with each session.
+    if (!active.cache_root.empty()) gpu::SetPlayerPipelineFolder(active.cache_root / "pipelines");
+#endif
     paths.config_path = active.config_path;
     paths.log_dir = active.log_dir;
     user_root_source_ = SourceName(active.user_source);

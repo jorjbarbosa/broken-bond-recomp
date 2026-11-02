@@ -66,6 +66,8 @@ REX_HOOK_RAW(sub_827B6A18) {
   gpu::world_key.store(key, std::memory_order_relaxed);
   const uint32_t number = gpu::world_loads.fetch_add(1, std::memory_order_relaxed) + 1;
   const bool active = gpu::Active();
+  // The player's pipeline list takes the pipelines of the area left behind.
+  if (active) gpu::SavePlayerPipelines("world-load");
   const uint64_t swap = gpu::swaps.load(std::memory_order_relaxed);
   const auto began = std::chrono::steady_clock::now();
   const gpu::WorldPrefetch prefetch = active ? gpu::PrefetchWorldPipelines(key) : gpu::WorldPrefetch{};

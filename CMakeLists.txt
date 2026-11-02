@@ -95,6 +95,7 @@ if(BROKENBOND_NATIVE_RENDERER)
          src/gpu/d3d/pass.cpp src/gpu/d3d/draw.cpp src/gpu/d3d/state.cpp src/gpu/d3d/screen_layer.cpp
          src/gpu/d3d/present.cpp src/gpu/d3d/frame.cpp src/gpu/d3d/close.cpp src/gpu/d3d/query.cpp
          src/gpu/shaders/shaders.cpp src/gpu/shaders/package.cpp src/gpu/shaders/pipelines.cpp
+         src/gpu/shaders/player_pipelines.cpp
          src/gpu/textures/textures.cpp src/gpu/textures/write_watch.cpp src/gpu/textures/formats.cpp
          src/gpu/textures/layout.cpp
          src/gpu/buffers/buffers.cpp src/gpu/buffers/vertex_layout.cpp

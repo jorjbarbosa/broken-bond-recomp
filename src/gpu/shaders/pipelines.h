@@ -2,10 +2,18 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <filesystem>
 
 // Precompiled pipelines of the D3D boundary and the record of the
 // pipelines created (shaders/pipelines.cpp).
 namespace gpu {
+// The folder of the player's pipeline list (shaders/player_pipelines.h): the
+// data folder's cache, set once before the first draw. Empty: no list.
+void SetPlayerPipelineFolder(std::filesystem::path folder);
+// Merges the pipelines created so far into the player's list and writes the
+// list when it grew: at the world loads (common/title_loading.h). The stop and
+// the close do the same through RecordPipelines.
+void SavePlayerPipelines(const char* reason);
 // The precompile pool, started at the first draw.
 void StartPipelinePrecompileOnce();
 // The pipelines the list knows for a world (common/title_loading.h), posted to

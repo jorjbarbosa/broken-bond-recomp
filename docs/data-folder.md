@@ -10,6 +10,7 @@ The game keeps everything it writes in one data folder, apart from the program a
 | Translation packages | `mods/` |
 | DLC packages waiting to be installed | `dlc/` |
 | Shader and pipeline caches (Windows and Linux builds) | `cache/` |
+| The pipelines this machine has drawn, compiled ahead at the next start (one list per graphics API) | `cache/pipelines/d3d12.json`, `cache/pipelines/vulkan.json` |
 | Session records and their exports ([Local diagnostics](crash-reports.md)) | `incidents/`, `incident-exports/` |
 | The start marker and the update check's state | `launch.marker`, `menu-updates.json` |
 | The import journal and the lock | `.broken_bond-migration/`, `.broken_bond.lock` |

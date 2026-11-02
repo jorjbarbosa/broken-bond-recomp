@@ -122,6 +122,10 @@ if(BROKENBOND_NATIVE_D3D12)
     add_executable(native_engine_attach_test src/gpu/backend/d3d12/tests/attach_test.cpp)
     target_link_libraries(native_engine_attach_test PRIVATE native_engine_test_units)
 endif()
+# The player's pipeline list and the skip take's small-target rule (CPU only).
+add_executable(native_player_pipelines_test src/gpu/shaders/tests/player_pipelines_test.cpp
+               src/gpu/shaders/player_pipelines.cpp)
+target_link_libraries(native_player_pipelines_test PRIVATE native_engine_test_units broken_bond::json)
 # The constant packets and the pooled storage of captures (CPU only).
 add_executable(native_draw_storage_test src/gpu/common/tests/draw_storage_test.cpp)
 target_include_directories(native_draw_storage_test PRIVATE src)
@@ -148,13 +152,15 @@ endif()
 if(BROKENBOND_NATIVE_D3D12)
     list(APPEND native_tests bindings attach)
 endif()
-set(native_test_targets native_vulkan_transfer_test native_shader_package_test native_draw_storage_test)
+set(native_test_targets native_vulkan_transfer_test native_shader_package_test native_draw_storage_test
+    native_player_pipelines_test)
 foreach(case IN LISTS native_tests)
     list(APPEND native_test_targets native_engine_${case}_test)
 endforeach()
 add_custom_target(broken_bond_native_tests DEPENDS ${native_test_targets})
 foreach(target IN LISTS native_test_targets)
-    if(target STREQUAL "native_shader_package_test" OR target STREQUAL "native_draw_storage_test")
+    if(target STREQUAL "native_shader_package_test" OR target STREQUAL "native_draw_storage_test" OR
+       target STREQUAL "native_player_pipelines_test")
         add_test(NAME ${target} COMMAND ${target})
     else()
         add_test(NAME ${target} COMMAND "${Python3_EXECUTABLE}"
