@@ -348,19 +348,23 @@ extern "C" void __imp__sub_821AE9C0(PPCContext& __restrict, uint8_t*);
 extern "C" void __imp__sub_821AE5D0(PPCContext& __restrict, uint8_t*);
 namespace gpu {
 // The pipeline take of the batched draws (DrawRequest::PipelineTake): the
-// prefetch take by default (the draw never skips); REX_NATIVE_PSO_ASYNC=0
-// turns the asynchronous threads off (the draw waits for or creates its
-// pipeline, nothing posted before the batch); REX_NATIVE_PSO_ASYNC=1 brings
-// back the skip take, with the diagnostics only (the A/B of before).
+// prefetch take (the draw waits for an absent pipeline), or the skip take
+// while the player's skip_pipeline_draws setting is on (the backends keep the
+// prefetch take for small targets, pipeline_set.h TakeForTarget). Read per
+// draw: the setting applies live. REX_NATIVE_PSO_ASYNC=0 forces the
+// synchronous take (no asynchronous threads, nothing posted before the batch);
+// REX_NATIVE_PSO_ASYNC=1 forces the skip take, with the diagnostics only.
 DrawRequest::PipelineTake BatchedPipelineTake() {
-  static const DrawRequest::PipelineTake value = [] {
+  static const int forced = [] {
     const char* text = std::getenv("REX_NATIVE_PSO_ASYNC");
     const std::string_view option = text ? text : "";
-    if (option == "0") return DrawRequest::PipelineTake::kSync;
-    if (option == "1" && Diagnostics()) return DrawRequest::PipelineTake::kSkip;
-    return DrawRequest::PipelineTake::kPrefetch;
+    if (option == "0") return int(DrawRequest::PipelineTake::kSync);
+    if (option == "1" && Diagnostics()) return int(DrawRequest::PipelineTake::kSkip);
+    return -1;
   }();
-  return value;
+  if (forced >= 0) return DrawRequest::PipelineTake(forced);
+  return CurrentSettings().skip_pipeline_draws ? DrawRequest::PipelineTake::kSkip
+                                               : DrawRequest::PipelineTake::kPrefetch;
 }
 
 // The quad of D3DDevice_BeginVertices (TRIANGLEFAN, 4 vertices of 20

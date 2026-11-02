@@ -3214,17 +3214,23 @@ bool Backend::DrawIndexed(const DrawRequest& r, uint64_t& fenceValue, std::strin
     // asynchronous thread is creating is waited for; one still queued is taken
     // back; otherwise the draw creates it. A batched draw found its absent
     // pipeline posted before the batch (PrefetchPipelines). The skip take
-    // (REX_NATIVE_PSO_ASYNC=1, diagnostics) posts a pipeline not ready and
-    // records the draw without itself.
+    // (skip_pipeline_draws) posts a pipeline not ready and records the draw
+    // without itself, except into a small target (TakeForTarget).
     const uint64_t triple = TripleKey(r.vs.key, r.ps.key, layout_id);
-    PipelineSet::Taken take = state_->pipeline_set.Take(key, triple, r.pipeline_take);
+    PipelineSet::Taken take = state_->pipeline_set.Take(
+        key, triple, TakeForTarget(r.pipeline_take, target.desc.width, target.desc.height));
     const char* origin = take.origin;
     pipeline = std::move(take.pipeline);
     skip_draw = take.skip;
     uint32_t create_us = 0;
     if (take.post) {
+      // At normal priority: the draw is missing until the pipeline is ready.
       state_->pipeline_set.Post(key, PipelineDesc{r.vs, r.ps, r.elements, layout_id, state_words},
-          false, true);
+          false, false);
+      // Listed now: a skipped draw that does not come back still names its
+      // pipeline (PipelineList keeps the first record of a key).
+      state_->pipeline_records.push_back({key, layout_id, r.vs.key, r.ps.key, r.elements, state_words, "posted", 0,
+                                          WorldKey()});
     }
     if (!skip_draw && !origin) {
       const auto started = std::chrono::steady_clock::now();
@@ -3706,7 +3712,9 @@ bool Backend::DrawIndexed(const DrawRequest& r, uint64_t& fenceValue, std::strin
 
 std::string Backend::PipelineList() {
   std::string out;
+  std::unordered_set<uint64_t> listed;  // A skipped draw's pipeline has its posted record and, once drawn, another.
   for (const auto& p : state_->pipeline_records) {
+    if (!listed.insert(p.key).second) continue;
     std::string elements;
     if (p.elements)
       for (const auto& e : *p.elements)
@@ -3723,9 +3731,11 @@ std::string Backend::PipelineList() {
 
 std::vector<PipelineDesc> Backend::PipelineDescs() {
   std::vector<PipelineDesc> out;
+  std::unordered_set<uint64_t> listed;
   for (const auto& p : state_->pipeline_records)
-    out.push_back({ShaderRef{p.vs, ShaderStage::kVertex}, ShaderRef{p.ps, ShaderStage::kPixel}, p.elements,
-                   p.layout_id, p.state});
+    if (listed.insert(p.key).second)
+      out.push_back({ShaderRef{p.vs, ShaderStage::kVertex}, ShaderRef{p.ps, ShaderStage::kPixel}, p.elements,
+                     p.layout_id, p.state});
   return out;
 }
 

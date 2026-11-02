@@ -11,9 +11,12 @@
 // the draw takes its pipeline ready, waits for the thread creating it, or
 // creates it itself. The asynchronous threads run at normal priority, and above
 // it while the title shows its loading screen (common/title_loading.h).
-// The skip take (REX_NATIVE_PSO_ASYNC=1, diagnostics) is the policy before
-// 2026-10-17, kept for A/B: the draw of a pipeline not ready is recorded
-// without itself, and the threads run at the lowest priority.
+// The skip take is the policy before 2026-10-17, now the player's option
+// (skip_pipeline_draws, gpu/settings.h; REX_NATIVE_PSO_ASYNC=1 forces it in a
+// diagnostics build): the draw of a pipeline not ready is recorded without
+// itself while the threads create it, at normal priority so the draw is
+// missing for as few frames as possible. Draws into small targets keep the
+// prefetch take (TakeForTarget).
 #pragma once
 
 #include "gpu/common/platform.h"
@@ -47,6 +50,17 @@ void JoinPipelineThread(rex::thread::Thread& thread);
 // together they leave two hardware threads to the title, the owner and the
 // translator.
 unsigned PipelineThreadsPerPool();
+
+// The skip take holds for draws into targets of at least kSkipTargetWidth by
+// kSkipTargetHeight. A smaller target (a color ramp, a lookup table) may be
+// drawn once and read for the rest of the session: on 2026-10-17 a skipped
+// draw into the title's 128x1 ramp left its colors wrong. Such draws keep the
+// prefetch take (they wait for their pipeline).
+inline constexpr uint32_t kSkipTargetWidth = 640, kSkipTargetHeight = 360;
+constexpr DrawRequest::PipelineTake TakeForTarget(DrawRequest::PipelineTake take, uint32_t width, uint32_t height) {
+  return take == DrawRequest::PipelineTake::kSkip && (width < kSkipTargetWidth || height < kSkipTargetHeight)
+      ? DrawRequest::PipelineTake::kPrefetch : take;
+}
 
 class PipelineSet {
  public:
