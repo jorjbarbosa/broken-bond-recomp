@@ -26,14 +26,14 @@ A PC recompilation of **Naruto: The Broken Bond**, released by Ubisoft for Xbox 
 
 The game draws with a native renderer on **Direct3D 12** or **Vulkan**, starts on its own setup screen, and keeps its settings in in-game menus; there is no separate launcher. The native renderer, the setup screen and the menus are adapted from the [Naruto: Rise of a Ninja recomp](https://github.com/jorjbarbosa/naruto-rise-recomp).
 
-The build and run workflow targets **Windows x64**. The game also builds on **Linux x86-64** with Vulkan ([Linux build](docs/build-and-run.md#linux)) and packages as an AppImage ([packaging](packaging/README.md#build-the-linux-appimage)); the Linux build is not validated on a desktop yet and has no release.
+Releases ship a portable ZIP for **Windows x64** and an AppImage for **Linux x86-64**, which runs on Vulkan. Both also build from source; see the [build guide](docs/build-and-run.md) and the [Linux build](docs/build-and-run.md#linux).
 
 > [!NOTE]
 > AI tools are used to assist the development of this project. The project's direction, technical decisions, and testing are the maintainer's, who reviews every change before it is published.
 
 ## Current state
 
-The port has been played on Windows 11 with an AMD Radeon RX 9070 XT and a DualSense controller: the menus, the start of Story Mode with its first fights and cutscenes, Fight Mode, and the open world, in sessions of up to about 30 minutes, with English and Japanese voices, at the game's 30 fps and at 60 fps, without missing draws.
+The port has been played on Windows 11 with an AMD Radeon RX 9070 XT and a DualSense controller: the menus, the start of Story Mode with its first fights and cutscenes, Fight Mode, and the open world, in sessions of up to about 30 minutes, with English and Japanese voices, at the game's 30 fps and at 60 fps, without missing draws. Later sessions of up to about three and a half hours ran at 120 fps on Direct3D 12.
 
 The Xbox Live features and most of the story have not been tested yet. Other graphics cards, drivers, and game revisions have not been tested either.
 
@@ -70,7 +70,7 @@ for the frame rate option, validation limits and known issues.
 
 ## Requirements
 
-- Windows x64, or Linux x86-64 for a build from source.
+- Windows x64, or Linux x86-64 with glibc 2.43 or newer for the AppImage.
 - A GPU supporting Direct3D 12 or Vulkan 1.2.
 - Your Xbox 360 copy of the game, as an ISO or extracted files, in the supported revision below. The source tree and the releases do not include game data.
 - The build tools listed in the [build guide](docs/build-and-run.md#1-prerequisites).
@@ -125,7 +125,7 @@ The [build guide](docs/build-and-run.md) explains each step, the native renderer
 Planned work, in no particular order:
 
 - **Broader native renderer validation,** across the whole game and on other graphics cards.
-- **Frame rates above 60,** which `frame_rate` accepts but have not been played yet.
+- **Frame rates above 120,** which `frame_rate` accepts but have not been played yet.
 - **A wider pipeline list,** built from more of the game, so fewer pipelines compile the first time an area appears.
 
 ## Contributing
