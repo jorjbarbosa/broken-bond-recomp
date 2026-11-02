@@ -19,6 +19,11 @@
 </p>
 
 <p align="center">
+  <a href="https://github.com/jorjbarbosa/broken-bond-recomp/releases/latest"><img src="https://img.shields.io/github/v/release/jorjbarbosa/broken-bond-recomp?label=release" alt="Latest release"></a>
+  <a href="https://github.com/jorjbarbosa/broken-bond-recomp/releases"><img src="https://img.shields.io/github/downloads/jorjbarbosa/broken-bond-recomp/total" alt="Downloads"></a>
+  <a href="https://github.com/jorjbarbosa/broken-bond-recomp/stargazers"><img src="https://img.shields.io/github/stars/jorjbarbosa/broken-bond-recomp" alt="Stars"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/jorjbarbosa/broken-bond-recomp" alt="License"></a>
+  <img src="https://img.shields.io/badge/platform-Windows%20%7C%20Linux-blue" alt="Platforms">
   <a href="https://buymeacoffee.com/jorjbarbosa"><img src="https://img.shields.io/badge/Buy%20Me%20a%20Coffee-support-FFDD00?logo=buymeacoffee&logoColor=black" alt="Buy Me a Coffee"></a>
 </p>
 
