@@ -10,9 +10,10 @@ namespace gpu {
 // The folder of the player's pipeline list (shaders/player_pipelines.h): the
 // data folder's cache, set once before the first draw. Empty: no list.
 void SetPlayerPipelineFolder(std::filesystem::path folder);
-// Merges the pipelines created so far into the player's list and writes the
-// list when it grew: at the world loads (common/title_loading.h). The stop and
-// the close do the same through RecordPipelines.
+// Merges the pipelines created since the last save into the player's list and
+// writes the list when it grew, on a thread of its own: at the world loads
+// under the loading screen (common/title_loading.h). The stop and the close
+// merge the whole list through RecordPipelines.
 void SavePlayerPipelines(const char* reason);
 // The precompile pool, started at the first draw.
 void StartPipelinePrecompileOnce();

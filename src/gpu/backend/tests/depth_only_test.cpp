@@ -144,6 +144,14 @@ int main(int argc, char** argv) {
     const size_t created = count("\"origin\":\"created\""), taken = count("\"origin\":\"precompiled\"");
     line("pipeline-list-origins", created == 2 && taken == 1,
          "{\"created\":" + std::to_string(created) + ",\"precompiled\":" + std::to_string(taken) + "}");
+    // In steps: from the start the same list; from its end nothing, and the
+    // same end; past the end (records cleared) the whole list again.
+    size_t end = 0, again = 0, past = 0;
+    const std::string from_start = engine.PipelineListFrom(0, end);
+    const std::string from_end = engine.PipelineListFrom(end, again);
+    const std::string from_past = engine.PipelineListFrom(end + 5, past);
+    line("pipeline-list-steps", from_start == list && end == 3 && from_end == "[]" && again == end &&
+         from_past == list && past == end, "{\"end\":" + std::to_string(end) + "}");
   }
 
   auto resolve = [&](uint32_t source, uint32_t dest, int32_t sample) {

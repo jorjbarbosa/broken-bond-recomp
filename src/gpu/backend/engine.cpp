@@ -241,6 +241,10 @@ bool Engine::DrawIndexed(const DrawRequest& request, uint64_t& fence, std::strin
   return backend_ ? backend_->DrawIndexed(request, fence, evidence) : NoBackend(evidence);
 }
 std::string Engine::PipelineList() { return backend_ ? backend_->PipelineList() : std::string("[]"); }
+std::string Engine::PipelineListFrom(size_t first, size_t& end) {
+  end = first;
+  return backend_ ? backend_->PipelineListFrom(first, end) : std::string("[]");
+}
 std::vector<PipelineDesc> Engine::PipelineDescs() {
   return backend_ ? backend_->PipelineDescs() : std::vector<PipelineDesc>{};
 }
