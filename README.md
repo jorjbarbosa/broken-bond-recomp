@@ -127,8 +127,9 @@ The [build guide](docs/build-and-run.md) explains each step, the native renderer
 
 ## Roadmap
 
-Planned work, in no particular order:
+Planned work. Performance and stability come first, since everything else depends on them:
 
+- **Performance and stability.**
 - **Broader native renderer validation,** across the whole game and on other graphics cards.
 - **Accessibility options.**
 - **Multiplayer.**
