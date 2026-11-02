@@ -114,6 +114,7 @@ These keys exist only in native renderer builds. Set in the menus, most apply at
 | `brightness` | `0.5` | Output brightness from 0 to 1; `0.5` is the game's own |
 | `max_frame_latency` | `1` | Frames queued ahead of the display, 1 to 3; 1 has the lowest latency. Vulkan always uses 1 |
 | `triple_buffering` | `false` | Three swapchain buffers instead of two |
+| `skip_pipeline_draws` | `false` | While the pipeline of a draw compiles, the draw is left out of its frames instead of the game waiting for it: fewer stutters the first time a place or effect appears, and some objects show up a few frames late. Draws into small render targets always wait |
 | `graphics_device` | `""` | The graphics card, by the selected API's name; empty is automatic. The native log names both the backend and card |
 | `frame_rate` | `30` | Frame rate from 30 to 240. `30` keeps the game's own; above 30 the renderer draws frames between the game's logic steps. See [Renderers](renderers.md#frame-rate) |
 | `aspect_ratio` | `-1` | The image's shape, width over height: `-1` follows the monitor, `0` keeps the game's 16:9, or a ratio such as `1.6` (16:10), `2.3889` (21:9, 3440×1440) or `3.5556` (32:9). The 3D view widens or narrows to fill the screen without stretching; the HUD, menus and videos keep 16:9 proportions in the center. See [Aspect ratio](#aspect-ratio) |

@@ -130,6 +130,7 @@ int main(int argc, char** argv) {
   next.resolution_scale = {2, 2};
   next.vsync = false;
   next.triple_buffering = true;
+  next.skip_pipeline_draws = true;
   next.native_backend = "elsewhere";
   next.graphics_device = "Another adapter";
   next.aspect_ratio = 0;
@@ -146,7 +147,8 @@ int main(int argc, char** argv) {
   SettingsResult result = LastSettingsResult();
   check("applied", result.revision == 1 && result.applied, result.evidence);
   check("published", CurrentSettings().brightness == 0.75f && !CurrentSettings().vsync &&
-        CurrentSettings().triple_buffering && Same(CurrentSettings().resolution_scale, requested.resolution_scale));
+        CurrentSettings().triple_buffering && CurrentSettings().skip_pipeline_draws &&
+        Same(CurrentSettings().resolution_scale, requested.resolution_scale));
   check("recorded", recorded.starts_with("native-live-settings ") &&
         recorded.find("\"revision\":1,\"applied\":true") != std::string::npos, "\"" + recorded.substr(0, 60) + "\"");
   uint32_t w = 0, h = 0;

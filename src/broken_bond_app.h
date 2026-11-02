@@ -636,6 +636,7 @@ class BrokenBondApp : public rex::ReXApp {
       else if (key == "transparency_antialiasing") next.transparency_antialiasing = config.transparency_antialiasing;
       else if (key == "max_frame_latency") next.max_frame_latency = uint32_t(config.max_frame_latency);
       else if (key == "triple_buffering") next.triple_buffering = config.triple_buffering;
+      else if (key == "skip_pipeline_draws") next.skip_pipeline_draws = config.skip_pipeline_draws;
       else if (key == "swap_post_effect") next.swap_post_effect = config.swap_post_effect == "fxaa_extreme"
           ? gpu::SwapPostEffect::kFxaaExtreme : config.swap_post_effect == "fxaa" ? gpu::SwapPostEffect::kFxaa
           : gpu::SwapPostEffect::kNone;

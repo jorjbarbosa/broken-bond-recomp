@@ -94,6 +94,8 @@ inline constexpr const char* kFr[] = {
     "Images en file d'attente avant l'affichage. 1 offre la latence la plus faible ; 2 ou 3 peuvent lisser des temps d'image irréguliers.",  // FrameLatencyDescription
     "Triple tampon",  // TripleBufferingLabel
     "Trois tampons d'affichage au lieu de deux.",  // TripleBufferingDescription
+    "Ignorer les rendus pendant la compilation des shaders",  // SkipPipelineDrawsLabel
+    "Au lieu de figer le jeu pendant la préparation d'un nouveau shader, l'objet est dessiné quelques images plus tard. Moins de saccades la première fois qu'un lieu ou un effet apparaît ; certains objets peuvent apparaître en retard.",  // SkipPipelineDrawsDescription
     "Synchronise l'affichage avec l'écran. Avec le moteur de rendu natif, la vitesse du jeu ne dépend pas de la VSync.",  // VsyncNativeDescription
     "Carte graphique",  // GraphicsDeviceLabel
     "Automatique",  // GraphicsDeviceAuto

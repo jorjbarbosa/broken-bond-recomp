@@ -63,6 +63,7 @@ bool ConfigManager::Load(const std::filesystem::path& toml_path, GameConfig& out
     if (auto v = tbl["max_frame_latency"].value<int>()) config.max_frame_latency = *v;
     if (auto v = tbl["transparency_antialiasing"].value<bool>()) config.transparency_antialiasing = *v;
     if (auto v = tbl["triple_buffering"].value<bool>()) config.triple_buffering = *v;
+    if (auto v = tbl["skip_pipeline_draws"].value<bool>()) config.skip_pipeline_draws = *v;
     if (auto v = tbl["brightness"].value<double>()) if (std::isfinite(*v)) config.brightness = *v;
     if (auto v = tbl["internal_resolution_scale"].value<double>()) if (std::isfinite(*v)) config.internal_resolution_scale = *v;
     if (auto v = tbl["renderer"].value<std::string>()) config.renderer = *v == "native" ? "native" : "xenos";
@@ -162,6 +163,7 @@ bool ConfigManager::Save(const std::filesystem::path& toml_path, const GameConfi
     tbl.insert_or_assign("max_frame_latency", config.max_frame_latency);
     tbl.insert_or_assign("transparency_antialiasing", config.transparency_antialiasing);
     tbl.insert_or_assign("triple_buffering", config.triple_buffering);
+    tbl.insert_or_assign("skip_pipeline_draws", config.skip_pipeline_draws);
     tbl.insert_or_assign("brightness", config.brightness);
     tbl.insert_or_assign("internal_resolution_scale", config.internal_resolution_scale);
     tbl.insert_or_assign("aspect_ratio", config.aspect_ratio);

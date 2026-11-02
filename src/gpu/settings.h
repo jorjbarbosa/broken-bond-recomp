@@ -42,6 +42,10 @@ struct Settings {
   // Own option: above 30, the
   // state interpolation (gpu/interpolation/tick.h) at that frame rate.
   uint32_t frame_rate = 30;           // frame_rate: 30 (the game's) to 240
+  // Own option: a batched draw whose pipeline is
+  // not ready is left out of its frame while the pipeline compiles, instead of
+  // the frame waiting for it (DrawRequest::PipelineTake::kSkip). Off by default.
+  bool skip_pipeline_draws = false;   // skip_pipeline_draws
   // Own option: the width over the height of
   // the image; 0 keeps the title's 16:9 (host/aspect.cpp).
   float aspect_ratio = 0.0f;          // aspect_ratio: 0, or 1.25 to 4

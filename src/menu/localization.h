@@ -97,6 +97,8 @@ enum class TextId {
   FrameLatencyDescription,
   TripleBufferingLabel,
   TripleBufferingDescription,
+  SkipPipelineDrawsLabel,
+  SkipPipelineDrawsDescription,
   VsyncNativeDescription,
   // --- Graphics card ---
   GraphicsDeviceLabel,
