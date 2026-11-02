@@ -132,6 +132,9 @@ Planned work, in no particular order:
 - **Broader native renderer validation,** across the whole game and on other graphics cards.
 - **Frame rates above 120,** which `frame_rate` accepts but have not been played yet.
 - **A wider pipeline list,** built from more of the game, so fewer pipelines compile the first time an area appears.
+- **Accessibility options.**
+- **Multiplayer.**
+- **Achievements.**
 
 ## Contributing
 
