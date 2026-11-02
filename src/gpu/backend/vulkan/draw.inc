@@ -316,27 +316,41 @@ bool Backend::DrawIndexed(const DrawRequest& r, uint64_t& fence, std::string& ev
   const uint64_t key = keyed ? prefetched->key : VulkanPipelineKey(r.vs, r.ps, layout_id, state_words);
   auto& pipeline = s.pipelines[key];
   const bool created = !pipeline;
+  bool skip_draw = false;  // The pipeline is being created asynchronously (skip take).
   if (!pipeline) {
     if (keyed && !words()) { s.pipelines.erase(key); return fail("native-draw-topology-uncovered"); }
     // The description is copied only for a pipeline the backend lacks.
     const PipelineDesc desc{r.vs, r.ps, r.elements, layout_id, state_words};
     const uint64_t triple = TripleKey(r.vs.key, r.ps.key, layout_id);
-    // Normal and diagnostic draws both remain visible on Vulkan. Never skip
-    // a draw because a pipeline compilation is pending.
-    auto take = s.pipeline_set.Take(key, triple, r.pipeline_take == DrawRequest::PipelineTake::kSkip ?
-        DrawRequest::PipelineTake::kPrefetch : r.pipeline_take);
-    pipeline = std::move(take.pipeline);
-    s.pipeline_origins[key] = take.origin ? take.origin : "created";
-    if (!pipeline) {
-      const auto begin = std::chrono::steady_clock::now();
-      const auto result = MakeGraphicsPipeline(s.vulkan->vk, s.draw_layout, desc, s.vertex_locations, pipeline);
-      if (!result.ok) { s.pipelines.erase(key); return fail(result.reason, VkResult(result.code)); }
-      const auto micros = uint32_t(std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - begin).count());
-      s.pipeline_create_us[key] = micros;
-      s.pipeline_origins[key] = s.pipeline_set.NoteCreated(take, triple, micros);
+    // The skip take (skip_pipeline_draws) posts a pipeline not ready and
+    // leaves the draw out of its frame: its constants and uploads below are
+    // applied, nothing is bound or drawn. A small target keeps the prefetch
+    // take (TakeForTarget).
+    auto take = s.pipeline_set.Take(key, triple, TakeForTarget(r.pipeline_take, target.desc.width, target.desc.height));
+    skip_draw = take.skip;
+    // At normal priority: the draw is missing until the pipeline is ready.
+    if (take.post) s.pipeline_set.Post(key, desc, false, false);
+    if (skip_draw) {
+      s.pipelines.erase(key);  // `pipeline` is not used below.
+      // Listed now: a skipped draw that does not come back still names its pipeline (PipelineList).
+      if (take.post && s.pipeline_descs.emplace(key, desc).second) {
+        s.pipeline_origins[key] = "posted";
+        s.pipeline_worlds[key] = WorldKey();
+      }
+    } else {
+      pipeline = std::move(take.pipeline);
+      s.pipeline_origins[key] = take.origin ? take.origin : "created";
+      if (!pipeline) {
+        const auto begin = std::chrono::steady_clock::now();
+        const auto result = MakeGraphicsPipeline(s.vulkan->vk, s.draw_layout, desc, s.vertex_locations, pipeline);
+        if (!result.ok) { s.pipelines.erase(key); return fail(result.reason, VkResult(result.code)); }
+        const auto micros = uint32_t(std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - begin).count());
+        s.pipeline_create_us[key] = micros;
+        s.pipeline_origins[key] = s.pipeline_set.NoteCreated(take, triple, micros);
+      }
+      s.pipeline_worlds[key] = WorldKey();
+      s.pipeline_descs.emplace(key, desc);
     }
-    s.pipeline_worlds[key] = WorldKey();
-    s.pipeline_descs.emplace(key, desc);
   }
   if (!ApplyDrawConstants(r.vs_constants, r.vs_constants_delta, s.vs_block) ||
       !ApplyDrawConstants(r.ps_constants, r.ps_constants_delta, s.ps_block)) return fail("native-draw-constants");
@@ -344,6 +358,12 @@ bool Backend::DrawIndexed(const DrawRequest& r, uint64_t& fence, std::string& ev
   // this draw and retaining its resources.
   for (const auto& t : r.textures) if (!t.resolved && !t.data.empty())
     if (!UploadSampled(t, evidence)) return false;
+  if (skip_draw) {  // Left out of its frame (skip take), with its constants and uploads applied.
+    fence = s.batch.sequence;
+    if (r.want_evidence) evidence = fmt::format("{{\"drawn\":false,\"skipped\":true,\"pipeline\":\"{:016x}\"}}", key);
+    else evidence.clear();
+    return true;
+  }
   const char* reason = nullptr; VkResult result = VK_SUCCESS;
   if (!s.OpenBatch(reason, result)) return fail(reason, result);
   s.batch.list->setFramebuffer(nullptr);
