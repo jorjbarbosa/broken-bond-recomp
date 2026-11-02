@@ -49,13 +49,14 @@ Where the step is not well below the frame time, the frames follow the step inst
 ### Limits
 
 - The image trails the logic by one step: up to about 33 ms in the open world and 17 ms in fights.
-- So far, 60 has been played in the open world, in fights, with the pause menu, and across loading screens. Higher rates have not been played yet.
+- So far, 60 has been played in the open world, in fights, with the pause menu, and across loading screens, and 120 in sessions of up to about three and a half hours on Direct3D 12. Higher rates have not been played yet.
 
 ## Pipelines
 
-A pipeline is the combination of shaders, vertex layout, and render states a draw needs. The graphics API compiles it before the draw can run. The native renderer never skips a draw for a missing pipeline: the draw waits for it instead.
+A pipeline is the combination of shaders, vertex layout, and render states a draw needs. The graphics API compiles it before the draw can run. By default the draw waits for a missing pipeline. With **Settings → Advanced → Performance → Skip draws while shaders compile** (`skip_pipeline_draws`), the draw is left out of its frames while the pipeline compiles in the background instead: the game does not pause, and the object or effect shows up a few frames late the first time. Draws into small render targets, such as color ramps, always wait.
 
 - **Startup list.** Builds that carry a list of the pipelines seen in play (`src/gpu/shaders/pipeline_cache.inc`, see [Build and run](build-and-run.md#pipeline-list)) compile it in the background at startup.
+- **This machine's list.** The pipelines your sessions create are kept in the data folder's `cache/pipelines/` (one list per graphics API), saved on loading screens and when the game closes, and compiled at the next start after the startup list.
 - **Ahead of each batch.** The pipelines a batch of draws lacks compile in parallel before its draws run.
 - **When a world loads.** The pipelines the list knows for that world are compiled when the game loads it.
 - **Loading screens.** While the game shows a loading screen, the compilation threads run at the highest priority.
@@ -66,8 +67,8 @@ The graphics driver keeps compiled pipelines in its own cache between sessions, 
 
 | Issue | Details |
 | --- | --- |
-| Short pause when something new appears | A pipeline outside the startup list compiles the first time it appears on a given driver, and the draw waits for it. New areas of the open world can stutter on the first visit; later visits do not |
-| Frame rates above 60 not yet played | `frame_rate` accepts up to 240, but only 60 has been played; see [Frame rate](#frame-rate) |
+| Short pause when something new appears | A pipeline outside the startup list compiles the first time it appears on a given driver, and the draw waits for it. New areas of the open world can stutter on the first visit; later visits do not. **Skip draws while shaders compile** replaces the pause with a short blink of the new object |
+| Frame rates above 120 not yet played | `frame_rate` accepts up to 240, but only 60 and 120 have been played; see [Frame rate](#frame-rate) |
 | Diagnostic mode stops the game | `REX_NATIVE_DIAGNOSTICS=1` stops the game during device creation; leave it unset |
 | No sound | The SDK opens the Windows default playback device at startup; see [Troubleshooting](troubleshooting.md#no-sound) |
 | Sounds missing late in a session | Reported once, before the audio fixes; not seen since, but not checked specifically |
