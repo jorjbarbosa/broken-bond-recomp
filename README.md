@@ -1,4 +1,7 @@
 <p align="center">
+
+<a href="https://recomplauncher.com/game/broken-bond-recomp"><picture><source media="(prefers-color-scheme: dark)" srcset="https://recomplauncher.com/assets/press/launcher/badge-light.svg"><img alt="Get it on RecompLauncher" src="https://recomplauncher.com/assets/press/launcher/badge-dark.svg" height="48"></picture></a>
+
   <img src="docs/assets/naruto-broken-bond-logo.png" alt="Naruto: The Broken Bond" width="600">
 </p>
 
