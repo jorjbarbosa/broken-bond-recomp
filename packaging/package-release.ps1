@@ -113,6 +113,8 @@ $portable = Join-Path $stage $portableName
 New-Item -ItemType Directory -Path $portable -Force | Out-Null
 try {
     foreach ($name in $binaries) { Copy-Item -LiteralPath (Join-Path $buildRoot $name) -Destination $portable }
+    # RecompLauncher reads this file next to broken_bond.exe.
+    Copy-Item -LiteralPath (Join-Path $projectRoot 'recomplauncher.json') -Destination $portable
     # Only the defaults: the settings in use live in the data folder, which an
     # update extracted over the package never reaches.
     New-Item -ItemType Directory -Path (Join-Path $portable 'defaults') | Out-Null
