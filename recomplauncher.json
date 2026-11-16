@@ -1,0 +1,246 @@
+{
+    "$schema": "https://recomplauncher.com/schema/recomplauncher.json",
+    "format": 1,
+    "requires": [
+        "start",
+        "settings.toml",
+        "settings.choices"
+    ],
+    "game": {
+        "kind": "iso_or_folder",
+        "label": "Your Xbox 360 copy of Naruto: The Broken Bond, as an ISO (read in place) or as an extracted folder with default.xex. It must be the supported revision: title ID 55530825, executable version 0.0.0.3.",
+        "check": {
+            "file": "default.xex",
+            "xdvdfs": "default.xex"
+        }
+    },
+    "start": {
+        "program": [
+            "broken_bond.exe"
+        ]
+    },
+    "config": [
+        {
+            "id": "main",
+            "format": "toml",
+            "file": [
+                {
+                    "path": "{install}/data/broken_bond.toml"
+                }
+            ],
+            "game_path": "custom_game_root",
+            "always": {
+                "show_startup_menu": "false"
+            }
+        }
+    ],
+    "folders": {
+        "logs": [
+            {
+                "path": "{install}/data/logs"
+            }
+        ]
+    },
+    "settings": [
+        {
+            "id": "resolution",
+            "label": "Resolution",
+            "help": "What the game draws at. 720p is the original. Higher needs a stronger graphics card.",
+            "choices": [
+                {
+                    "label": "720p (original)",
+                    "set": {
+                        "resolution_scale": "1",
+                        "draw_resolution_scale_x": "1",
+                        "draw_resolution_scale_y": "1"
+                    }
+                },
+                {
+                    "label": "1440p",
+                    "set": {
+                        "resolution_scale": "2",
+                        "draw_resolution_scale_x": "2",
+                        "draw_resolution_scale_y": "2"
+                    }
+                },
+                {
+                    "label": "4K",
+                    "set": {
+                        "resolution_scale": "3",
+                        "draw_resolution_scale_x": "3",
+                        "draw_resolution_scale_y": "3"
+                    }
+                },
+                {
+                    "label": "5K",
+                    "set": {
+                        "resolution_scale": "4",
+                        "draw_resolution_scale_x": "4",
+                        "draw_resolution_scale_y": "4"
+                    }
+                }
+            ],
+            "defaults": {
+                "resolution_scale": "1",
+                "draw_resolution_scale_x": "1",
+                "draw_resolution_scale_y": "1"
+            }
+        },
+        {
+            "id": "fullscreen",
+            "label": "Full screen",
+            "help": "Alt+Enter or F11 switches between fullscreen and a window while playing.",
+            "choices": [
+                {
+                    "label": "Off",
+                    "set": {
+                        "fullscreen": "false"
+                    }
+                },
+                {
+                    "label": "On",
+                    "set": {
+                        "fullscreen": "true"
+                    }
+                }
+            ],
+            "defaults": {
+                "fullscreen": "true"
+            }
+        },
+        {
+            "id": "vsync",
+            "label": "V-Sync",
+            "help": "Stops screen tearing.",
+            "choices": [
+                {
+                    "label": "Off",
+                    "set": {
+                        "vsync": "false"
+                    }
+                },
+                {
+                    "label": "On",
+                    "set": {
+                        "vsync": "true"
+                    }
+                }
+            ],
+            "defaults": {
+                "vsync": "true"
+            }
+        },
+        {
+            "id": "edge_smoothing",
+            "label": "Edge smoothing",
+            "help": "Smooths jagged edges.",
+            "choices": [
+                {
+                    "label": "Off",
+                    "set": {
+                        "swap_post_effect": "\"none\""
+                    }
+                },
+                {
+                    "label": "FXAA",
+                    "set": {
+                        "swap_post_effect": "\"fxaa\""
+                    }
+                },
+                {
+                    "label": "FXAA (strong)",
+                    "set": {
+                        "swap_post_effect": "\"fxaa_extreme\""
+                    }
+                }
+            ],
+            "defaults": {
+                "swap_post_effect": "\"fxaa\""
+            }
+        },
+        {
+            "id": "texture_filtering",
+            "label": "Texture filtering",
+            "help": "Keeps textures sharp at an angle.",
+            "choices": [
+                {
+                    "label": "Original",
+                    "set": {
+                        "anisotropic_override": "-1"
+                    }
+                },
+                {
+                    "label": "4x",
+                    "set": {
+                        "anisotropic_override": "3"
+                    }
+                },
+                {
+                    "label": "8x",
+                    "set": {
+                        "anisotropic_override": "4"
+                    }
+                },
+                {
+                    "label": "16x",
+                    "set": {
+                        "anisotropic_override": "5"
+                    }
+                }
+            ],
+            "defaults": {
+                "anisotropic_override": "5"
+            }
+        },
+        {
+            "id": "picture_filter",
+            "label": "Picture filter",
+            "help": "How the picture is fitted to your screen. Sharpen keeps edges crisp. Upscale (FSR) sharpens most at lower resolutions.",
+            "choices": [
+                {
+                    "label": "Smooth",
+                    "set": {
+                        "present_effect": "\"bilinear\""
+                    }
+                },
+                {
+                    "label": "Sharpen",
+                    "set": {
+                        "present_effect": "\"cas\""
+                    }
+                },
+                {
+                    "label": "Upscale (FSR)",
+                    "set": {
+                        "present_effect": "\"fsr\""
+                    }
+                }
+            ],
+            "defaults": {
+                "present_effect": "\"cas\""
+            }
+        },
+        {
+            "id": "graphics_api",
+            "label": "Graphics API",
+            "help": "Direct3D 12 is the default on Windows. Changing it offers a restart.",
+            "choices": [
+                {
+                    "label": "Direct3D 12",
+                    "set": {
+                        "native_backend": "\"d3d12\""
+                    }
+                },
+                {
+                    "label": "Vulkan",
+                    "set": {
+                        "native_backend": "\"vulkan\""
+                    }
+                }
+            ],
+            "defaults": {
+                "native_backend": "\"d3d12\""
+            }
+        }
+    ]
+}
