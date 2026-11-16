@@ -247,6 +247,7 @@ def build_appdir(appdir, build, version, values):
     shutil.copyfile(ROOT / 'packaging/appimage/AppRun', appdir / 'AppRun')
     (appdir / 'AppRun').chmod(0o755)
     subprocess.run(['sh', '-n', str(appdir / 'AppRun')], check=True)
+    shutil.copyfile(ROOT / 'recomplauncher.json', appdir / 'recomplauncher.json')
     shutil.copyfile(ROOT / 'packaging/appimage/broken_bond.desktop', appdir / 'broken_bond.desktop')
     shutil.copyfile(ROOT / 'ui/broken_bond.png', appdir / 'broken_bond.png')
     (appdir / '.DirIcon').symlink_to('broken_bond.png')
